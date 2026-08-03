@@ -1,0 +1,87 @@
+import { createFileRoute, Link } from '@tanstack/react-router'
+import { Page } from '~/components/layout'
+import { formatMnt } from '~/lib/money'
+import { getOrder } from '~/lib/server/orders/queries'
+
+export const Route = createFileRoute('/orders/$orderNo/success')({
+  loader: ({ params }) => getOrder({ data: { orderNo: params.orderNo } }),
+  component: Success,
+})
+
+function Success() {
+  const order = Route.useLoaderData()
+
+  if (!order) {
+    return (
+      <Page>
+        <div className="wrap">
+          <p className="empty">Захиалга олдсонгүй.</p>
+        </div>
+      </Page>
+    )
+  }
+
+  const address = order.address
+  const paid = order.status !== 'pending_payment' && order.status !== 'expired'
+
+  return (
+    <Page>
+      <div className="wrap">
+        <div className="success">
+          <div className="success__mark" aria-hidden>
+            ✓
+          </div>
+          <h1>{paid ? 'Захиалга баталгаажлаа' : 'Захиалга хүлээгдэж байна'}</h1>
+          <p className="crumbs">Захиалгын дугаар: {order.orderNo}</p>
+        </div>
+
+        <ul className="lines lines--compact">
+          {order.items.map((item) => (
+            <li key={item.sku} className="line line--compact">
+              <span>
+                {item.name} × {item.qty}
+              </span>
+              <strong>{formatMnt(item.unitPrice * item.qty)}</strong>
+            </li>
+          ))}
+        </ul>
+
+        <div className="totals">
+          <div className="totals__row">
+            <span>Дүн</span>
+            <strong>{formatMnt(order.subtotal)}</strong>
+          </div>
+          <div className="totals__row">
+            <span>Хүргэлт</span>
+            <strong>
+              {order.shippingFee === 0 ? 'Үнэгүй' : formatMnt(order.shippingFee)}
+            </strong>
+          </div>
+          <div className="totals__row totals__row--grand">
+            <span>Нийт</span>
+            <strong>{formatMnt(order.total)}</strong>
+          </div>
+        </div>
+
+        <div className="prose">
+          <h2>Хүргэлтийн хаяг</h2>
+          <p>
+            {address.name} · {address.phone}
+            <br />
+            {address.district}, {address.khoroo}
+            <br />
+            {address.line1}
+            {address.line2 ? `, ${address.line2}` : ''}
+          </p>
+          {order.note && <p className="crumbs">Тэмдэглэл: {order.note}</p>}
+        </div>
+
+        <div className="buybar">
+          <Link to="/products" className="btn btn--ghost">
+            Үргэлжлүүлэн худалдан авах
+          </Link>
+        </div>
+      </div>
+    </Page>
+  )
+}

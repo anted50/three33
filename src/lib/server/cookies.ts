@@ -1,63 +1,50 @@
 /**
- * Minimal cookie serialise/parse. Deliberately dependency-free and pure so the
- * session attributes that matter for security (httpOnly, SameSite, Secure) are
- * unit-testable rather than trusted to a framework helper.
+ * Matches the options bag TanStack Start's setCookie accepts. Declared locally
+ * because the package does not export the type.
+ */
+interface CookieOptions {
+  httpOnly?: boolean
+  sameSite?: 'lax' | 'strict' | 'none'
+  path?: string
+  secure?: boolean
+  maxAge?: number
+}
+
+/**
+ * Cookie names and their security attributes, in one place.
+ *
+ * TanStack Start's getCookie/setCookie do the serialising; what matters here is
+ * that nothing sets a cookie with weaker attributes by forgetting an option.
+ * Import these rather than passing options inline.
  */
 
-export interface CookieOptions {
-  maxAge?: number // seconds
-  path?: string
-  httpOnly?: boolean
-  secure?: boolean
-  sameSite?: 'Lax' | 'Strict' | 'None'
+export const SESSION_COOKIE = 'uc_session'
+export const CART_COOKIE = 'uc_cart'
+
+/** 30 days, matching the session row's TTL. */
+export const SESSION_MAX_AGE = 60 * 60 * 24 * 30
+
+/** Guest carts outlive a browsing session but not forever. */
+export const CART_MAX_AGE = 60 * 60 * 24 * 30
+
+/**
+ * SameSite=Lax rather than Strict: QPay sends the customer to a bank app and
+ * back, and Strict would drop the cart cookie on that cross-site return —
+ * the customer would come back from paying to an empty cart.
+ */
+const base: CookieOptions = {
+  httpOnly: true,
+  sameSite: 'lax',
+  path: '/',
+  secure: process.env.NODE_ENV === 'production',
 }
 
-export function serializeCookie(
-  name: string,
-  value: string,
-  options: CookieOptions = {},
-): string {
-  const {
-    maxAge,
-    path = '/',
-    httpOnly = true,
-    secure = process.env.NODE_ENV === 'production',
-    sameSite = 'Lax',
-  } = options
-
-  const parts = [`${name}=${encodeURIComponent(value)}`, `Path=${path}`]
-  if (maxAge !== undefined) {
-    parts.push(`Max-Age=${Math.floor(maxAge)}`)
-    // Belt and braces for older clients that ignore Max-Age.
-    parts.push(`Expires=${new Date(Date.now() + maxAge * 1000).toUTCString()}`)
-  }
-  if (httpOnly) parts.push('HttpOnly')
-  if (secure) parts.push('Secure')
-  parts.push(`SameSite=${sameSite}`)
-
-  return parts.join('; ')
+export const sessionCookieOptions: CookieOptions = {
+  ...base,
+  maxAge: SESSION_MAX_AGE,
 }
 
-export function parseCookies(header: string | null | undefined): Record<string, string> {
-  const out: Record<string, string> = {}
-  if (!header) return out
-
-  for (const pair of header.split(';')) {
-    const eq = pair.indexOf('=')
-    if (eq < 1) continue
-    const name = pair.slice(0, eq).trim()
-    if (!name) continue
-    try {
-      out[name] = decodeURIComponent(pair.slice(eq + 1).trim())
-    } catch {
-      // A malformed cookie is a missing cookie, not a 500.
-    }
-  }
-
-  return out
-}
-
-/** Expire a cookie by setting it empty with Max-Age=0. */
-export function clearCookie(name: string, options: CookieOptions = {}): string {
-  return serializeCookie(name, '', { ...options, maxAge: 0 })
+export const cartCookieOptions: CookieOptions = {
+  ...base,
+  maxAge: CART_MAX_AGE,
 }

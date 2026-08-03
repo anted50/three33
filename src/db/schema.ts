@@ -83,6 +83,35 @@ export const inventoryReason = pgEnum('inventory_reason', [
 // Users, sessions, addresses
 // ---------------------------------------------------------------------------
 
+/**
+ * Shape of orders.shipping_address_snapshot. Typed here rather than cast at
+ * each read: a jsonb column is `unknown` by default, and TanStack Start refuses
+ * to serialise `unknown` across the server-function boundary.
+ */
+export interface ShippingAddress {
+  name: string
+  phone: string
+  email: string | null
+  district: string
+  khoroo: string
+  line1: string
+  line2: string | null
+  zone: 'ub' | 'countryside'
+}
+
+/** Shape of payments.invoice_payload — the QPay invoice as first returned. */
+export interface InvoicePayload {
+  qrText: string
+  qrImage: string
+  shortUrl: string | null
+  links: Array<{
+    name: string
+    description: string
+    logo: string
+    link: string
+  }>
+}
+
 export const users = pgTable(
   'users',
   {
@@ -281,7 +310,9 @@ export const orders = pgTable(
     shippingFee: money('shipping_fee').notNull(),
     total: money('total').notNull(),
     /** Frozen copy — editing the address book must not rewrite past orders. */
-    shippingAddressSnapshot: jsonb('shipping_address_snapshot').notNull(),
+    shippingAddressSnapshot: jsonb('shipping_address_snapshot')
+      .$type<ShippingAddress>()
+      .notNull(),
     contactPhone: text('contact_phone').notNull(),
     note: text('note'),
     createdAt: createdAt(),
@@ -324,6 +355,12 @@ export const payments = pgTable(
     qpayPaymentId: text('qpay_payment_id'),
     amount: money('amount').notNull(),
     status: paymentStatus('status').notNull().default('pending'),
+    /**
+     * The QR text, base64 QR image and bank deeplinks as returned at invoice
+     * creation. Stored so reloading the payment page re-renders instantly
+     * instead of calling QPay again on every refresh.
+     */
+    invoicePayload: jsonb('invoice_payload').$type<InvoicePayload>(),
     rawCallback: jsonb('raw_callback'),
     paidAt: timestamp('paid_at', { withTimezone: true }),
     createdAt: createdAt(),

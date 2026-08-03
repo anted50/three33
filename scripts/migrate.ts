@@ -5,7 +5,12 @@
  * drive PGlite. The migrations themselves are identical either way — this is
  * just the runner.
  */
-import { db, driver } from '~/db'
+import { assertNoDevServer } from '~/lib/server/pglite-guard'
+
+// Before importing ~/db: importing it opens the PGlite directory, which is the
+// very thing the guard is trying to prevent doing twice.
+await assertNoDevServer()
+const { db, driver } = await import('~/db')
 
 async function main() {
   console.log(`migrate: driver=${driver}`)

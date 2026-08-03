@@ -14,7 +14,7 @@
 import { existsSync } from 'node:fs'
 import { eq } from 'drizzle-orm'
 import { tugrikToMungu } from '~/lib/money'
-import { db } from '~/db'
+import { assertNoDevServer } from '~/lib/server/pglite-guard'
 import {
   categories,
   productImages,
@@ -23,6 +23,10 @@ import {
 } from '~/db/schema'
 
 export const PRICES_ARE_PLACEHOLDERS = true
+
+// Before importing ~/db — see scripts/migrate.ts.
+await assertNoDevServer()
+const { db } = await import('~/db')
 
 const CATEGORIES = [
   { slug: 'styling', nameMn: 'Үс засалт', nameEn: 'Styling', sortOrder: 1 },

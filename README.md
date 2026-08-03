@@ -46,11 +46,19 @@ Docker isn't installed on the current dev machine, so `DB_DRIVER=pglite` in
 migrations — `DB_DRIVER=postgres` switches to Compose whenever it's available.
 
 **Stop the dev server before running `db:migrate` or `db:seed`.** PGlite is a
-single-writer embedded database: the dev server holds the directory open, and a
-script that writes to it concurrently will appear to succeed while the running
-app keeps serving the data it already had. If a seed "worked" but the site still
-shows the old catalogue, this is why — restart `npm run dev`. The Compose
-Postgres has no such constraint.
+single-writer embedded database. Two processes on the same directory do not
+fail cleanly — they corrupt it, and the next read aborts inside the WASM runtime
+with a stack trace that says nothing about the cause. That happened here once;
+the fix was `rm -rf .pglite` and re-running migrate + seed.
+
+`src/lib/server/pglite-guard.ts` now makes the scripts refuse to start while
+something is listening on port 3000, so the failure is a clear message instead
+of a corrupted database. It no-ops under `DB_DRIVER=postgres`.
+
+**This is the main argument for getting Docker up.** PGlite was a stopgap so
+work could start without it; the single-writer limit costs a dev-server restart
+on every schema or seed change, and it has already eaten a database once.
+Compose Postgres has none of these problems.
 
 ## Product imagery
 
@@ -88,6 +96,39 @@ gets fixed or the client supplies plain product shots.
 | `npm run db:studio` | Drizzle Studio |
 | `npm run reconcile` | The QPay reconciliation sweep (see below) |
 | `npm run qpay:ping` | Fetch one QPay token to check credentials. Read-only |
+
+## Cart and checkout
+
+Browse → cart → checkout → QPay → success is wired end to end.
+
+- **Guest cart** keyed by an opaque `uc_cart` cookie. `SameSite=Lax`, not
+  `Strict`: QPay sends the customer into a bank app and back, and `Strict`
+  would drop the cookie on that return — they would come back from paying to
+  an empty cart.
+- **Every price is re-read from `product_variants`.** `cart_items.unit_price_snapshot`
+  exists so an admin can see what the customer was shown; it is never what they
+  are charged. A price change while the cart sat there is visible *before*
+  payment, not after.
+- **Stock is not held by an unpaid order.** Decrementing at checkout would take
+  a size off sale for every abandoned cart. Stock moves when payment settles.
+- **`settleOrder` is the only thing that marks an order paid.** The callback
+  route and the reconciliation sweep both call it, which is what makes them safe
+  to race — `payments_qpay_payment_id_key` lets exactly one win.
+
+### The bundling rule this exposed
+
+`src/lib/server/cart/cart.ts` exports **only server functions and types**.
+Helpers live in `cart/internal.ts`, which no route may import.
+
+This is not style. A module that exports anything else stays in the client
+graph, dragging its imports with it — which briefly put `env` (holding the QPay
+password) and the QPay client into the browser bundle. The visible symptom was
+`Buffer is not defined` and a dead Add to cart button; the real problem was
+handing secrets to the client bundler at all. Verify with:
+
+```bash
+npm run build && grep -r "QPAY_PASSWORD" dist/client/
+```
 
 ## Conventions that are load-bearing
 

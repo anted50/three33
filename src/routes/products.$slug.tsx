@@ -1,8 +1,15 @@
 import { useState } from 'react'
-import { createFileRoute, Link, notFound } from '@tanstack/react-router'
+import {
+  createFileRoute,
+  Link,
+  notFound,
+  useNavigate,
+  useRouter,
+} from '@tanstack/react-router'
 import { Page } from '~/components/layout'
 import { StockPill } from '~/components/product-card'
 import { formatMnt } from '~/lib/money'
+import { addToCart } from '~/lib/server/cart/cart'
 import { getProduct } from '~/lib/server/products/queries'
 
 export const Route = createFileRoute('/products/$slug')({
@@ -25,6 +32,10 @@ export const Route = createFileRoute('/products/$slug')({
 
 function ProductDetail() {
   const product = Route.useLoaderData()
+  const router = useRouter()
+  const navigate = useNavigate()
+  const [adding, setAdding] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   // Default to the first variant that is actually buyable, so the buy button
   // isn't disabled on arrival just because the cheapest size sold out.
@@ -136,16 +147,36 @@ function ProductDetail() {
               </button>
             </div>
 
+            {error && <p className="error">{error}</p>}
+
             <div className="buybar">
-              <button type="button" className="btn" disabled>
-                {soldOut ? 'Дууссан' : 'Сагсанд нэмэх'}
+              <button
+                type="button"
+                className="btn"
+                disabled={soldOut || adding}
+                onClick={async () => {
+                  setError(null)
+                  setAdding(true)
+                  try {
+                    await addToCart({ data: { variantId: variant.id, qty } })
+                    // Invalidate so the header badge picks up the new count.
+                    await router.invalidate()
+                    await navigate({ to: '/cart' })
+                  } catch (err) {
+                    setError(
+                      err instanceof Error ? err.message : 'Нэмэхэд алдаа гарлаа',
+                    )
+                    setAdding(false)
+                  }
+                }}
+              >
+                {soldOut
+                  ? 'Дууссан'
+                  : adding
+                    ? 'Нэмж байна…'
+                    : 'Сагсанд нэмэх'}
               </button>
             </div>
-            {!soldOut && (
-              <p className="crumbs">
-                Сагс болон QPay төлбөр дараагийн шатанд холбогдоно.
-              </p>
-            )}
           </div>
 
           {product.description && (

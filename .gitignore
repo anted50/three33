@@ -1,0 +1,21 @@
+node_modules/
+dist/
+.output/
+.nitro/
+.tanstack/
+.vinxi/
+src/routeTree.gen.ts
+
+.env
+.env.*
+!.env.example
+
+*.log
+npm-debug.log*
+.DS_Store
+coverage/
+playwright-report/
+test-results/
+
+# local volumes
+.docker-data/

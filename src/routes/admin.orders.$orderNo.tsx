@@ -14,6 +14,41 @@ export const Route = createFileRoute('/admin/orders/$orderNo')({
  * Mirrors the server-side state machine so the UI only offers legal moves.
  * The server still asserts — this is convenience, not enforcement.
  */
+/**
+ * The fulfilment happy path, as a rail. Terminal states (cancelled, expired,
+ * refunded) are not steps on it — they get a greyed-out rail plus the badge in
+ * the header, rather than being squeezed into a linear progression they left.
+ */
+const TRACK: Array<{ status: OrderStatus; label: string }> = [
+  { status: 'pending_payment', label: 'Төлбөр' },
+  { status: 'paid', label: 'Төлөгдсөн' },
+  { status: 'processing', label: 'Бэлтгэж буй' },
+  { status: 'shipped', label: 'Илгээсэн' },
+  { status: 'delivered', label: 'Хүргэгдсэн' },
+]
+
+function Track({ status }: { status: OrderStatus }) {
+  const dead =
+    status === 'cancelled' || status === 'expired' || status === 'refunded'
+  const reached = TRACK.findIndex((step) => step.status === status)
+
+  return (
+    <div className="track">
+      {TRACK.map((step, index) => (
+        <div
+          key={step.status}
+          className="track__step"
+          data-done={!dead && index <= reached}
+          data-dead={dead}
+        >
+          <div className="track__bar" />
+          {step.label}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 const NEXT: Partial<Record<OrderStatus, OrderStatus[]>> = {
   paid: ['processing', 'cancelled', 'refunded'],
   processing: ['shipped', 'cancelled', 'refunded'],
@@ -27,6 +62,7 @@ function OrderDetail() {
   const router = useRouter()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
 
   if (!order) {
     return (
@@ -69,6 +105,11 @@ function OrderDetail() {
       </header>
 
       {error && <p className="error">{error}</p>}
+
+      <section className="adm__card adm__pad">
+        <p className="adm__statlabel">Явц</p>
+        <Track status={order.status} />
+      </section>
 
       {moves.length > 0 && (
         <section className="adm__card adm__pad">
@@ -132,23 +173,96 @@ function OrderDetail() {
 
         <section className="adm__card adm__pad">
           <p className="adm__statlabel">Хүргэлт</p>
-          <p>
-            {order.address.name}
-            <br />
-            {order.address.phone}
-            <br />
-            {order.address.district}, {order.address.khoroo}
-            <br />
-            {order.address.line1}
-            {order.address.line2 ? `, ${order.address.line2}` : ''}
-          </p>
-          {order.note && (
-            <p className="adm__muted" style={{ marginTop: 12 }}>
-              Тэмдэглэл: {order.note}
-            </p>
-          )}
 
-          <p className="adm__statlabel" style={{ marginTop: 20 }}>
+          <dl className="ship">
+            <div className="ship__row">
+              <dt>Хүлээн авагч</dt>
+              <dd>{order.address.name}</dd>
+            </div>
+            <div className="ship__row">
+              <dt>Утас</dt>
+              <dd>
+                <a href={`tel:+976${order.address.phone}`} className="ship__tel">
+                  {order.address.phone}
+                </a>
+              </dd>
+            </div>
+            <div className="ship__row">
+              <dt>Дүүрэг</dt>
+              <dd>
+                {order.address.district}
+                <span className="ship__zone">
+                  {order.address.zone === 'ub' ? 'Улаанбаатар' : 'Орон нутаг'}
+                </span>
+              </dd>
+            </div>
+            <div className="ship__row">
+              <dt>Хороо</dt>
+              <dd>{order.address.khoroo}</dd>
+            </div>
+            <div className="ship__row">
+              <dt>Хаяг</dt>
+              <dd>
+                {order.address.line1}
+                {order.address.line2 ? (
+                  <>
+                    <br />
+                    {order.address.line2}
+                  </>
+                ) : null}
+              </dd>
+            </div>
+            <div className="ship__row">
+              <dt>Хүргэлт</dt>
+              <dd className="adm__num">
+                {order.shippingFee === 0
+                  ? 'Үнэгүй'
+                  : formatMnt(order.shippingFee)}
+              </dd>
+            </div>
+            {order.address.email && (
+              <div className="ship__row">
+                <dt>И-мэйл</dt>
+                <dd>{order.address.email}</dd>
+              </div>
+            )}
+            {order.note && (
+              <div className="ship__row">
+                <dt>Тэмдэглэл</dt>
+                <dd>{order.note}</dd>
+              </div>
+            )}
+          </dl>
+
+          {/*
+            One click to get the whole address into a courier's app or an SMS.
+            Retyping a Mongolian address by hand is where parcels go wrong.
+          */}
+          <button
+            type="button"
+            className="ship__copy"
+            style={{ marginTop: 12 }}
+            onClick={() => {
+              void navigator.clipboard?.writeText(
+                [
+                  order.address.name,
+                  order.address.phone,
+                  `${order.address.district}, ${order.address.khoroo}`,
+                  order.address.line1,
+                  order.address.line2,
+                  order.orderNo,
+                ]
+                  .filter(Boolean)
+                  .join('\n'),
+              )
+              setCopied(true)
+              setTimeout(() => setCopied(false), 1600)
+            }}
+          >
+            {copied ? '✓ Хуулсан' : 'Хаяг хуулах'}
+          </button>
+
+          <p className="adm__statlabel" style={{ marginTop: 24 }}>
             Төлбөр
           </p>
           {order.payment ? (

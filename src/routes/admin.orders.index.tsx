@@ -64,6 +64,7 @@ function Orders() {
                 <th>Огноо</th>
                 <th>Хэрэглэгч</th>
                 <th>Утас</th>
+                <th>Хүргэлт</th>
                 <th>Ширхэг</th>
                 <th>Дүн</th>
                 <th>Төлөв</th>
@@ -84,9 +85,16 @@ function Orders() {
                     {new Date(order.createdAt).toLocaleDateString('mn-MN')}
                   </td>
                   <td>{order.address?.name ?? '—'}</td>
-                  <td className="adm__muted">{order.phone}</td>
-                  <td>{order.items}</td>
-                  <td>{formatMnt(order.total)}</td>
+                  <td className="adm__muted adm__num">{order.phone}</td>
+                  {/* Zone first: it decides who delivers and how fast. */}
+                  <td className="adm__muted">
+                    {order.address?.district ?? '—'}
+                    {order.address?.zone === 'countryside' && (
+                      <span className="ship__zone">Орон нутаг</span>
+                    )}
+                  </td>
+                  <td className="adm__num">{order.items}</td>
+                  <td className="adm__num">{formatMnt(order.total)}</td>
                   <td>
                     <StatusBadge status={order.status} />
                   </td>

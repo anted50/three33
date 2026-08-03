@@ -1,17 +1,28 @@
 /*
- * Admin shell. Loaded only on /admin, so none of this ships to the storefront.
+ * Admin shell, following the Figma frame: fixed white sidebar with icon nav,
+ * grey canvas, white cards, breadcrumb bar with a sign-out control top right.
  *
- * Desktop-first here, unlike the storefront: this is used at a desk with a
- * keyboard. It still collapses to a single column, because a barber checking
- * whether an order came in will do it on a phone.
+ * Loaded only on /admin, so none of it ships to the storefront.
+ *
+ * Desktop-first here, unlike the storefront — this is used at a desk. It still
+ * collapses to a single column, because a barber checking whether an order came
+ * in will do that on a phone.
+ *
+ * Type: the sidebar brand and the big stat figures are Cormorant Garamond;
+ * tables, labels and controls stay on the UI sans. A high-contrast serif at
+ * 13px in a table of numbers is not readable, and this screen is mostly
+ * tables of numbers.
  */
 
 .adm {
   display: grid;
   grid-template-columns: 1fr;
   min-height: 100vh;
-  background: #f7f7f8;
+  background: #f5f5f6;
+  color: var(--ink);
 }
+
+/* --------------------------------------------------------------- sidebar */
 
 .adm__side {
   background: #fff;
@@ -24,16 +35,15 @@
 }
 
 .adm__logo {
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  font-size: 14px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 21px;
+  letter-spacing: 0.01em;
   white-space: nowrap;
 }
 
 .adm__logo span {
-  color: var(--muted);
-  font-weight: 500;
+  color: var(--accent);
 }
 
 .adm__nav {
@@ -48,17 +58,35 @@
 }
 
 .adm__nav a {
-  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
   border-radius: var(--radius);
   font-size: 14px;
   white-space: nowrap;
   color: var(--ink-soft);
 }
 
+.adm__nav a svg {
+  flex: 0 0 18px;
+  color: var(--muted);
+}
+
+.adm__nav a:hover {
+  background: #fafafa;
+}
+
+/* Active row: grey fill and a red rule, per the frame's selected state. */
 .adm__nav a[data-active='true'] {
-  background: var(--surface);
+  background: #f4f4f5;
   color: var(--ink);
   font-weight: 600;
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.adm__nav a[data-active='true'] svg {
+  color: var(--accent);
 }
 
 .adm__back {
@@ -67,28 +95,89 @@
   margin-left: auto;
 }
 
+.adm__back:hover {
+  color: var(--accent);
+}
+
+/* --------------------------------------------------------------- topbar */
+
+.adm__body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.adm__topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  background: #f5f5f6;
+}
+
+.adm__crumbs {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.adm__crumbs strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.adm__crumbs a:hover {
+  color: var(--accent);
+}
+
+.adm__signout {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: var(--radius);
+}
+
+.adm__signout:hover {
+  color: var(--accent);
+  background: #fff;
+}
+
 .adm__main {
   padding: 20px 16px 60px;
   min-width: 0;
+  flex: 1;
 }
 
 @media (min-width: 900px) {
   .adm {
-    grid-template-columns: 232px 1fr;
+    grid-template-columns: 236px 1fr;
   }
 
   .adm__side {
     flex-direction: column;
     align-items: stretch;
-    gap: 24px;
+    gap: 28px;
     border-bottom: 0;
     border-right: 1px solid var(--border);
-    padding: 24px 16px;
+    padding: 26px 14px;
+    position: sticky;
+    top: 0;
+    height: 100vh;
   }
 
   .adm__nav {
     flex-direction: column;
     overflow: visible;
+    gap: 2px;
   }
 
   .adm__back {
@@ -96,10 +185,16 @@
     margin-top: auto;
   }
 
+  .adm__topbar {
+    padding: 18px 32px;
+  }
+
   .adm__main {
-    padding: 28px 32px 80px;
+    padding: 26px 32px 80px;
   }
 }
+
+/* --------------------------------------------------------------- cards */
 
 .adm__head {
   display: flex;
@@ -111,7 +206,7 @@
 }
 
 .adm__head h1 {
-  font-size: 22px;
+  font-size: 27px;
 }
 
 .adm__card {
@@ -127,12 +222,12 @@
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
-  padding: 16px;
+  padding: 16px 18px;
   border-bottom: 1px solid var(--border);
 }
 
 .adm__cardhead h2 {
-  font-size: 15px;
+  font-size: 17px;
 }
 
 .adm__cardhead a {
@@ -140,15 +235,19 @@
   color: var(--muted);
 }
 
+.adm__cardhead a:hover {
+  color: var(--accent);
+}
+
 .adm__pad {
-  padding: 16px;
+  padding: 18px;
 }
 
 .adm__stats {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 12px;
-  margin-bottom: 8px;
+  gap: 14px;
+  margin-bottom: 14px;
 }
 
 @media (min-width: 700px) {
@@ -158,21 +257,29 @@
 }
 
 .adm__stat {
-  padding: 18px;
+  padding: 20px;
+  margin-bottom: 0;
 }
 
 .adm__statlabel {
   font-size: 11px;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.09em;
   text-transform: uppercase;
   color: var(--muted);
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 
 .adm__statvalue {
-  font-size: 26px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  font-family: var(--font-display);
+  font-size: 38px;
+  line-height: 1;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 6px;
+}
+
+.adm__statvalue[data-accent='true'] {
+  color: var(--accent);
 }
 
 .adm__cols {
@@ -196,6 +303,7 @@
 .adm__mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
+  word-break: break-all;
 }
 
 .adm__hint {
@@ -203,7 +311,8 @@
   margin-top: 2px;
 }
 
-/* Tables scroll inside their card rather than widening the page. */
+/* --------------------------------------------------------------- tables */
+
 .adm__table {
   width: 100%;
   border-collapse: collapse;
@@ -223,18 +332,23 @@
 .adm__table th {
   text-align: left;
   font-size: 11px;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
   color: var(--muted);
   font-weight: 500;
-  padding: 10px 16px;
+  padding: 11px 18px;
   border-bottom: 1px solid var(--border);
+  background: #fcfcfc;
 }
 
 .adm__table td {
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border);
-  vertical-align: top;
+  padding: 13px 18px;
+  border-bottom: 1px solid #f0f0f1;
+  vertical-align: middle;
+}
+
+.adm__table tbody tr:hover {
+  background: #fafafa;
 }
 
 .adm__table tr:last-child td {
@@ -242,16 +356,29 @@
 }
 
 .adm__table a {
-  font-weight: 500;
-  text-decoration: underline;
-  text-underline-offset: 2px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.adm__table a:hover {
+  color: var(--accent);
+}
+
+.adm__num {
+  font-variant-numeric: tabular-nums;
 }
 
 .adm__table--form input[type='text'],
 .adm__table--form input:not([type]) {
   padding: 8px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius);
+  font-variant-numeric: tabular-nums;
+}
+
+.adm__table--form input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
 }
 
 .adm__actions {
@@ -268,11 +395,15 @@
   font-size: 13px;
 }
 
+/* --------------------------------------------------------------- badges */
+
 .badge2 {
   display: inline-block;
   font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
   padding: 4px 9px;
-  border-radius: 999px;
+  border-radius: var(--radius);
   border: 1px solid var(--border);
   white-space: nowrap;
 }
@@ -284,9 +415,9 @@
 }
 
 .badge2[data-tone='ok'] {
-  background: #eff6ff;
-  border-color: #bfdbfe;
-  color: #1e40af;
+  background: var(--accent-tint);
+  border-color: #f6c6c8;
+  color: var(--accent-dark);
 }
 
 .badge2[data-tone='done'] {
@@ -306,6 +437,106 @@
   color: #991b1b;
 }
 
+/* --------------------------------------------------------- shipping panel */
+
+/*
+ * The address is what actually gets a parcel to a door in Ulaanbaatar, where
+ * there are no street numbers in the western sense — district, khoroo and the
+ * building/entrance line all matter, so each is labelled rather than run
+ * together into one blob.
+ */
+.ship {
+  display: grid;
+  gap: 0;
+}
+
+.ship__row {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid #f0f0f1;
+  font-size: 14px;
+}
+
+.ship__row:last-child {
+  border-bottom: 0;
+}
+
+.ship__row dt {
+  color: var(--muted);
+  font-size: 12px;
+  padding-top: 2px;
+}
+
+.ship__row dd {
+  margin: 0;
+}
+
+.ship__zone {
+  display: inline-block;
+  font-size: 11px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--muted);
+  margin-left: 8px;
+}
+
+.ship__copy {
+  border: 1px solid var(--border);
+  background: #fff;
+  border-radius: var(--radius);
+  padding: 6px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--ink-soft);
+}
+
+.ship__copy:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.ship__tel {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Progress rail through the fulfilment states. */
+.track {
+  display: flex;
+  gap: 6px;
+  padding: 4px 0 14px;
+}
+
+.track__step {
+  flex: 1;
+  text-align: center;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.track__bar {
+  height: 3px;
+  background: var(--border);
+  border-radius: 999px;
+  margin-bottom: 7px;
+}
+
+.track__step[data-done='true'] .track__bar {
+  background: var(--accent);
+}
+
+.track__step[data-done='true'] {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.track__step[data-dead='true'] .track__bar {
+  background: #d4d4d8;
+}
+
 /* --------------------------------------------------------------- unlock */
 
 .adm__unlock {
@@ -313,23 +544,23 @@
   display: grid;
   place-items: center;
   padding: 24px;
-  background: #f7f7f8;
+  background: #f5f5f6;
 }
 
 .adm__unlockcard {
   width: 100%;
   max-width: 380px;
-  padding: 28px;
+  padding: 30px;
   margin: 0;
 }
 
 .adm__unlockcard h1 {
-  font-size: 19px;
+  font-size: 24px;
   margin-bottom: 6px;
 }
 
 .adm__unlockcard .adm__muted {
-  margin-bottom: 20px;
+  margin-bottom: 22px;
 }
 
 .adm__unlockcard .field input {

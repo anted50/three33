@@ -9,19 +9,42 @@
  */
 
 :root {
-  --ink: #0f172a;
-  --ink-soft: #334155;
+  /*
+   * Two families on purpose.
+   *
+   * Cormorant Garamond is a high-contrast display serif — beautiful for the
+   * brand, headings and product names, and it carries full Cyrillic coverage
+   * (including cyrillic-ext), so the Mongolian UI is safe.
+   *
+   * It is *not* safe for dense UI: at 12–14px its thin strokes disappear, and
+   * admin tables full of numbers get noticeably harder to scan. So chrome,
+   * forms, tables and figures stay on a sans. Set --font-ui to var(--font-display)
+   * to put Cormorant everywhere.
+   */
+  --font-display: 'Cormorant Garamond', 'Times New Roman', Georgia, serif;
+  --font-ui:
+    'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+
+  --ink: #121212;
+  --ink-soft: #3f3f46;
   --muted: #71717a;
   --bg: #ffffff;
   --surface: #f4f4f5;
   --surface-2: #fafafa;
   --border: #e4e4e7;
-  --accent: #0f172a;
+
+  /* Uppercut's own red. Accent, not decoration: actions and live state. */
+  --accent: #d81f26;
+  --accent-dark: #b3161c;
+  --accent-tint: #fdf2f2;
+
   --danger: #b91c1c;
   --ok: #15803d;
 
-  --radius: 8px;
-  --radius-lg: 12px;
+  /* Sharper. A near-square corner reads as barbershop, not SaaS. */
+  --radius: 2px;
+  --radius-lg: 3px;
 
   --gutter: 16px;
   --max-width: 1200px;
@@ -47,9 +70,7 @@ html {
 body {
   background: var(--bg);
   color: var(--ink);
-  font-family:
-    'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
-    'Helvetica Neue', Arial, sans-serif;
+  font-family: var(--font-ui);
   font-size: 15px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
@@ -80,8 +101,10 @@ a {
 h1,
 h2,
 h3 {
-  line-height: 1.2;
-  letter-spacing: -0.02em;
+  font-family: var(--font-display);
+  line-height: 1.15;
+  /* Garamond is already generously spaced; negative tracking muddies it. */
+  letter-spacing: 0;
   font-weight: 600;
 }
 
@@ -123,16 +146,16 @@ h3 {
 }
 
 .logo {
-  font-weight: 800;
-  font-size: 17px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 22px;
+  letter-spacing: 0.02em;
   white-space: nowrap;
 }
 
 .logo span {
-  color: var(--muted);
-  font-weight: 500;
+  color: var(--accent);
+  font-weight: 600;
 }
 
 .header__nav {
@@ -253,9 +276,9 @@ h3 {
 }
 
 .chip[data-active='true'] {
-  background: var(--ink);
+  background: var(--accent);
   color: #fff;
-  border-color: var(--ink);
+  border-color: var(--accent);
 }
 
 /* --------------------------------------------------------------- grid */
@@ -302,8 +325,10 @@ h3 {
 }
 
 .card__name {
-  font-size: 14px;
-  font-weight: 500;
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.2;
   margin-bottom: 6px;
 }
 
@@ -317,6 +342,7 @@ h3 {
 .card__price {
   font-size: 14px;
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 .pill {
@@ -380,8 +406,10 @@ h3 {
 }
 
 .pdp__price {
-  font-size: 24px;
+  font-family: var(--font-display);
+  font-size: 32px;
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
   margin: 14px 0;
 }
 
@@ -420,8 +448,9 @@ h3 {
 }
 
 .size[data-active='true'] {
-  border-color: var(--ink);
-  box-shadow: inset 0 0 0 1px var(--ink);
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+  color: var(--accent);
   font-weight: 600;
 }
 
@@ -468,12 +497,18 @@ h3 {
   padding: 0 20px;
   border: 0;
   border-radius: var(--radius);
-  background: var(--ink);
+  background: var(--accent);
   color: #fff;
   font-size: 15px;
-  font-weight: 500;
+  font-weight: 600;
+  letter-spacing: 0.02em;
   cursor: pointer;
   width: 100%;
+  transition: background 0.15s ease;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--accent-dark);
 }
 
 .btn:disabled {
@@ -690,8 +725,15 @@ h3 {
 .field input:focus-visible,
 .field select:focus-visible,
 .field textarea:focus-visible {
-  outline: 2px solid var(--ink);
+  outline: 2px solid var(--accent);
   outline-offset: -1px;
+}
+
+/* Keyboard focus stays visible everywhere, in the accent. */
+a:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .field small {
@@ -834,18 +876,34 @@ h3 {
 /* --------------------------------------------------------------- footer */
 
 .footer {
-  border-top: 1px solid var(--border);
-  background: var(--surface-2);
-  padding: 28px 0 calc(28px + var(--safe-bottom));
+  background: #0a0a0a;
+  padding: 40px 0 calc(40px + var(--safe-bottom));
   font-size: 13px;
-  color: var(--muted);
+  color: #a1a1aa;
+  margin-top: 48px;
+}
+
+.footer p {
+  max-width: 46ch;
 }
 
 .footer__links {
   display: flex;
-  gap: 18px;
+  gap: 20px;
   flex-wrap: wrap;
-  margin-bottom: 14px;
+  margin-bottom: 20px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid #262626;
+}
+
+.footer__links a {
+  color: #fff;
+  font-family: var(--font-display);
+  font-size: 17px;
+}
+
+.footer__links a:hover {
+  color: var(--accent);
 }
 
 .empty {

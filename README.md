@@ -120,6 +120,36 @@ Two things learned from the vendor spec that the code depends on:
 - **Do not fetch a token per request.** QPay's integration notes call this out
   explicitly. `QpayClient` caches the token and single-flights refreshes.
 
+### Testing QPay without spending money
+
+**Creating an invoice moves no money.** It mints a QR and a set of bank
+deeplinks; you are charged only if someone scans and pays. So invoice creation
+and `payment/check` polling are free to exercise against production.
+
+**You also don't need a public callback URL to test settlement.** The callback
+is only a hint that it's worth asking; settlement always comes from
+`payment/check`, which we call ourselves. That's the same path the
+reconciliation sweep uses, so localhost covers everything except testing the
+callback route itself (for that, tunnel with `cloudflared tunnel --url
+http://localhost:3000` and point `APP_URL` at the tunnel).
+
+```bash
+npm run qpay:smoke create 10
+```
+
+Creates a 10₮ invoice through the real `QpayProvider`, prints the short URL,
+QR and deeplinks, then tells you how to watch or cancel it. Test invoices are
+prefixed `TEST-<timestamp>` so they can never collide with a real `order_no` —
+which matters, because `sender_invoice_no` is burnt permanently.
+
+```bash
+npm run qpay:smoke watch  <invoiceId> 10   # polls until it settles
+npm run qpay:smoke cancel <invoiceId>      # throw it away unpaid
+```
+
+Verified on 3 Aug 2026: invoice created, 22 bank deeplinks returned,
+`payment/check` correctly reported `unpaid`, invoice cancelled cleanly.
+
 Open items with the client, both blocking parts of checkout:
 
 1. **E-barimt.** QPay issues the receipt for us via `POST /v2/ebarimt/create`

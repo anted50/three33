@@ -39,7 +39,12 @@
   --radius: 2px;
   --radius-lg: 3px;
 
-  --gutter: 16px;
+  /*
+   * Minimum horizontal padding anywhere content meets an edge. Layout
+   * containers, cards and table cells all key off this or match it, so
+   * nothing sits closer than 24px to the side of a card or the screen.
+   */
+  --gutter: 24px;
   --max-width: 1200px;
 
   /* Sticky action bars sit above the phone's home indicator. */
@@ -734,7 +739,7 @@ button:focus-visible {
 .error {
   color: var(--danger);
   font-size: 13px;
-  padding: 10px 12px;
+  padding: 12px var(--gutter);
   background: #fef2f2;
   border: 1px solid #fecaca;
   border-radius: var(--radius);
@@ -769,7 +774,7 @@ button:focus-visible {
   align-items: center;
   gap: 12px;
   min-height: 56px;
-  padding: 8px 14px;
+  padding: 8px var(--gutter);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: #fff;

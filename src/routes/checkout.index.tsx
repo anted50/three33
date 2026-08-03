@@ -2,31 +2,33 @@ import { useState } from 'react'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { Page } from '~/components/layout'
 import { formatMnt } from '~/lib/money'
-import { getCart } from '~/lib/server/cart/cart'
+import { getCart, getShippingRates } from '~/lib/server/cart/cart'
 import { UB_DISTRICTS, zoneForDistrict } from '~/lib/server/cart/pricing'
 import { createOrder } from '~/lib/server/orders/create'
 
 export const Route = createFileRoute('/checkout/')({
-  loader: () => getCart(),
+  loader: async () => ({
+    cart: await getCart(),
+    rates: await getShippingRates(),
+  }),
   component: Checkout,
 })
 
 function Checkout() {
-  const cart = Route.useLoaderData()
+  const { cart, rates } = Route.useLoaderData()
   const navigate = useNavigate()
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [district, setDistrict] = useState<string>('Хан-Уул')
 
-  // Indicative only — the server recomputes this and its number is the one
-  // that gets charged.
+  /**
+   * Computed from the server's own rates, so what is quoted here and what the
+   * order is charged cannot drift. The server still recomputes at checkout —
+   * this is a preview of that result, not an input to it.
+   */
   const zone = zoneForDistrict(district)
   const shipping =
-    cart.subtotal >= 5_000_000 && zone === 'ub'
-      ? 0
-      : zone === 'ub'
-        ? 500_000
-        : 1_500_000
+    zone === 'ub' && cart.subtotal >= rates.freeUbThreshold ? 0 : rates[zone]
 
   if (cart.lines.length === 0) {
     return (

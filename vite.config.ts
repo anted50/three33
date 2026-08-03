@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
 import { loadDotEnv } from './src/lib/load-dot-env'
 import { tanstackStart } from '@tanstack/react-start/plugin/vite'
@@ -12,7 +13,11 @@ export default defineConfig({
     port: 3000,
   },
   resolve: {
-    tsconfigPaths: true,
+    // Explicit rather than relying on resolve.tsconfigPaths alone, which does
+    // not resolve `~/...` for asset imports carrying a `?url` suffix.
+    alias: {
+      '~': fileURLToPath(new URL('./src', import.meta.url)),
+    },
   },
   plugins: [tanstackStart(), viteReact()],
 })

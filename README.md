@@ -52,6 +52,7 @@ Postgres works end to end.
 | `npm run db:migrate` | Apply pending migrations |
 | `npm run db:studio` | Drizzle Studio |
 | `npm run reconcile` | The QPay reconciliation sweep (see below) |
+| `npm run qpay:ping` | Fetch one QPay token to check credentials. Read-only |
 
 ## Conventions that are load-bearing
 
@@ -66,6 +67,34 @@ server function. The short version:
   artefacts.
 - **Sessions are database rows**, not JWTs. The cookie holds a token; the DB
   holds its SHA-256 hash.
+
+## QPay: what the credentials actually are
+
+**These are production credentials. There is no sandbox pair for this
+merchant.** Any invoice created against `THREE33_BARBER_INVOICE` is a real,
+payable invoice that will appear in the merchant portal. Treat invoice creation
+as a live action during development — test with small amounts, and cancel
+invoices you don't intend to settle (`cancelInvoice`).
+
+Two things learned from the vendor spec that the code depends on:
+
+- **`expires_in` is a UNIX timestamp, not a duration.** Confirmed live: QPay
+  returned `1785815975`. Reading it the OAuth way gives a token we believe is
+  valid for ~52 years and therefore never refresh. `resolveExpiry()` handles
+  both readings; see `qpay/client.ts`.
+- **Do not fetch a token per request.** QPay's integration notes call this out
+  explicitly. `QpayClient` caches the token and single-flights refreshes.
+
+Open items with the client, both blocking parts of checkout:
+
+1. **E-barimt.** QPay issues the receipt for us via `POST /v2/ebarimt/create`
+   (`payment_id` + `CITIZEN`/`ORGANIZATION`) — we don't integrate with the tax
+   authority directly. But that requires a **separate VAT-enabled invoice code**
+   from QPay; `THREE33_BARBER_INVOICE` is the plain one. If the business must
+   issue e-barimt, request that code now — it changes the invoice payload
+   (`lines[]` with `tax_product_code` and VAT amounts).
+2. **The merchant name is `THREE33_BARBER`**, not an Uppercut Deluxe entity.
+   Confirm this is the intended legal entity for receiving payment before launch.
 
 ## The one thing that lives outside the app
 

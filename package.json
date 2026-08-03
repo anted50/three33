@@ -13,13 +13,14 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
+    "db:migrate": "tsx scripts/migrate.ts",
     "db:studio": "drizzle-kit studio",
     "db:seed": "tsx scripts/seed.ts",
     "reconcile": "tsx scripts/reconcile.ts",
     "qpay:ping": "tsx scripts/qpay-ping.ts"
   },
   "dependencies": {
+    "@electric-sql/pglite": "^0.5.4",
     "@tanstack/react-router": "^1.170.18",
     "@tanstack/react-start": "^1.168.34",
     "drizzle-orm": "^0.45.2",

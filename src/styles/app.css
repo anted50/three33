@@ -1,7 +1,35 @@
 /*
- * Design tokens land here in Phase 0/1 once the Figma frames are confirmed.
- * Keeping it to a reset for now so nothing has to be un-picked later.
+ * Design tokens, taken from the Figma frames in ../ui.
+ *
+ * Those frames are desktop-only, but most Mongolian traffic is mobile and QPay
+ * settles through bank-app deeplinks on a phone. So the frames supply the visual
+ * language — near-black CTAs, grey product tiles, thin borders, IN STOCK pills,
+ * generous whitespace — and the layout is written mobile-first, with desktop as
+ * the media-query branch rather than the default.
  */
+
+:root {
+  --ink: #0f172a;
+  --ink-soft: #334155;
+  --muted: #71717a;
+  --bg: #ffffff;
+  --surface: #f4f4f5;
+  --surface-2: #fafafa;
+  --border: #e4e4e7;
+  --accent: #0f172a;
+  --danger: #b91c1c;
+  --ok: #15803d;
+
+  --radius: 8px;
+  --radius-lg: 12px;
+
+  --gutter: 16px;
+  --max-width: 1200px;
+
+  /* Sticky action bars sit above the phone's home indicator. */
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
 *,
 *::before,
 *::after {
@@ -12,9 +40,19 @@
   margin: 0;
 }
 
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
 body {
-  -webkit-font-smoothing: antialiased;
+  background: var(--bg);
+  color: var(--ink);
+  font-family:
+    'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+  font-size: 15px;
   line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
 }
 
 img,
@@ -31,4 +69,503 @@ button,
 textarea,
 select {
   font: inherit;
+  color: inherit;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+h1,
+h2,
+h3 {
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  font-weight: 600;
+}
+
+/* --------------------------------------------------------------- layout */
+
+.wrap {
+  width: 100%;
+  max-width: var(--max-width);
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+
+/* --------------------------------------------------------------- header */
+
+.announce {
+  background: var(--ink);
+  color: #fff;
+  font-size: 12px;
+  text-align: center;
+  padding: 9px var(--gutter);
+  letter-spacing: 0.01em;
+}
+
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: saturate(180%) blur(8px);
+  border-bottom: 1px solid var(--border);
+}
+
+.header__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: 56px;
+}
+
+.logo {
+  font-weight: 800;
+  font-size: 17px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.logo span {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.header__nav {
+  display: none;
+}
+
+.header__actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* 44px minimum touch target — these are the primary controls on a phone. */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  background: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  position: relative;
+}
+
+.icon-btn:active {
+  background: var(--surface);
+}
+
+.badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+}
+
+@media (min-width: 900px) {
+  .header__bar {
+    height: 68px;
+  }
+
+  .header__nav {
+    display: flex;
+    gap: 28px;
+    font-size: 14px;
+    margin-inline: auto;
+  }
+
+  .header__nav a:hover {
+    color: var(--muted);
+  }
+}
+
+/* --------------------------------------------------------------- hero */
+
+.hero {
+  padding: 32px 0 24px;
+  border-bottom: 1px solid var(--border);
+}
+
+.hero h1 {
+  font-size: 30px;
+  margin-bottom: 10px;
+}
+
+.hero p {
+  color: var(--muted);
+  max-width: 52ch;
+}
+
+@media (min-width: 900px) {
+  .hero {
+    padding: 64px 0 48px;
+  }
+
+  .hero h1 {
+    font-size: 46px;
+  }
+}
+
+/* --------------------------------------------------------------- chips */
+
+/*
+ * Category filters scroll horizontally on a phone rather than wrapping into a
+ * block that pushes the product grid below the fold.
+ */
+.chips {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 16px 0;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.chips::-webkit-scrollbar {
+  display: none;
+}
+
+.chip {
+  flex: 0 0 auto;
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 13px;
+  white-space: nowrap;
+  background: #fff;
+}
+
+.chip[data-active='true'] {
+  background: var(--ink);
+  color: #fff;
+  border-color: var(--ink);
+}
+
+/* --------------------------------------------------------------- grid */
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 10px;
+  padding-bottom: 40px;
+}
+
+@media (min-width: 640px) {
+  .grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 24px 16px;
+  }
+}
+
+@media (min-width: 1000px) {
+  .grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.card__media {
+  aspect-ratio: 1;
+  background: var(--surface);
+  border-radius: var(--radius);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+
+/* Placeholder until product photography arrives from the client. */
+.card__ph {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #a1a1aa;
+  text-align: center;
+  padding: 0 8px;
+  font-weight: 600;
+}
+
+.card__name {
+  font-size: 14px;
+  font-weight: 500;
+  margin-bottom: 6px;
+}
+
+.card__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.card__price {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.pill {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 8px;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+.pill[data-tone='out'] {
+  color: var(--danger);
+  border-color: #fecaca;
+}
+
+.pill[data-tone='low'] {
+  color: #b45309;
+  border-color: #fde68a;
+}
+
+/* --------------------------------------------------------------- product */
+
+.section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 24px 0 4px;
+}
+
+.section-head h2 {
+  font-size: 19px;
+}
+
+.section-head a {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.crumbs {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 12px 0;
+}
+
+.pdp__media {
+  aspect-ratio: 1;
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  display: grid;
+  place-items: center;
+  margin-bottom: 20px;
+}
+
+.pdp h1 {
+  font-size: 24px;
+  margin-bottom: 10px;
+}
+
+.pdp__price {
+  font-size: 24px;
+  font-weight: 600;
+  margin: 14px 0;
+}
+
+.pdp__was {
+  font-size: 15px;
+  font-weight: 400;
+  color: var(--muted);
+  text-decoration: line-through;
+  margin-left: 8px;
+}
+
+.label {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.sizes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.size {
+  min-width: 56px;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  background: #fff;
+  border-radius: var(--radius);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.size[data-active='true'] {
+  border-color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--ink);
+  font-weight: 600;
+}
+
+.size:disabled {
+  color: #d4d4d8;
+  cursor: not-allowed;
+  text-decoration: line-through;
+}
+
+.qty {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.qty button {
+  width: 44px;
+  height: 44px;
+  border: 0;
+  background: #fff;
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.qty button:disabled {
+  color: #d4d4d8;
+  cursor: not-allowed;
+}
+
+.qty span {
+  min-width: 44px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--ink);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  width: 100%;
+}
+
+.btn:disabled {
+  background: #d4d4d8;
+  cursor: not-allowed;
+}
+
+.btn--ghost {
+  background: #fff;
+  color: var(--ink);
+  border: 1px solid var(--border);
+}
+
+/*
+ * On a phone the buy action stays pinned; on desktop it sits inline in the
+ * right-hand column, as in the Figma frame.
+ */
+.buybar {
+  position: sticky;
+  bottom: 0;
+  z-index: 15;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(8px);
+  border-top: 1px solid var(--border);
+  padding: 10px var(--gutter) calc(10px + var(--safe-bottom));
+  margin-inline: calc(var(--gutter) * -1);
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.prose {
+  color: var(--ink-soft);
+  padding: 24px 0;
+  border-top: 1px solid var(--border);
+  margin-top: 24px;
+}
+
+.prose h2 {
+  font-size: 16px;
+  margin-bottom: 10px;
+}
+
+@media (min-width: 900px) {
+  .pdp {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 48px;
+    align-items: start;
+  }
+
+  .pdp__media {
+    margin-bottom: 0;
+  }
+
+  .pdp h1 {
+    font-size: 32px;
+  }
+
+  .buybar {
+    position: static;
+    background: none;
+    backdrop-filter: none;
+    border-top: 0;
+    padding: 0;
+    margin-inline: 0;
+  }
+
+  .prose {
+    grid-column: 1 / -1;
+  }
+}
+
+/* --------------------------------------------------------------- footer */
+
+.footer {
+  border-top: 1px solid var(--border);
+  background: var(--surface-2);
+  padding: 28px 0 calc(28px + var(--safe-bottom));
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.footer__links {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.empty {
+  padding: 56px 0;
+  text-align: center;
+  color: var(--muted);
 }

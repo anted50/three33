@@ -1,30 +1,57 @@
-import { createFileRoute } from '@tanstack/react-router'
-import { createServerFn } from '@tanstack/react-start'
-import { sql } from 'drizzle-orm'
-import { db } from '~/db'
-
-/**
- * Placeholder for the real homepage (hero / featured / categories, Phase 1).
- * It exists now to prove the whole Phase 0 chain end to end: route -> loader ->
- * server function -> Drizzle -> Postgres, rendered on the server.
- */
-const getDbStatus = createServerFn({ method: 'GET' }).handler(async () => {
-  const rows = await db.execute<{ now: Date }>(sql`select now() as now`)
-  return { now: String(rows[0]?.now ?? 'unknown') }
-})
+import { createFileRoute, Link } from '@tanstack/react-router'
+import { Page } from '~/components/layout'
+import { ProductCard } from '~/components/product-card'
+import { listCategories, listProducts } from '~/lib/server/products/queries'
 
 export const Route = createFileRoute('/')({
-  loader: () => getDbStatus(),
+  loader: async () => ({
+    categories: await listCategories(),
+    products: await listProducts({ data: {} }),
+  }),
   component: Home,
 })
 
 function Home() {
-  const { now } = Route.useLoaderData()
+  const { categories, products } = Route.useLoaderData()
+  const featured = products.slice(0, 8)
 
   return (
-    <main style={{ padding: '2rem', fontFamily: 'system-ui, sans-serif' }}>
-      <h1>Uppercut Deluxe Mongolia</h1>
-      <p>Phase 0 skeleton. Database reachable at {now}.</p>
-    </main>
+    <Page>
+      <section className="hero">
+        <div className="wrap">
+          <h1>Uppercut Deluxe Монгол</h1>
+          <p>
+            Австралийн мэргэжлийн үс засалтын брэнд. Three 33 Barbershop-ийн
+            албан ёсны борлуулалт.
+          </p>
+        </div>
+      </section>
+
+      <div className="wrap">
+        <div className="chips">
+          {categories.map((category) => (
+            <Link
+              key={category.slug}
+              to="/products"
+              search={{ category: category.slug }}
+              className="chip"
+            >
+              {category.nameMn}
+            </Link>
+          ))}
+        </div>
+
+        <div className="section-head">
+          <h2>Онцлох бүтээгдэхүүн</h2>
+          <Link to="/products">Бүгдийг үзэх →</Link>
+        </div>
+
+        <div className="grid">
+          {featured.map((product) => (
+            <ProductCard key={product.slug} product={product} />
+          ))}
+        </div>
+      </div>
+    </Page>
   )
 }

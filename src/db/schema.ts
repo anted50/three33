@@ -196,7 +196,12 @@ export const productVariants = pgTable(
       .notNull()
       .references(() => products.id, { onDelete: 'cascade' }),
     sku: text('sku').notNull(),
-    sizeMl: integer('size_ml'),
+    /**
+     * Free text, not a number: the range mixes ml (Salt Spray 150ml) with
+     * grams (Deluxe Pomade 100g) and sizeless items (barber capes). Storing
+     * "100g" beats a numeric column plus a unit column nobody keeps in sync.
+     */
+    size: text('size'),
     price: money('price').notNull(),
     compareAtPrice: money('compare_at_price'), // strike-through "was" price
     stockQty: integer('stock_qty').notNull().default(0),

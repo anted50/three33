@@ -17,7 +17,9 @@ const schema = z.object({
   APP_URL: z.url(),
   SESSION_SECRET: z.string().min(32),
 
-  DATABASE_URL: z.string().startsWith('postgres'),
+  // Optional: unset means the PGlite driver, which needs no connection string.
+  DATABASE_URL: z.string().startsWith('postgres').optional(),
+  DB_DRIVER: z.enum(['postgres', 'pglite']).optional(),
 
   S3_ENDPOINT: z.url(),
   S3_REGION: z.string().default('us-east-1'),

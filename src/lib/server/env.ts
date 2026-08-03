@@ -46,6 +46,13 @@ const schema = z.object({
   SHIPPING_FEE_COUNTRYSIDE: z.coerce.number().int().nonnegative(),
 
   SENTRY_DSN: z.string().optional(),
+
+  /**
+   * TEMPORARY: shared-token admin gate, pending Phase 2 auth. Unset disables
+   * the admin section entirely. See lib/server/admin/gate.ts.
+   */
+  ADMIN_TOKEN: z.string().min(16).optional(),
+  ALLOW_TEMP_ADMIN: z.string().optional(),
 })
 
 const parsed = schema.safeParse(process.env)

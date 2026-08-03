@@ -130,6 +130,36 @@ handing secrets to the client bundler at all. Verify with:
 npm run build && grep -r "QPAY_PASSWORD" dist/client/
 ```
 
+## Admin
+
+`/admin` — dashboard, orders (list, detail, status transitions), products
+(list, price/stock/status editing). Desktop-first, since it is used at a desk,
+but it collapses to one column so orders can be checked on a phone.
+
+### The gate is temporary and deliberately awkward
+
+`ADMIN_TOKEN` is a **shared password, not authentication**. No per-user
+identity, no audit trail of who changed what, no revocation short of rotating
+it for everyone. It exists so admin is usable before Phase 2 auth lands.
+
+Two guards stop it becoming permanent by accident:
+
+- No `ADMIN_TOKEN` set → the admin section does not exist.
+- In production it **refuses to work** unless `ALLOW_TEMP_ADMIN=true`. Shipping
+  a shared password should take a deliberate act.
+
+When real auth lands, delete `admin/gate-internal.ts` and `admin/gate.ts` and
+switch to `users.role === 'admin'`. Do not keep this as a fallback.
+
+### Two layers of check, on purpose
+
+The `/admin` layout's `beforeLoad` decides what *renders*. Every admin server
+function separately calls `assertAdmin()`, because a server function is a public
+HTTP endpoint — anyone can call it directly with the right payload, layout or
+no layout. The route guard is convenience; `assertAdmin()` is the control.
+
+This is the thing the deleted Go layer used to enforce for free.
+
 ## Conventions that are load-bearing
 
 Read [`src/lib/server/README.md`](src/lib/server/README.md) before adding a

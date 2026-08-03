@@ -1,0 +1,341 @@
+/*
+ * Admin shell. Loaded only on /admin, so none of this ships to the storefront.
+ *
+ * Desktop-first here, unlike the storefront: this is used at a desk with a
+ * keyboard. It still collapses to a single column, because a barber checking
+ * whether an order came in will do it on a phone.
+ */
+
+.adm {
+  display: grid;
+  grid-template-columns: 1fr;
+  min-height: 100vh;
+  background: #f7f7f8;
+}
+
+.adm__side {
+  background: #fff;
+  border-bottom: 1px solid var(--border);
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.adm__logo {
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.adm__logo span {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.adm__nav {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.adm__nav::-webkit-scrollbar {
+  display: none;
+}
+
+.adm__nav a {
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  font-size: 14px;
+  white-space: nowrap;
+  color: var(--ink-soft);
+}
+
+.adm__nav a[data-active='true'] {
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.adm__back {
+  font-size: 13px;
+  color: var(--muted);
+  margin-left: auto;
+}
+
+.adm__main {
+  padding: 20px 16px 60px;
+  min-width: 0;
+}
+
+@media (min-width: 900px) {
+  .adm {
+    grid-template-columns: 232px 1fr;
+  }
+
+  .adm__side {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 24px;
+    border-bottom: 0;
+    border-right: 1px solid var(--border);
+    padding: 24px 16px;
+  }
+
+  .adm__nav {
+    flex-direction: column;
+    overflow: visible;
+  }
+
+  .adm__back {
+    margin-left: 0;
+    margin-top: auto;
+  }
+
+  .adm__main {
+    padding: 28px 32px 80px;
+  }
+}
+
+.adm__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.adm__head h1 {
+  font-size: 22px;
+}
+
+.adm__card {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+
+.adm__cardhead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.adm__cardhead h2 {
+  font-size: 15px;
+}
+
+.adm__cardhead a {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.adm__pad {
+  padding: 16px;
+}
+
+.adm__stats {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+@media (min-width: 700px) {
+  .adm__stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.adm__stat {
+  padding: 18px;
+}
+
+.adm__statlabel {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.adm__statvalue {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.adm__cols {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+
+@media (min-width: 1000px) {
+  .adm__cols {
+    grid-template-columns: 3fr 2fr;
+    align-items: start;
+  }
+}
+
+.adm__muted {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.adm__mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+.adm__hint {
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+/* Tables scroll inside their card rather than widening the page. */
+.adm__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  display: block;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+@media (min-width: 700px) {
+  .adm__table {
+    display: table;
+    white-space: normal;
+  }
+}
+
+.adm__table th {
+  text-align: left;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 500;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.adm__table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.adm__table tr:last-child td {
+  border-bottom: 0;
+}
+
+.adm__table a {
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.adm__table--form input[type='text'],
+.adm__table--form input:not([type]) {
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.adm__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.btn--sm {
+  min-height: 36px;
+  width: auto;
+  padding: 0 14px;
+  font-size: 13px;
+}
+
+.badge2 {
+  display: inline-block;
+  font-size: 11px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.badge2[data-tone='wait'] {
+  background: #fffbeb;
+  border-color: #fde68a;
+  color: #92400e;
+}
+
+.badge2[data-tone='ok'] {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1e40af;
+}
+
+.badge2[data-tone='done'] {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+  color: #166534;
+}
+
+.badge2[data-tone='dead'] {
+  background: var(--surface);
+  color: var(--muted);
+}
+
+.badge2[data-tone='warn'] {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #991b1b;
+}
+
+/* --------------------------------------------------------------- unlock */
+
+.adm__unlock {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: #f7f7f8;
+}
+
+.adm__unlockcard {
+  width: 100%;
+  max-width: 380px;
+  padding: 28px;
+  margin: 0;
+}
+
+.adm__unlockcard h1 {
+  font-size: 19px;
+  margin-bottom: 6px;
+}
+
+.adm__unlockcard .adm__muted {
+  margin-bottom: 20px;
+}
+
+.adm__unlockcard .field input {
+  width: 100%;
+  min-height: 46px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}

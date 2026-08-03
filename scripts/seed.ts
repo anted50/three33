@@ -11,10 +11,16 @@
  * Not seeded: stickers, style-guide posters and the open/close sign from the
  * same shipment. Those are marketing collateral, not sellable stock.
  */
+import { existsSync } from 'node:fs'
 import { eq } from 'drizzle-orm'
 import { tugrikToMungu } from '~/lib/money'
 import { db } from '~/db'
-import { categories, productVariants, products } from '~/db/schema'
+import {
+  categories,
+  productImages,
+  productVariants,
+  products,
+} from '~/db/schema'
 
 export const PRICES_ARE_PLACEHOLDERS = true
 
@@ -295,6 +301,7 @@ async function main() {
 
   let productCount = 0
   let variantCount = 0
+  let imageCount = 0
 
   for (const product of PRODUCTS) {
     const categoryId = categoryIdBySlug.get(product.category)
@@ -339,10 +346,34 @@ async function main() {
         .onConflictDoNothing({ target: productVariants.sku })
       variantCount++
     }
+
+    /**
+     * Packshots extracted from the Product Bible by
+     * scripts/extract-brand-images.mjs. Products without one fall back to the
+     * text placeholder in the UI — see scripts/map-brand-images.mjs MISSING.
+     *
+     * Served from public/ for now; Phase 1 moves uploads to MinIO/S3.
+     */
+    const imagePath = `/products/${product.slug}.webp`
+    if (existsSync(`public${imagePath}`)) {
+      await db
+        .insert(productImages)
+        .values({
+          productId: row.id,
+          url: imagePath,
+          alt: product.name,
+          sortOrder: 0,
+        })
+        .onConflictDoNothing()
+      imageCount++
+    }
   }
 
   console.log(
-    `seed: ${CATEGORIES.length} categories, ${productCount} products, ${variantCount} variants`,
+    `seed: ${CATEGORIES.length} categories, ${productCount} products, ${variantCount} variants, ${imageCount} images`,
+  )
+  console.log(
+    `seed: ${productCount - imageCount} products still have no packshot`,
   )
   if (PRICES_ARE_PLACEHOLDERS) {
     console.log('seed: WARNING - prices are placeholders, confirm with client')

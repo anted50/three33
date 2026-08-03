@@ -39,6 +39,41 @@ App on http://localhost:3000. The homepage renders the database's current time,
 which is the Phase 0 proof that route → loader → server function → Drizzle →
 Postgres works end to end.
 
+### Running without Docker
+
+Docker isn't installed on the current dev machine, so `DB_DRIVER=pglite` in
+`.env` runs Postgres in-process against `.pglite/`. Same engine, same SQL, same
+migrations — `DB_DRIVER=postgres` switches to Compose whenever it's available.
+
+**Stop the dev server before running `db:migrate` or `db:seed`.** PGlite is a
+single-writer embedded database: the dev server holds the directory open, and a
+script that writes to it concurrently will appear to succeed while the running
+app keeps serving the data it already had. If a seed "worked" but the site still
+shows the old catalogue, this is why — restart `npm run dev`. The Compose
+Postgres has no such constraint.
+
+## Product imagery
+
+Packshots are extracted from the client's Product Bible PDF:
+
+```bash
+node scripts/extract-brand-images.mjs ~/Downloads/ProductBible-May2026.pdf /tmp/img --sheets
+```
+
+Two wrinkles that the script exists to handle: the packshots are **CMYK JPEGs**,
+which browsers cannot render at all, and their transparency lives in a separate
+`/SMask` stream — without it every product sits on a black rectangle.
+
+`scripts/map-brand-images.mjs` then copies identified images to
+`public/products/<slug>.webp`. The mapping is by eye from contact sheets, since
+the PDF has no machine-readable link between an image and a product name.
+
+**13 of 22 products have imagery. 9 do not** — clay, clay-spray, control-cream,
+texture-cream, salt-spray, foam-tonic, beard-oil, beard-balm, barber-cape. Their
+packshots are the CMYK-plus-mask variants the extractor can't yet decode. They
+render a text placeholder rather than a wrong photo. Either the mask handling
+gets fixed or the client supplies plain product shots.
+
 ## Scripts
 
 | Command | Does |

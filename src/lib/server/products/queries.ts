@@ -54,6 +54,15 @@ export const listProducts = createServerFn({ method: 'GET' })
         totalStock: sql<number>`coalesce(sum(${productVariants.stockQty}), 0)::int`,
         variantCount: sql<number>`count(${productVariants.id})::int`,
         size: sql<string | null>`min(${productVariants.size})`,
+        // Correlated subquery rather than another join: product_images would
+        // multiply the rows this GROUP BY is already aggregating over.
+        imageUrl: sql<string | null>`(
+          select ${productImages.url}
+          from ${productImages}
+          where ${productImages.productId} = ${products.id}
+          order by ${productImages.sortOrder}
+          limit 1
+        )`,
       })
       .from(products)
       .innerJoin(
@@ -82,7 +91,7 @@ export const listProducts = createServerFn({ method: 'GET' })
       fromPrice: Number(row.fromPrice ?? 0),
       totalStock: row.totalStock,
       variantCount: row.variantCount,
-      imageUrl: null, // product photography not supplied yet
+      imageUrl: row.imageUrl,
     }))
   })
 

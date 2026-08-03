@@ -29,6 +29,28 @@ export function assertAdmin(): void {
 /** Statuses whose revenue counts as real. */
 const EARNING = ['paid', 'processing', 'shipped', 'delivered'] as const
 
+/** Orders/month the shop is aiming at. Drives the goal card's progress bar. */
+const MONTHLY_ORDER_GOAL = Number(process.env.MONTHLY_ORDER_GOAL ?? 100)
+
+/** Turns sparse `YYYY-MM-DD -> value` rows into one entry per day so far. */
+function fillDays(
+  rows: Array<{ day: string; value: number }>,
+  monthStart: Date,
+): number[] {
+  const byDay = new Map(rows.map((r) => [r.day.slice(0, 10), r.value]))
+  const days: number[] = []
+
+  const cursor = new Date(monthStart)
+  const today = new Date()
+
+  while (cursor <= today) {
+    days.push(byDay.get(cursor.toISOString().slice(0, 10)) ?? 0)
+    cursor.setUTCDate(cursor.getUTCDate() + 1)
+  }
+
+  return days
+}
+
 export async function dashboard() {
   assertAdmin()
 
@@ -36,15 +58,49 @@ export async function dashboard() {
   monthStart.setUTCDate(1)
   monthStart.setUTCHours(0, 0, 0, 0)
 
+  const earnedThisMonth = and(
+    inArray(orders.status, EARNING),
+    gte(orders.createdAt, monthStart),
+  )
+
   const [revenue] = await db
     .select({
       total: sql<number>`coalesce(sum(${orders.total}), 0)::bigint`,
       orders: count(orders.id),
     })
     .from(orders)
-    .where(
-      and(inArray(orders.status, EARNING), gte(orders.createdAt, monthStart)),
-    )
+    .where(earnedThisMonth)
+
+  /** Daily revenue, for the bar sparkline on the sales card. */
+  const salesByDay = await db
+    .select({
+      day: sql<string>`to_char(${orders.createdAt}, 'YYYY-MM-DD')`,
+      value: sql<number>`coalesce(sum(${orders.total}), 0)::bigint`,
+    })
+    .from(orders)
+    .where(earnedThisMonth)
+    .groupBy(sql`to_char(${orders.createdAt}, 'YYYY-MM-DD')`)
+
+  /**
+   * "Customers" counts distinct phone numbers, not user accounts — checkout is
+   * guest-only until auth lands, so orders carry no user_id. Phone is the
+   * closest thing to a stable identity we actually collect.
+   */
+  const [customers] = await db
+    .select({
+      n: sql<number>`count(distinct ${orders.contactPhone})::int`,
+    })
+    .from(orders)
+    .where(earnedThisMonth)
+
+  const customersByDay = await db
+    .select({
+      day: sql<string>`to_char(${orders.createdAt}, 'YYYY-MM-DD')`,
+      value: sql<number>`count(distinct ${orders.contactPhone})::int`,
+    })
+    .from(orders)
+    .where(earnedThisMonth)
+    .groupBy(sql`to_char(${orders.createdAt}, 'YYYY-MM-DD')`)
 
   const [pending] = await db
     .select({ n: count(orders.id) })
@@ -63,10 +119,22 @@ export async function dashboard() {
       total: orders.total,
       createdAt: orders.createdAt,
       address: orders.shippingAddressSnapshot,
+      // The frame's "Item" column shows what was bought, not the order number.
+      item: sql<string | null>`(
+        select ${orderItems.nameSnapshot}
+        from ${orderItems}
+        where ${orderItems.orderId} = ${orders.id}
+        order by ${orderItems.id}
+        limit 1
+      )`,
+      lines: sql<number>`(
+        select count(*)::int from ${orderItems}
+        where ${orderItems.orderId} = ${orders.id}
+      )`,
     })
     .from(orders)
     .orderBy(desc(orders.createdAt))
-    .limit(8)
+    .limit(5)
 
   /** Stock that will run out first — the thing a shop actually needs to see. */
   const lowStock = await db
@@ -98,14 +166,31 @@ export async function dashboard() {
     .orderBy(desc(sql`sum(${orderItems.qty})`))
     .limit(5)
 
+  const bestRows = best.map((b) => ({ ...b, revenue: Number(b.revenue) }))
+  const bestTotal = bestRows.reduce((sum, b) => sum + b.revenue, 0)
+  const ordersThisMonth = revenue?.orders ?? 0
+
   return {
     revenueThisMonth: Number(revenue?.total ?? 0),
-    ordersThisMonth: revenue?.orders ?? 0,
+    ordersThisMonth,
+    salesSeries: fillDays(
+      salesByDay.map((r) => ({ day: r.day, value: Number(r.value) })),
+      monthStart,
+    ),
+
+    customersThisMonth: customers?.n ?? 0,
+    customerSeries: fillDays(customersByDay, monthStart),
+
+    orderGoal: MONTHLY_ORDER_GOAL,
+    ordersLeft: Math.max(MONTHLY_ORDER_GOAL - ordersThisMonth, 0),
+
     pendingPayment: pending?.n ?? 0,
     toFulfil: toFulfil?.n ?? 0,
+
     recent,
     lowStock,
-    best: best.map((b) => ({ ...b, revenue: Number(b.revenue) })),
+    best: bestRows,
+    bestTotal,
   }
 }
 

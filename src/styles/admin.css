@@ -291,6 +291,161 @@
     grid-template-columns: 3fr 2fr;
     align-items: start;
   }
+
+  /* Dashboard reverses it: narrow "best selling", wide orders table. */
+  .adm__cols--dash {
+    grid-template-columns: 1fr 2.4fr;
+  }
+}
+
+/* ------------------------------------------------------- metric cards */
+
+.metric {
+  padding: 20px;
+  margin-bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.metric__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.metric h2 {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.metric__sub {
+  font-size: 11px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.metric__value {
+  font-size: 28px;
+  line-height: 1;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.spark {
+  display: block;
+  width: 100%;
+  margin-top: auto;
+  overflow: visible;
+}
+
+.spark--empty {
+  border-bottom: 1px dashed var(--border);
+}
+
+.metric__goal {
+  margin-top: auto;
+}
+
+.metric__left {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.goal {
+  height: 8px;
+  background: var(--surface);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.goal__fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 999px;
+  transition: width 0.4s ease;
+}
+
+/* ------------------------------------------------------- best selling */
+
+.best {
+  display: flex;
+  flex-direction: column;
+}
+
+.best__head {
+  padding: 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.best__head h2 {
+  font-size: 16px;
+  margin-bottom: 4px;
+}
+
+.best__body {
+  padding: 20px 18px 24px;
+}
+
+.best__total {
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 18px;
+}
+
+.best__total span {
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--muted);
+}
+
+.best__list {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+  margin-bottom: 22px;
+}
+
+/* Pill rows, as in the frame. */
+.best__list li {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.best__list strong {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.donut {
+  display: block;
+}
+
+/* "View All" pill button from the frame's card header. */
+.pillbtn {
+  font-size: 12px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink-soft);
+}
+
+.pillbtn:hover {
+  background: var(--accent-tint);
+  color: var(--accent-dark);
 }
 
 .adm__muted {

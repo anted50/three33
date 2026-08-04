@@ -1,9 +1,11 @@
 import { createServerFn } from '@tanstack/react-start'
-import { and, asc, eq, ilike, min, or, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, ilike, inArray, min, or, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '~/db'
 import {
   categories,
+  orderItems,
+  orders,
   productImages,
   productVariants,
   products,
@@ -15,9 +17,24 @@ import {
  * since `slug` arrives straight from a URL.
  */
 
+/**
+ * Secondary nav modes, mirroring the reference site's tab row.
+ *
+ *  featured    — curated order (catalogue order, i.e. how it was seeded)
+ *  new         — most recently added
+ *  bestseller  — actual units sold on paid orders
+ *
+ * "Bestseller" is real data rather than a manual flag: order_items already
+ * records what left the shop, so a badge nobody remembers to maintain would be
+ * strictly worse.
+ */
+export const productSort = z.enum(['featured', 'new', 'bestseller'])
+export type ProductSort = z.infer<typeof productSort>
+
 export const listProductsInput = z.object({
   category: z.string().max(64).optional(),
   q: z.string().trim().max(64).optional(),
+  sort: productSort.optional(),
 })
 
 /**
@@ -114,7 +131,37 @@ export const listProducts = createServerFn({ method: 'GET' })
         ),
       )
       .groupBy(products.id, products.slug, products.nameMn, products.createdAt)
-      .orderBy(asc(products.createdAt))
+      .orderBy(
+        data.sort === 'new' ? desc(products.createdAt) : asc(products.createdAt),
+      )
+
+    if (data.sort === 'bestseller') {
+      /**
+       * Units sold, in a separate query rather than another join.
+       *
+       * Joining order_items into the query above would multiply the rows its
+       * GROUP BY is already aggregating, quietly inflating stock and variant
+       * counts. With a catalogue this size a second round trip and a sort in
+       * memory is cheaper than getting that subtle.
+       */
+      const sold = await db
+        .select({
+          slug: products.slug,
+          units: sql<number>`coalesce(sum(${orderItems.qty}), 0)::int`,
+        })
+        .from(orderItems)
+        .innerJoin(orders, eq(orders.id, orderItems.orderId))
+        .innerJoin(productVariants, eq(productVariants.id, orderItems.variantId))
+        .innerJoin(products, eq(products.id, productVariants.productId))
+        // Only orders where the money actually arrived.
+        .where(inArray(orders.status, ['paid', 'processing', 'shipped', 'delivered']))
+        .groupBy(products.slug)
+
+      const unitsBySlug = new Map(sold.map((s) => [s.slug, s.units]))
+      rows.sort(
+        (a, b) => (unitsBySlug.get(b.slug) ?? 0) - (unitsBySlug.get(a.slug) ?? 0),
+      )
+    }
 
     return rows.map((row) => ({
       slug: row.slug,

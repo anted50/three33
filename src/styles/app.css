@@ -122,13 +122,130 @@ h3 {
 
 /* --------------------------------------------------------------- header */
 
-.announce {
+/* --------------------------------------------------- utility strip */
+
+.strip {
   background: var(--ink);
   color: #fff;
   font-size: 12px;
-  text-align: center;
-  padding: 9px var(--gutter);
-  letter-spacing: 0.01em;
+}
+
+.strip__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 34px;
+}
+
+.strip__links,
+.strip__right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.strip a {
+  color: #d4d4d8;
+  white-space: nowrap;
+}
+
+.strip a:hover {
+  color: #fff;
+}
+
+.strip__close {
+  border: 0;
+  background: none;
+  color: #a1a1aa;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 0 4px;
+}
+
+.strip__close:hover {
+  color: #fff;
+}
+
+/* The links crowd out on a phone; the socials are the first to go. */
+@media (max-width: 599px) {
+  .strip__right a {
+    display: none;
+  }
+}
+
+/* --------------------------------------------------- category nav */
+
+.catnav {
+  border-top: 1px solid var(--border);
+  background: #fff;
+}
+
+.catnav__inner {
+  display: flex;
+  gap: 22px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.catnav__inner::-webkit-scrollbar {
+  display: none;
+}
+
+.catnav__link {
+  flex: 0 0 auto;
+  padding: 11px 0;
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  color: var(--ink-soft);
+  border-bottom: 2px solid transparent;
+}
+
+.catnav__link:hover {
+  color: var(--accent);
+}
+
+/* Router marks the matching link; the underline is the active affordance. */
+.catnav__link.active {
+  color: var(--ink);
+  border-bottom-color: var(--accent);
+}
+
+/* --------------------------------------------------- sort tabs */
+
+.tabs {
+  display: flex;
+  gap: 24px;
+  border-bottom: 1px solid var(--border);
+  margin-top: 20px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.tabs__tab {
+  padding: 10px 0 12px;
+  font-size: 14px;
+  white-space: nowrap;
+  color: var(--muted);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.tabs__tab:hover {
+  color: var(--ink);
+}
+
+.tabs__tab[data-active='true'] {
+  color: var(--ink);
+  font-weight: 700;
+  border-bottom-color: var(--accent);
 }
 
 .header {

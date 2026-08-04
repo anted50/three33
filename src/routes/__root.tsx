@@ -6,6 +6,8 @@ import {
   Scripts,
 } from '@tanstack/react-router'
 import appCss from '~/styles/app.css?url'
+import { getCart } from '~/lib/server/cart/cart'
+import { listCategories } from '~/lib/server/products/queries'
 
 export const Route = createRootRoute({
   head: () => ({
@@ -33,6 +35,15 @@ export const Route = createRootRoute({
       },
       { rel: 'stylesheet', href: appCss },
     ],
+  }),
+  /**
+   * Categories and the cart count feed the header, which is on every page.
+   * Loading them here means one query per navigation instead of every route
+   * remembering to fetch what its own chrome needs.
+   */
+  loader: async () => ({
+    categories: await listCategories(),
+    cartCount: (await getCart()).itemCount,
   }),
   component: RootComponent,
 })

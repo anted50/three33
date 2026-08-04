@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { z } from 'zod'
-import { Page } from '~/components/layout'
+import { Page, SortTabs } from '~/components/layout'
 import { ProductCard } from '~/components/product-card'
 import { SearchBox } from '~/components/search-box'
 import { listCategories, listProducts } from '~/lib/server/products/queries'
@@ -9,15 +9,20 @@ import { listCategories, listProducts } from '~/lib/server/products/queries'
 const searchSchema = z.object({
   category: z.string().max(64).optional(),
   q: z.string().max(64).optional(),
+  sort: z.enum(['featured', 'new', 'bestseller']).optional(),
 })
 
 export const Route = createFileRoute('/products/')({
   validateSearch: searchSchema,
-  loaderDeps: ({ search }) => ({ category: search.category, q: search.q }),
+  loaderDeps: ({ search }) => ({
+    category: search.category,
+    q: search.q,
+    sort: search.sort,
+  }),
   loader: async ({ deps }) => ({
     categories: await listCategories(),
     products: await listProducts({
-      data: { category: deps.category, q: deps.q },
+      data: { category: deps.category, q: deps.q, sort: deps.sort },
     }),
   }),
   component: Listing,
@@ -25,7 +30,7 @@ export const Route = createFileRoute('/products/')({
 
 function Listing() {
   const { categories, products } = Route.useLoaderData()
-  const { category, q } = Route.useSearch()
+  const { category, q, sort } = Route.useSearch()
 
   const active = categories.find((c) => c.slug === category)
 
@@ -39,28 +44,8 @@ function Listing() {
 
         <SearchBox />
 
-        <div className="chips">
-          <Link
-            to="/products"
-            // Keep the query when switching category, drop the category.
-            search={(prev) => ({ ...prev, category: undefined })}
-            className="chip"
-            data-active={!category}
-          >
-            Бүгд
-          </Link>
-          {categories.map((c) => (
-            <Link
-              key={c.slug}
-              to="/products"
-              search={(prev) => ({ ...prev, category: c.slug })}
-              className="chip"
-              data-active={category === c.slug}
-            >
-              {c.nameMn}
-            </Link>
-          ))}
-        </div>
+        {/* Categories live in the header now; this row is the sort tabs. */}
+        <SortTabs current={sort} />
 
         {products.length === 0 ? (
           <div className="empty">

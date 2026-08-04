@@ -29,6 +29,25 @@ export const driver: DbDriver =
   (process.env.DB_DRIVER as DbDriver | undefined) ??
   (process.env.DATABASE_URL ? 'postgres' : 'pglite')
 
+/**
+ * PGlite in production is always a mistake, and a quiet one.
+ *
+ * It writes to the container's own filesystem, which does not survive a
+ * redeploy. Forget to set DATABASE_URL on a host and the app boots perfectly,
+ * serves an empty catalogue, accepts orders into a database that evaporates on
+ * the next push, and reports nothing wrong anywhere.
+ *
+ * Refuse instead. A container that will not start is a five-minute fix; the
+ * alternative is losing real orders and not knowing until a customer asks.
+ */
+if (process.env.NODE_ENV === 'production' && driver === 'pglite') {
+  throw new Error(
+    'Refusing to run on PGlite in production — its storage is ephemeral and ' +
+      'orders written to it are lost on redeploy. Set DATABASE_URL (and ' +
+      'DB_DRIVER=postgres) to a real Postgres server.',
+  )
+}
+
 /** Where PGlite keeps its data. Gitignored. */
 export const PGLITE_DIR = process.env.PGLITE_DIR ?? '.pglite'
 

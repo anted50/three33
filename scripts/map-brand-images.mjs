@@ -32,22 +32,17 @@ export const IMAGE_MAP = {
 }
 
 /**
- * Known gaps. These packshots are CMYK JPEGs whose transparency lives in a
- * separate /SMask stream that the extractor could not decode, so they come out
- * on a black rectangle. Needs either a fix to the mask handling or plain
- * product photography from the client.
+ * Empty, and kept deliberately.
+ *
+ * Nine products could not be recovered from the Product Bible PDF — their
+ * packshots are CMYK JPEGs whose transparency lives in a /SMask stream the
+ * extractor cannot decode, so they came out on a black rectangle. They are now
+ * covered by scripts/fetch-brand-images.mjs, which pulls them from the brand's
+ * own Shopify store instead.
+ *
+ * Anything added here renders the text placeholder rather than a wrong photo.
  */
-export const MISSING = [
-  'clay',
-  'clay-spray',
-  'control-cream',
-  'texture-cream',
-  'salt-spray',
-  'foam-tonic',
-  'beard-oil',
-  'beard-balm',
-  'barber-cape',
-]
+export const MISSING = []
 
 const src = process.argv[2]
 if (!src) {

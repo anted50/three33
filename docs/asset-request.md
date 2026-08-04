@@ -22,18 +22,22 @@ only raster exists, send PNG with transparency at 1000px+ on the long edge.
 Also useful if it exists: a brand guide, or just the exact brand colours as hex.
 The site currently uses `#d81f26`, matched by eye from the Uppercut packaging.
 
-## 2. Product photography — 9 products have none
+## 2. Product photography — resolved, but please confirm licensing
 
-Packshots for the rest were extracted from the Product Bible PDF. These nine
-could not be recovered from it and currently show a text placeholder:
+All 22 products now have packshots. Thirteen were extracted from the Product
+Bible PDF; the remaining nine were downloaded from Uppercut Deluxe's own
+Shopify store (`scripts/fetch-brand-images.mjs`) and normalised to match.
 
-Clay · Clay Spray · Control Cream · Texture Cream · Salt Spray · Foam Tonic ·
-Beard Oil · Beard Balm · Barber Cape
+They are **self-hosted**, not hot-linked — a `<img src>` pointing at the
+brand's CDN would break whenever they re-upload a photo, 404 on any product
+they discontinue, and spend their bandwidth without asking.
 
-Any of these solves it:
-- The original packshot files, if the distributor supplied them separately
-- A newer Product Bible export
-- Plain photos on a white background — a phone on a windowsill is genuinely fine
+**Please confirm** the distribution agreement covers using the brand's product
+photography on the store. This is normal practice for an authorised
+distributor, and usually encouraged, but it is worth a line in writing.
+
+Higher-resolution originals would still be welcome if the distributor has an
+asset pack.
 
 ## 3. Prices — blocking launch
 

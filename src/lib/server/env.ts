@@ -21,16 +21,25 @@ const schema = z.object({
   DATABASE_URL: z.string().startsWith('postgres').optional(),
   DB_DRIVER: z.enum(['postgres', 'pglite']).optional(),
 
-  S3_ENDPOINT: z.url(),
+  /*
+   * Object storage is OPTIONAL and currently unused. Product images are static
+   * files in public/, committed to the repo, so nothing reads these yet.
+   *
+   * They were required, which meant a deploy to any host without them set would
+   * crash at boot on config for a feature that does not exist. They become
+   * required when admin image upload lands — validate them there, at the point
+   * of use, not here.
+   */
+  S3_ENDPOINT: z.url().optional(),
   S3_REGION: z.string().default('us-east-1'),
-  S3_BUCKET: z.string().min(1),
-  S3_ACCESS_KEY_ID: z.string().min(1),
-  S3_SECRET_ACCESS_KEY: z.string().min(1),
+  S3_BUCKET: z.string().optional(),
+  S3_ACCESS_KEY_ID: z.string().optional(),
+  S3_SECRET_ACCESS_KEY: z.string().optional(),
   S3_FORCE_PATH_STYLE: z
     .string()
     .default('false')
     .transform((v) => v === 'true'),
-  S3_PUBLIC_URL: z.url(),
+  S3_PUBLIC_URL: z.url().optional(),
 
   QPAY_BASE_URL: z.url(),
   QPAY_USERNAME: z.string().min(1),

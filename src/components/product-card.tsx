@@ -20,6 +20,18 @@ export function StockPill({ stock }: { stock: number }) {
   )
 }
 
+/**
+ * Sold-out flag laid over the photo, top right.
+ *
+ * On the image rather than beside the price because that is where the eye
+ * already is when scanning a grid — a tag down in the metadata row competes
+ * with the price for the same glance.
+ */
+function SoldOutFlag({ stock }: { stock: number }) {
+  if (stock > 0) return null
+  return <span className="card__flag">Дууссан</span>
+}
+
 export function ProductCard({ product }: { product: ProductCardData }) {
   return (
     <Link to="/products/$slug" params={{ slug: product.slug }} className="card">
@@ -29,6 +41,7 @@ export function ProductCard({ product }: { product: ProductCardData }) {
         ) : (
           <span className="card__ph">{product.name}</span>
         )}
+        <SoldOutFlag stock={product.totalStock} />
       </div>
 
       <div className="card__name">
@@ -37,8 +50,9 @@ export function ProductCard({ product }: { product: ProductCardData }) {
       </div>
 
       <div className="card__meta">
-        <StockPill stock={product.totalStock} />
-        <span className="card__price">{formatMnt(product.fromPrice)}</span>
+        <span className="card__price" data-out={product.totalStock <= 0}>
+          {formatMnt(product.fromPrice)}
+        </span>
       </div>
     </Link>
   )

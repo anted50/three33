@@ -484,6 +484,33 @@ h3 {
   font-variant-numeric: tabular-nums;
 }
 
+/* Sold out: the price is still worth showing, but it is not an offer. */
+.card__price[data-out='true'] {
+  color: var(--muted);
+}
+
+/*
+ * Sold-out flag, over the top-right of the photo. Red here and nowhere near
+ * the buy button, which is why the primary action is black — a red badge and
+ * a red button on the same screen compete for the same "look at me".
+ */
+.card__flag {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 4px 9px;
+  border-radius: 3px;
+  line-height: 1.4;
+  white-space: nowrap;
+  /* Above the image, including while it scales on hover. */
+  z-index: 1;
+}
+
 .pill {
   font-size: 10px;
   letter-spacing: 0.06em;
@@ -609,12 +636,18 @@ h3 {
   text-decoration: line-through;
 }
 
+/*
+ * Breathing room before the buy bar. The stepper sat directly against the
+ * button, so "how many" and "buy it" read as one control — and on mobile the
+ * sticky bar overlaps anything flush against it.
+ */
 .qty {
   display: inline-flex;
   align-items: center;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: 3px;
   overflow: hidden;
+  margin-bottom: 28px;
 }
 
 .qty button {
@@ -646,7 +679,12 @@ h3 {
   padding: 0 20px;
   border: 0;
   border-radius: var(--radius);
-  background: var(--accent);
+  /*
+   * Black, not the accent red. The accent is for state — active filters, focus
+   * rings, the sold-out flag — and a red badge beside a red button makes
+   * neither read as the primary thing to do.
+   */
+  background: var(--ink);
   color: #fff;
   font-size: 15px;
   font-weight: 600;
@@ -657,7 +695,7 @@ h3 {
 }
 
 .btn:hover:not(:disabled) {
-  background: var(--accent-dark);
+  background: #2f2f33;
 }
 
 .btn:disabled {
@@ -707,6 +745,11 @@ h3 {
     grid-template-columns: 1fr 1fr;
     gap: 48px;
     align-items: start;
+  }
+
+  /* Inline on desktop, so the gap is the buy bar's own margin instead. */
+  .pdp .qty {
+    margin-bottom: 20px;
   }
 
   .pdp__media {

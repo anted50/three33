@@ -1,5 +1,5 @@
 import { createServerFn } from '@tanstack/react-start'
-import { and, asc, eq, min, sql } from 'drizzle-orm'
+import { and, asc, eq, ilike, min, or, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '~/db'
 import {
@@ -17,7 +17,38 @@ import {
 
 export const listProductsInput = z.object({
   category: z.string().max(64).optional(),
+  q: z.string().trim().max(64).optional(),
 })
+
+/**
+ * Builds the search predicate.
+ *
+ * ILIKE across a handful of columns, not full-text search or trigram: the
+ * catalogue is 22 products and will not pass 100 SKUs. A GIN index would cost
+ * a migration and an extension to speed up a query that already returns in
+ * under a millisecond.
+ *
+ * Matches name (both languages), brand line, SKU and category, because people
+ * search for all of them — "pomade", "UD-DP-100", "сахал" and "Featherweight"
+ * are all things someone will type.
+ */
+function searchPredicate(raw: string) {
+  /**
+   * Escape LIKE wildcards. Drizzle parameterises the value so this is not an
+   * injection concern — but a customer typing "100%" should search for the
+   * literal text, not match every product in the shop.
+   */
+  const term = `%${raw.replace(/([\\%_])/g, '\\$1')}%`
+
+  return or(
+    ilike(products.nameMn, term),
+    ilike(products.nameEn, term),
+    ilike(products.brandLine, term),
+    ilike(productVariants.sku, term),
+    ilike(categories.nameMn, term),
+    ilike(categories.nameEn, term),
+  )
+}
 
 export interface ProductCard {
   slug: string
@@ -73,13 +104,14 @@ export const listProducts = createServerFn({ method: 'GET' })
         ),
       )
       .leftJoin(categories, eq(categories.id, products.categoryId))
+      // Category and search compose: searching inside a filtered category is
+      // what a chip plus a query field visibly implies.
       .where(
-        data.category
-          ? and(
-              eq(products.status, 'active'),
-              eq(categories.slug, data.category),
-            )
-          : eq(products.status, 'active'),
+        and(
+          eq(products.status, 'active'),
+          data.category ? eq(categories.slug, data.category) : undefined,
+          data.q ? searchPredicate(data.q) : undefined,
+        ),
       )
       .groupBy(products.id, products.slug, products.nameMn, products.createdAt)
       .orderBy(asc(products.createdAt))

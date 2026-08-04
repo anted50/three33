@@ -1,5 +1,6 @@
 import { Link } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
+import { SearchBox } from './search-box'
 
 export function Announce() {
   return (
@@ -22,8 +23,17 @@ export function Header({ cartCount = 0 }: { cartCount?: number }) {
           <Link to="/products">Бүтээгдэхүүн</Link>
         </nav>
 
+        {/* Desktop gets the field inline, as in the Figma header. */}
+        <div className="header__search">
+          <SearchBox />
+        </div>
+
         <div className="header__actions">
-          <Link to="/products" className="icon-btn" aria-label="Хайх">
+          {/*
+            On a phone there is no room for a field beside the logo and cart,
+            so the icon goes to the listing, where the field is always visible.
+          */}
+          <Link to="/products" className="icon-btn header__searchbtn" aria-label="Хайх">
             <SearchIcon />
           </Link>
           <Link to="/cart" className="icon-btn" aria-label="Сагс">

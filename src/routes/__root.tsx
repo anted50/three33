@@ -14,7 +14,25 @@ export const Route = createRootRoute({
       { name: 'viewport', content: 'width=device-width, initial-scale=1' },
       { title: 'Uppercut Deluxe Mongolia' },
     ],
-    links: [{ rel: 'stylesheet', href: appCss }],
+    links: [
+      // Preconnect before the stylesheet: the CSS request is render-blocking
+      // and the font files come from a second origin.
+      { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
+      {
+        rel: 'preconnect',
+        href: 'https://fonts.gstatic.com',
+        crossOrigin: 'anonymous',
+      },
+      {
+        rel: 'stylesheet',
+        // Variable weight axis, so 400/500/600/700 cost one file. Cyrillic and
+        // cyrillic-ext ship by default — checked, since the whole UI is
+        // Mongolian. display=swap so text renders in the fallback rather than
+        // staying invisible while the font loads.
+        href: 'https://fonts.googleapis.com/css2?family=Noto+Sans+Mono:wght@400..700&display=swap',
+      },
+      { rel: 'stylesheet', href: appCss },
+    ],
   }),
   component: RootComponent,
 })

@@ -8,8 +8,9 @@
  * collapses to a single column, because a barber checking whether an order came
  * in will do that on a phone.
  *
- * Type: one sans throughout, inherited from app.css. A serif display face was
- * tried here and looked wrong — this screen is mostly tables of numbers.
+ * Type: Noto Sans Mono throughout, inherited from app.css. A monospace face is
+ * a good fit here specifically — this screen is mostly tables of prices and
+ * stock counts, and mono gives tabular figures that line up by default.
  */
 
 .adm {
@@ -34,8 +35,8 @@
 
 .adm__logo {
   font-weight: 800;
-  font-size: 14px;
-  letter-spacing: 0.06em;
+  font-size: 13px;
+  letter-spacing: 0.03em;
   text-transform: uppercase;
   white-space: nowrap;
 }
@@ -261,7 +262,7 @@
 
 .adm__statlabel {
   font-size: 11px;
-  letter-spacing: 0.09em;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--muted);
   margin-bottom: 10px;
@@ -271,7 +272,7 @@
   font-size: 27px;
   line-height: 1.1;
   font-weight: 700;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
   font-variant-numeric: tabular-nums;
   margin-bottom: 6px;
 }
@@ -323,16 +324,16 @@
 
 .metric__sub {
   font-size: 11px;
-  letter-spacing: 0.09em;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--muted);
 }
 
 .metric__value {
-  font-size: 28px;
+  font-size: 26px;
   line-height: 1;
   font-weight: 700;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -454,7 +455,6 @@
 }
 
 .adm__mono {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
   word-break: break-all;
 }
@@ -485,7 +485,7 @@
 .adm__table th {
   text-align: left;
   font-size: 11px;
-  letter-spacing: 0.07em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--muted);
   font-weight: 500;

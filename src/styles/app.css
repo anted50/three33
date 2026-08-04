@@ -3,21 +3,28 @@
  *
  * Those frames are desktop-only, but most Mongolian traffic is mobile and QPay
  * settles through bank-app deeplinks on a phone. So the frames supply the visual
- * language — near-black CTAs, grey product tiles, thin borders, IN STOCK pills,
- * generous whitespace — and the layout is written mobile-first, with desktop as
- * the media-query branch rather than the default.
+ * language — grey product tiles, thin borders, IN STOCK pills, generous
+ * whitespace — and the layout is written mobile-first, with desktop as the
+ * media-query branch rather than the default. Colour and type diverge from the
+ * frames deliberately: red accent, near-square corners, monospace throughout.
  */
 
 :root {
   /*
-   * One family. A serif display face was tried and looked wrong for this
-   * brand — Uppercut's own packaging is condensed sans and stencil, not
-   * Garamond. Keeping a single stack also means no render-blocking request
-   * to a third-party font host.
+   * Noto Sans Mono throughout — brand, UI, tables, the lot.
+   *
+   * A monospace face suits the utilitarian barbershop feel far better than the
+   * serif did, and it has two practical advantages here: full Cyrillic and
+   * cyrillic-ext coverage (checked, since the whole UI is Mongolian), and
+   * naturally tabular figures, which is what admin's tables of prices and
+   * stock counts want anyway.
+   *
+   * The monospace fallbacks matter: if the webfont fails, landing on another
+   * mono keeps the layout intact rather than reflowing into a proportional face.
    */
   --font-ui:
-    'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
-    'Helvetica Neue', Arial, sans-serif;
+    'Noto Sans Mono', ui-monospace, SFMono-Regular, 'Cascadia Mono', Menlo,
+    Consolas, monospace;
 
   --ink: #121212;
   --ink-soft: #3f3f46;
@@ -69,8 +76,8 @@ body {
   background: var(--bg);
   color: var(--ink);
   font-family: var(--font-ui);
-  font-size: 15px;
-  line-height: 1.5;
+  font-size: 14px;
+  line-height: 1.55;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -100,7 +107,7 @@ h1,
 h2,
 h3 {
   line-height: 1.2;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
   font-weight: 600;
 }
 
@@ -143,8 +150,8 @@ h3 {
 
 .logo {
   font-weight: 800;
-  font-size: 17px;
-  letter-spacing: 0.08em;
+  font-size: 16px;
+  letter-spacing: 0.03em;
   text-transform: uppercase;
   white-space: nowrap;
 }
@@ -156,6 +163,63 @@ h3 {
 
 .header__nav {
   display: none;
+}
+
+/* --------------------------------------------------------------- search */
+
+.header__search {
+  display: none;
+}
+
+.search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #fff;
+  padding: 0 12px;
+  margin: 16px 0 0;
+}
+
+.search:focus-within {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.search svg {
+  flex: 0 0 17px;
+  color: var(--muted);
+}
+
+.search input {
+  flex: 1;
+  min-width: 0;
+  min-height: 46px;
+  border: 0;
+  outline: 0;
+  background: none;
+  font-size: 15px;
+}
+
+/* Safari draws its own clear button on type=search; we have our own. */
+.search input::-webkit-search-decoration,
+.search input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+}
+
+.search__clear {
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px 2px;
+}
+
+.search__clear:hover {
+  color: var(--accent);
 }
 
 .header__actions {
@@ -207,11 +271,31 @@ h3 {
     display: flex;
     gap: 28px;
     font-size: 14px;
-    margin-inline: auto;
   }
 
   .header__nav a:hover {
-    color: var(--muted);
+    color: var(--accent);
+  }
+
+  /* Field inline in the bar, and the icon button becomes redundant. */
+  .header__search {
+    display: block;
+    flex: 1;
+    max-width: 380px;
+    margin-inline: auto;
+  }
+
+  .header__search .search {
+    margin: 0;
+  }
+
+  .header__search .search input {
+    min-height: 40px;
+    font-size: 14px;
+  }
+
+  .header__searchbtn {
+    display: none;
   }
 }
 
@@ -312,7 +396,7 @@ h3 {
 /* Placeholder until product photography arrives from the client. */
 .card__ph {
   font-size: 11px;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: #a1a1aa;
   text-align: center;
@@ -416,7 +500,7 @@ h3 {
 
 .label {
   font-size: 11px;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--muted);
   margin-bottom: 8px;

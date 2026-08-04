@@ -11,6 +11,16 @@ loadDotEnv()
 export default defineConfig({
   server: {
     port: 3000,
+    /**
+     * Vite rejects requests whose Host header it does not recognise, which is
+     * right for localhost but blocks tunnels — a Cloudflare or ngrok hostname
+     * gets a bare "Blocked request" page that looks like the app is broken.
+     *
+     * Bare IPs (phone on the same Wi-Fi) are allowed without this; these two
+     * entries are only so `cloudflared tunnel --url http://localhost:3000`
+     * works, which is also how QPay callbacks can reach a dev machine.
+     */
+    allowedHosts: ['.trycloudflare.com', '.ngrok-free.app', '.ngrok.io'],
   },
   resolve: {
     // Explicit rather than relying on resolve.tsconfigPaths alone, which does

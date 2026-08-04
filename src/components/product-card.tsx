@@ -35,7 +35,7 @@ function SoldOutFlag({ stock }: { stock: number }) {
 export function ProductCard({ product }: { product: ProductCardData }) {
   return (
     <Link to="/products/$slug" params={{ slug: product.slug }} className="card">
-      <div className="card__media">
+      <div className="card__media" data-out={product.totalStock <= 0}>
         {product.imageUrl ? (
           <img src={product.imageUrl} alt={product.name} />
         ) : (

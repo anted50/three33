@@ -421,6 +421,25 @@ h3 {
   transition: transform 0.28s ease;
 }
 
+/*
+ * Sold out: dim the photo so the state is legible at a glance across a grid,
+ * before anyone reads the flag.
+ *
+ * Dimming the <img> rather than overlaying the tile, so the red flag sitting
+ * on top keeps its full contrast — an overlay would mute that too, which is
+ * the one thing that must stay readable.
+ */
+.card__media[data-out='true'] img {
+  filter: grayscale(0.55) brightness(0.72);
+}
+
+/* A dimmed photo should not brighten just because the cursor is over it. */
+@media (hover: hover) and (pointer: fine) {
+  .card:hover .card__media[data-out='true'] img {
+    filter: grayscale(0.45) brightness(0.78);
+  }
+}
+
 @media (hover: hover) and (pointer: fine) {
   .card:hover .card__media {
     background: #eeeef0;

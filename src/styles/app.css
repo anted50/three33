@@ -345,14 +345,25 @@ h3 {
   display: none;
 }
 
+/* Almost square, not quite — 3px keeps the corner from looking accidental. */
 .chip {
   flex: 0 0 auto;
   padding: 8px 14px;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: 3px;
   font-size: 13px;
   white-space: nowrap;
   background: #fff;
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .chip:hover:not([data-active='true']) {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
 }
 
 .chip[data-active='true'] {
@@ -383,6 +394,15 @@ h3 {
   }
 }
 
+/*
+ * Hover is a pointer-only affordance. Wrapped in a hover/fine-pointer query so
+ * a phone never gets a stuck hover state after a tap — touch browsers emulate
+ * :hover on tap and leave it applied until you touch elsewhere.
+ */
+.card {
+  display: block;
+}
+
 .card__media {
   aspect-ratio: 1;
   background: var(--surface);
@@ -391,6 +411,46 @@ h3 {
   place-items: center;
   overflow: hidden;
   margin-bottom: 10px;
+  position: relative;
+  transition:
+    box-shadow 0.18s ease,
+    background 0.18s ease;
+}
+
+.card__media img {
+  transition: transform 0.28s ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .card:hover .card__media {
+    background: #eeeef0;
+    box-shadow: inset 0 0 0 1px var(--border);
+  }
+
+  /* Scale the photo, not the tile, so the rounded corner stays put. */
+  .card:hover .card__media img {
+    transform: scale(1.04);
+  }
+
+  .card:hover .card__name {
+    color: var(--accent);
+  }
+}
+
+.card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card__media,
+  .card__media img {
+    transition: none;
+  }
+
+  .card:hover .card__media img {
+    transform: none;
+  }
 }
 
 /* Placeholder until product photography arrives from the client. */
@@ -408,6 +468,7 @@ h3 {
   font-size: 14px;
   font-weight: 500;
   margin-bottom: 6px;
+  transition: color 0.15s ease;
 }
 
 .card__meta {
@@ -428,7 +489,7 @@ h3 {
   letter-spacing: 0.06em;
   text-transform: uppercase;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: 3px;
   padding: 3px 8px;
   color: var(--ink-soft);
   white-space: nowrap;
@@ -513,15 +574,26 @@ h3 {
   margin-bottom: 20px;
 }
 
+/* Matches the category chips: almost square, not quite. */
 .size {
   min-width: 56px;
   min-height: 44px;
   padding: 0 14px;
   border: 1px solid var(--border);
   background: #fff;
-  border-radius: var(--radius);
+  border-radius: 3px;
   font-size: 14px;
   cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .size:hover:not(:disabled):not([data-active='true']) {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
 }
 
 .size[data-active='true'] {

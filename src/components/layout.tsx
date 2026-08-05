@@ -44,18 +44,11 @@ export function UtilityStrip() {
 
         <div className="strip__right">
           <a
-            href="https://www.instagram.com/"
+            href="https://www.instagram.com/three33barber/"
             target="_blank"
             rel="noreferrer noopener"
           >
             Instagram
-          </a>
-          <a
-            href="https://www.facebook.com/"
-            target="_blank"
-            rel="noreferrer noopener"
-          >
-            Facebook
           </a>
           <button
             type="button"
@@ -84,6 +77,25 @@ export function Header() {
   // header — the category row is on all of them.
   const data = useLoaderData({ from: '__root__' }) as RootData
 
+  /**
+   * Mobile search panel.
+   *
+   * Deliberately not closed on navigation: typing in the box navigates on every
+   * keystroke (debounced, with replace), so closing on a location change would
+   * shut the panel on the first letter typed. It closes on Escape, or by
+   * tapping the icon again.
+   */
+  const [searchOpen, setSearchOpen] = useState(false)
+
+  useEffect(() => {
+    if (!searchOpen) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setSearchOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [searchOpen])
+
   return (
     <header className="header">
       <div className="wrap header__bar">
@@ -91,18 +103,21 @@ export function Header() {
           Three 33 <span>× Uppercut</span>
         </Link>
 
+        {/* Inline field, desktop only. The panel below covers mobile. */}
         <div className="header__search">
           <SearchBox />
         </div>
 
         <div className="header__actions">
-          <Link
-            to="/products"
+          <button
+            type="button"
             className="icon-btn header__searchbtn"
             aria-label="Хайх"
+            aria-expanded={searchOpen}
+            onClick={() => setSearchOpen((open) => !open)}
           >
-            <SearchIcon />
-          </Link>
+            {searchOpen ? <CloseIcon /> : <SearchIcon />}
+          </button>
           <Link to="/cart" className="icon-btn" aria-label="Сагс">
             <CartIcon />
             {data.cartCount > 0 && (
@@ -111,6 +126,14 @@ export function Header() {
           </Link>
         </div>
       </div>
+
+      {searchOpen && (
+        <div className="header__panel">
+          <div className="wrap">
+            <SearchBox autoFocus />
+          </div>
+        </div>
+      )}
 
       {/* Category row, as on the reference site. Scrolls horizontally on a phone. */}
       <nav className="catnav">
@@ -205,6 +228,19 @@ function SearchIcon() {
       <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.8" />
       <path
         d="m20 20-3.5-3.5"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
+function CloseIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M6 6l12 12M18 6L6 18"
         stroke="currentColor"
         strokeWidth="1.8"
         strokeLinecap="round"

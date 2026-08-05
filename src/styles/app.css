@@ -284,8 +284,19 @@ h3 {
 
 /* --------------------------------------------------------------- search */
 
+/* Inline field is desktop-only; mobile gets the toggled panel below. */
 .header__search {
   display: none;
+}
+
+.header__panel {
+  border-top: 1px solid var(--border);
+  background: #fff;
+  padding-bottom: 12px;
+}
+
+.header__panel .search {
+  margin-top: 12px;
 }
 
 .search {
@@ -411,7 +422,9 @@ h3 {
     font-size: 14px;
   }
 
-  .header__searchbtn {
+  /* The field is inline up here, so the toggle and its panel are redundant. */
+  .header__searchbtn,
+  .header__panel {
     display: none;
   }
 }

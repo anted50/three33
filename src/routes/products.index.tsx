@@ -2,7 +2,6 @@ import { createFileRoute, Link } from '@tanstack/react-router'
 import { z } from 'zod'
 import { Page, SortTabs } from '~/components/layout'
 import { ProductCard } from '~/components/product-card'
-import { SearchBox } from '~/components/search-box'
 import { listCategories, listProducts } from '~/lib/server/products/queries'
 
 /** Filter state lives in the URL, so a filtered or searched list is shareable. */
@@ -42,9 +41,11 @@ function Listing() {
           {q ? `"${q}" хайлт` : active ? active.nameMn : 'Бүтээгдэхүүн'}
         </p>
 
-        <SearchBox />
-
-        {/* Categories live in the header now; this row is the sort tabs. */}
+        {/*
+          No search field here — the header owns search at both breakpoints
+          (inline on desktop, toggled panel on mobile). Rendering one here too
+          put two search bars on the same desktop page.
+        */}
         <SortTabs current={sort} />
 
         {products.length === 0 ? (

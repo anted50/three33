@@ -3,10 +3,10 @@ import {
   createFileRoute,
   Link,
   notFound,
-  useNavigate,
   useRouter,
 } from '@tanstack/react-router'
 import { Page } from '~/components/layout'
+import { useCartDrawer } from '~/components/cart-drawer'
 import { StockPill } from '~/components/product-card'
 import { formatMnt } from '~/lib/money'
 import { addToCart } from '~/lib/server/cart/cart'
@@ -33,7 +33,7 @@ export const Route = createFileRoute('/products/$slug')({
 function ProductDetail() {
   const product = Route.useLoaderData()
   const router = useRouter()
-  const navigate = useNavigate()
+  const { openCart } = useCartDrawer()
   const [adding, setAdding] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -161,7 +161,10 @@ function ProductDetail() {
                     await addToCart({ data: { variantId: variant.id, qty } })
                     // Invalidate so the header badge picks up the new count.
                     await router.invalidate()
-                    await navigate({ to: '/cart' })
+                    // Drawer instead of navigating away — you stay on the
+                    // product you were looking at.
+                    openCart()
+                    setAdding(false)
                   } catch (err) {
                     setError(
                       err instanceof Error ? err.message : 'Нэмэхэд алдаа гарлаа',

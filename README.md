@@ -24,9 +24,8 @@ secret — see `src/lib/server/env.ts`.
 docker compose up -d
 ```
 
-Starts Postgres on 5432 and MinIO on 9000 (console 9001, `minioadmin` /
-`minioadmin`). The `minio-init` container creates the `uppercut-media` bucket
-and exits — that's expected, not a crash.
+Starts Postgres on 5432. That's the only service — there is no object storage,
+because product images are static files in `public/products/`.
 
 ```bash
 npm install

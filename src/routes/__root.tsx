@@ -6,6 +6,7 @@ import {
   Scripts,
 } from '@tanstack/react-router'
 import appCss from '~/styles/app.css?url'
+import { CartProvider } from '~/components/cart-drawer'
 import { getCart } from '~/lib/server/cart/cart'
 import { listCategories } from '~/lib/server/products/queries'
 
@@ -51,7 +52,11 @@ export const Route = createRootRoute({
 function RootComponent() {
   return (
     <RootDocument>
-      <Outlet />
+      {/* Provider at the root so the header and any product page share one
+          drawer, and it survives navigation between them. */}
+      <CartProvider>
+        <Outlet />
+      </CartProvider>
     </RootDocument>
   )
 }

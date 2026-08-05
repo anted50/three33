@@ -43,12 +43,10 @@ Idempotent, so a second run changes nothing.
 
 ## Object storage — not needed yet
 
-Nothing in the app reads S3. Product images are static `.webp` files committed
-under `public/products/` and served by the app itself.
-
-The `S3_*` variables **were** required by `src/lib/server/env.ts`, which would
-have crashed the first Railway boot on configuration for a feature that does
-not exist. They are optional now.
+There is no object storage anywhere in this project — no bucket, no
+credentials, no MinIO service, no `S3_*` variables. Product images are static
+`.webp` files committed under `public/products/` and served by the app. All 22
+come to under a megabyte, so a bucket and its failure modes bought nothing.
 
 Storage becomes necessary when admin image upload lands, because a container's
 filesystem does not survive a redeploy — an uploaded image would vanish on the

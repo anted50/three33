@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useLoaderData } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
 import { SearchBox } from './search-box'
+import { useCartDrawer } from './cart-drawer'
 
 /**
  * Header structure follows the reference site the client pointed at: a
@@ -10,62 +11,6 @@ import { SearchBox } from './search-box'
  *
  * The arrangement is theirs; the type, colour, copy and behaviour are ours.
  */
-
-const STRIP_KEY = 'uc_strip_dismissed'
-
-export function UtilityStrip() {
-  /**
-   * Renders on the server and stays until the client says otherwise. Reading
-   * localStorage during render would differ between server and client markup
-   * and trip a hydration mismatch, so the check runs in an effect and the strip
-   * simply disappears a frame later for people who dismissed it.
-   */
-  const [hidden, setHidden] = useState(false)
-
-  useEffect(() => {
-    if (localStorage.getItem(STRIP_KEY) === '1') setHidden(true)
-  }, [])
-
-  if (hidden) return null
-
-  return (
-    <div className="strip">
-      <div className="wrap strip__bar">
-        <nav className="strip__links">
-          <a href="tel:+97699051483">Холбоо барих</a>
-          <a
-            href="https://maps.google.com/?q=Yarmag,Khan-Uul,Ulaanbaatar"
-            target="_blank"
-            rel="noreferrer noopener"
-          >
-            Салбар
-          </a>
-        </nav>
-
-        <div className="strip__right">
-          <a
-            href="https://www.instagram.com/three33barber/"
-            target="_blank"
-            rel="noreferrer noopener"
-          >
-            Instagram
-          </a>
-          <button
-            type="button"
-            className="strip__close"
-            aria-label="Хаах"
-            onClick={() => {
-              localStorage.setItem(STRIP_KEY, '1')
-              setHidden(true)
-            }}
-          >
-            ×
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
 
 interface RootData {
   categories: Array<{ slug: string; nameMn: string; nameEn: string }>
@@ -76,6 +21,7 @@ export function Header() {
   // Loaded once in the root route rather than by every page that renders a
   // header — the category row is on all of them.
   const data = useLoaderData({ from: '__root__' }) as RootData
+  const { openCart } = useCartDrawer()
 
   /**
    * Mobile search panel.
@@ -118,12 +64,17 @@ export function Header() {
           >
             {searchOpen ? <CloseIcon /> : <SearchIcon />}
           </button>
-          <Link to="/cart" className="icon-btn" aria-label="Сагс">
+          <button
+            type="button"
+            className="icon-btn"
+            aria-label="Сагс"
+            onClick={openCart}
+          >
             <CartIcon />
             {data.cartCount > 0 && (
               <span className="badge">{data.cartCount}</span>
             )}
-          </Link>
+          </button>
         </div>
       </div>
 
@@ -203,8 +154,8 @@ export function Footer() {
           <Link to="/products">Бүтээгдэхүүн</Link>
           <a href="tel:+97699051483">Холбоо барих</a>
         </div>
+        {/* Address omitted until the client confirms the shop location. */}
         <p>Three 33 Barbershop — Uppercut Deluxe албан ёсны борлуулагч.</p>
-        <p>Хан-Уул дүүрэг, 24-р хороо, Яармаг, Улаанбаатар.</p>
       </div>
     </footer>
   )
@@ -213,7 +164,6 @@ export function Footer() {
 export function Page({ children }: { children: ReactNode }) {
   return (
     <>
-      <UtilityStrip />
       <Header />
       <main>{children}</main>
       <Footer />

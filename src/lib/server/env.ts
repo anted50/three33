@@ -22,24 +22,15 @@ const schema = z.object({
   DB_DRIVER: z.enum(['postgres', 'pglite']).optional(),
 
   /*
-   * Object storage is OPTIONAL and currently unused. Product images are static
-   * files in public/, committed to the repo, so nothing reads these yet.
+   * No object storage. Product images are static files in public/products/,
+   * committed to the repo and served by the app — all 22 of them come to under
+   * a megabyte, so a bucket, its credentials and its failure modes bought
+   * nothing.
    *
-   * They were required, which meant a deploy to any host without them set would
-   * crash at boot on config for a feature that does not exist. They become
-   * required when admin image upload lands — validate them there, at the point
-   * of use, not here.
+   * If admin image upload lands later it needs somewhere durable, because a
+   * container's filesystem does not survive a redeploy. Cloudflare R2 or a
+   * Railway volume at that point; not before.
    */
-  S3_ENDPOINT: z.url().optional(),
-  S3_REGION: z.string().default('us-east-1'),
-  S3_BUCKET: z.string().optional(),
-  S3_ACCESS_KEY_ID: z.string().optional(),
-  S3_SECRET_ACCESS_KEY: z.string().optional(),
-  S3_FORCE_PATH_STYLE: z
-    .string()
-    .default('false')
-    .transform((v) => v === 'true'),
-  S3_PUBLIC_URL: z.url().optional(),
 
   QPAY_BASE_URL: z.url(),
   QPAY_USERNAME: z.string().min(1),

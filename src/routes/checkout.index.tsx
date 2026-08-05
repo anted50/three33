@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { Page } from '~/components/layout'
+import { useCartDrawer } from '~/components/cart-drawer'
 import { formatMnt } from '~/lib/money'
 import { getCart, getShippingRates } from '~/lib/server/cart/cart'
 import { UB_DISTRICTS, zoneForDistrict } from '~/lib/server/cart/pricing'
@@ -16,6 +17,7 @@ export const Route = createFileRoute('/checkout/')({
 
 function Checkout() {
   const { cart, rates } = Route.useLoaderData()
+  const { openCart } = useCartDrawer()
   const navigate = useNavigate()
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -82,7 +84,11 @@ function Checkout() {
     <Page>
       <div className="wrap">
         <p className="crumbs">
-          <Link to="/cart">Сагс</Link> › Захиалга
+          {/* The cart is a drawer now, so there is no page to link back to. */}
+          <button type="button" className="linkish" onClick={openCart}>
+            Сагс
+          </button>{' '}
+          › Захиалга
         </p>
 
         <h1 className="page-title">Хүргэлтийн мэдээлэл</h1>

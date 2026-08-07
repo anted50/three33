@@ -3,8 +3,13 @@ import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { Page } from '~/components/layout'
 import { useCartDrawer } from '~/components/cart-drawer'
 import { formatMnt } from '~/lib/money'
+import {
+  MN_PROVINCES,
+  ULAANBAATAR,
+  unitsForProvince,
+} from '~/lib/mn-regions'
 import { getCart, getShippingRates } from '~/lib/server/cart/cart'
-import { UB_DISTRICTS, zoneForDistrict } from '~/lib/server/cart/pricing'
+import { zoneForProvince } from '~/lib/server/cart/pricing'
 import { createOrder } from '~/lib/server/orders/create'
 
 export const Route = createFileRoute('/checkout/')({
@@ -21,14 +26,21 @@ function Checkout() {
   const navigate = useNavigate()
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [district, setDistrict] = useState<string>('Хан-Уул')
+  /**
+   * Аймаг/хот → сум/дүүрэг. The second level is derived from the first, and
+   * changing the first clears it: leaving 'Хан-Уул' selected after switching to
+   * Дархан-Уул would submit a pair that does not exist.
+   */
+  const [province, setProvince] = useState<string>(ULAANBAATAR)
+  const [district, setDistrict] = useState<string>('')
+  const districts = unitsForProvince(province)
 
   /**
    * Computed from the server's own rates, so what is quoted here and what the
    * order is charged cannot drift. The server still recomputes at checkout —
    * this is a preview of that result, not an input to it.
    */
-  const zone = zoneForDistrict(district)
+  const zone = zoneForProvince(province)
   const shipping =
     zone === 'ub' && cart.subtotal >= rates.freeUbThreshold ? 0 : rates[zone]
 
@@ -62,6 +74,7 @@ function Checkout() {
           name: String(form.get('name') ?? ''),
           phone: String(form.get('phone') ?? ''),
           email: String(form.get('email') ?? ''),
+          province: String(form.get('province') ?? ''),
           district: String(form.get('district') ?? ''),
           khoroo: String(form.get('khoroo') ?? ''),
           line1: String(form.get('line1') ?? ''),
@@ -120,25 +133,53 @@ function Checkout() {
           </label>
 
           <label className="field">
-            <span>Дүүрэг / Аймаг *</span>
+            <span>Аймаг / Хот *</span>
+            <select
+              name="province"
+              required
+              value={province}
+              onChange={(e) => {
+                setProvince(e.target.value)
+                setDistrict('')
+              }}
+            >
+              {MN_PROVINCES.map((p) => (
+                <option key={p.name} value={p.name}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="field">
+            <span>Сум / Дүүрэг *</span>
             <select
               name="district"
               required
               value={district}
               onChange={(e) => setDistrict(e.target.value)}
             >
-              {UB_DISTRICTS.map((d) => (
+              <option value="" disabled>
+                Сонгоно уу
+              </option>
+              {districts.map((d) => (
                 <option key={d} value={d}>
                   {d}
                 </option>
               ))}
-              <option value="Орон нутаг">Орон нутаг</option>
             </select>
           </label>
 
           <label className="field">
-            <span>Хороо *</span>
-            <input name="khoroo" required maxLength={100} placeholder="24-р хороо" />
+            <span>Баг / Хороо *</span>
+            <input
+              name="khoroo"
+              required
+              maxLength={100}
+              placeholder={
+                province === ULAANBAATAR ? '24-р хороо' : '1-р баг'
+              }
+            />
           </label>
 
           <label className="field">

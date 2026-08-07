@@ -39,7 +39,7 @@ const schema = z.object({
   QPAY_CALLBACK_SECRET: z.string().min(32),
 
   RESEND_API_KEY: z.string().optional(),
-  EMAIL_FROM: z.string().default('Uppercut Deluxe Mongolia <noreply@localhost>'),
+  EMAIL_FROM: z.string().default('Three 33 Barbershop <noreply@localhost>'),
 
   // Mungu. Configurable in admin later; env is the v1 source of truth.
   SHIPPING_FEE_UB: z.coerce.number().int().nonnegative(),

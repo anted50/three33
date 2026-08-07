@@ -1,46 +1,67 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
+import { HeroAscii } from '~/components/hero-ascii'
+import { HeroField } from '~/components/hero-field'
 import { Page } from '~/components/layout'
 import { ProductCard } from '~/components/product-card'
-import { listCategories, listProducts } from '~/lib/server/products/queries'
+import { listProducts } from '~/lib/server/products/queries'
 
+/**
+ * No categories in this loader. The header's category row is fed by the root
+ * loader on every page, so fetching them again here was a second query for a
+ * second copy of the same nav — which is the duplication the chip row below the
+ * hero represented on screen.
+ */
 export const Route = createFileRoute('/')({
   loader: async () => ({
-    categories: await listCategories(),
     products: await listProducts({ data: {} }),
   }),
   component: Home,
 })
 
 function Home() {
-  const { categories, products } = Route.useLoaderData()
+  const { products } = Route.useLoaderData()
   const featured = products.slice(0, 8)
 
   return (
     <Page>
       <section className="hero">
+        <HeroField engine="matrix" />
+        <HeroAscii />
+
         <div className="wrap">
-          <h1>Uppercut Deluxe Монгол</h1>
-          <p>
-            Австралийн мэргэжлийн үс засалтын брэнд. Three 33 Barbershop-ийн
-            албан ёсны борлуулалт.
-          </p>
+          <div className="hero__copy">
+            {/*
+              The shop is the brand here, not the labels it stocks. The eyebrow
+              and lede stay to what the shop can actually stand behind — where
+              it is and where it delivers — rather than a supplier's founding
+              year or a claim about distribution rights.
+            */}
+            <p className="hero__eyebrow">Улаанбаатар</p>
+            <h1>
+              Three 33
+              <span className="hero__accent">Barbershop</span>
+            </h1>
+            <p className="hero__lede">
+              Мэргэжлийн үс засал, сахал арчилгааны бүтээгдэхүүн. Улаанбаатар
+              хот болон орон нутагт хүргэнэ.
+            </p>
+            <div className="hero__actions">
+              <Link to="/products" className="btn">
+                Бүтээгдэхүүн үзэх
+              </Link>
+              <Link
+                to="/products"
+                search={{ category: 'styling' }}
+                className="btn btn--onDark"
+              >
+                Үс засалт
+              </Link>
+            </div>
+          </div>
         </div>
       </section>
 
       <div className="wrap">
-        <div className="chips">
-          {categories.map((category) => (
-            <Link
-              key={category.slug}
-              to="/products"
-              search={{ category: category.slug }}
-              className="chip"
-            >
-              {category.nameMn}
-            </Link>
-          ))}
-        </div>
-
         <div className="section-head">
           <h2>Онцлох бүтээгдэхүүн</h2>
           <Link to="/products">Бүгдийг үзэх →</Link>

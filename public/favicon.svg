@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1000" width="1000" height="1000">
+  <!--
+    Written from the same measured geometry as src/components/logo.tsx, not the
+    generator's export: that one was 117KB because it embedded the light and
+    dark icons as base64 PNGs. This is the same mark as vectors, and it stays
+    crisp at every size a browser asks for.
+
+    The mark is 1064x334, centred in the square canvas and scaled to 800 wide,
+    which leaves a 100-unit margin left and right — a favicon drawn edge to edge
+    looks cramped in a tab strip.
+  -->
+  <style>
+    /* Tabs are dark far more often than the page is, so the mark follows the
+       browser's scheme rather than assuming a light strip. */
+    :root { color: #1b1b1b; }
+    @media (prefers-color-scheme: dark) { :root { color: #ffffff; } }
+  </style>
+  <g transform="translate(100 374) scale(0.7519)">
+    <circle cx="166" cy="167" r="157.5" fill="none" stroke="currentColor" stroke-width="18"/>
+    <circle cx="531.5" cy="167" r="167" fill="currentColor"/>
+    <circle cx="897" cy="167" r="157.5" fill="none" stroke="currentColor" stroke-width="18"/>
+  </g>
+</svg>

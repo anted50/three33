@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { Page } from '~/components/layout'
+import { formatArea } from '~/lib/mn-regions'
 import { formatMnt } from '~/lib/money'
 import { getOrder } from '~/lib/server/orders/queries'
 
@@ -68,7 +69,7 @@ function Success() {
           <p>
             {address.name} · {address.phone}
             <br />
-            {address.district}, {address.khoroo}
+            {formatArea(address)}
             <br />
             {address.line1}
             {address.line2 ? `, ${address.line2}` : ''}

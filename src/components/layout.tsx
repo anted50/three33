@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useLoaderData } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
+import { Logo } from './logo'
 import { SearchBox } from './search-box'
 import { useCartDrawer } from './cart-drawer'
 
@@ -45,8 +46,14 @@ export function Header() {
   return (
     <header className="header">
       <div className="wrap header__bar">
-        <Link to="/" className="logo">
-          Three 33 <span>× Uppercut</span>
+        {/*
+          The mark carries no wordmark, so the shop's name has to come from the
+          accessible name instead — without it the only link to the homepage
+          announces as "link" and the site loses its name in the a11y tree, in
+          search results' link context, and to anyone with images off.
+        */}
+        <Link to="/" className="logo" aria-label="Three 33 Barbershop — нүүр">
+          <Logo className="logo__mark" />
         </Link>
 
         {/* Inline field, desktop only. The panel below covers mobile. */}
@@ -155,7 +162,7 @@ export function Footer() {
           <a href="tel:+97699051483">Холбоо барих</a>
         </div>
         {/* Address omitted until the client confirms the shop location. */}
-        <p>Three 33 Barbershop — Uppercut Deluxe албан ёсны борлуулагч.</p>
+        <p>Three 33 Barbershop — мэргэжлийн үс засал, сахал арчилгаа.</p>
       </div>
     </footer>
   )

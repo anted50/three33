@@ -10,27 +10,44 @@ import {
   productVariants,
   products,
 } from '~/db/schema'
+import { PROVINCE_NAMES, unitsForProvince } from '~/lib/mn-regions'
 import { currentCart, shippingRates } from '../cart/internal'
-import { computeTotals, zoneForDistrict } from '../cart/pricing'
+import { computeTotals, zoneForProvince } from '../cart/pricing'
 import { buildCallbackUrl } from '../payments/callback-token'
 import { getQpayProvider } from '../payments/qpay'
 import { env } from '../env'
 import { generateOrderNo } from './order-no'
 
-export const checkoutInput = z.object({
-  name: z.string().trim().min(1).max(100),
-  phone: z
-    .string()
-    .trim()
-    // Mongolian mobile numbers are 8 digits.
-    .regex(/^\d{8}$/, 'Утасны дугаар 8 оронтой байх ёстой'),
-  email: z.email().max(255).optional().or(z.literal('')),
-  district: z.string().trim().min(1).max(100),
-  khoroo: z.string().trim().min(1).max(100),
-  line1: z.string().trim().min(1).max(255),
-  line2: z.string().trim().max(255).optional().or(z.literal('')),
-  note: z.string().trim().max(1000).optional().or(z.literal('')),
-})
+const isProvince = (value: string) => PROVINCE_NAMES.includes(value)
+
+export const checkoutInput = z
+  .object({
+    name: z.string().trim().min(1).max(100),
+    phone: z
+      .string()
+      .trim()
+      // Mongolian mobile numbers are 8 digits.
+      .regex(/^\d{8}$/, 'Утасны дугаар 8 оронтой байх ёстой'),
+    email: z.email().max(255).optional().or(z.literal('')),
+    // Аймаг/хот and сум/дүүрэг are closed sets, so they are checked against
+    // the registry rather than taken as free text: the shipping zone and the
+    // courier's routing both key off them.
+    province: z.string().trim().refine(isProvince, 'Аймаг/хот сонгоно уу'),
+    district: z.string().trim().min(1).max(100),
+    khoroo: z.string().trim().min(1).max(100),
+    line1: z.string().trim().min(1).max(255),
+    line2: z.string().trim().max(255).optional().or(z.literal('')),
+    note: z.string().trim().max(1000).optional().or(z.literal('')),
+  })
+  /**
+   * The сум must belong to the аймаг. Without this, a browser could pair
+   * 'Улаанбаатар' with a countryside сум and be quoted city delivery for a
+   * parcel that has to leave the city.
+   */
+  .refine((v) => unitsForProvince(v.province).includes(v.district), {
+    message: 'Сум/дүүрэг сонгосон аймаг/хоттой таарахгүй байна',
+    path: ['district'],
+  })
 
 export interface CheckoutResult {
   orderNo: string
@@ -63,7 +80,7 @@ export const createOrder = createServerFn({ method: 'POST' })
       throw new Error('Таны сагс хоосон байна')
     }
 
-    const zone = zoneForDistrict(data.district)
+    const zone = zoneForProvince(data.province)
 
     const { order, total } = await db.transaction(async (tx) => {
       /**
@@ -127,6 +144,7 @@ export const createOrder = createServerFn({ method: 'POST' })
             name: data.name,
             phone: data.phone,
             email: data.email || null,
+            province: data.province,
             district: data.district,
             khoroo: data.khoroo,
             line1: data.line1,
@@ -166,7 +184,9 @@ export const createOrder = createServerFn({ method: 'POST' })
     const invoice = await provider.createInvoice({
       orderNo: order.orderNo,
       amount: total,
-      description: `Uppercut ${order.orderNo}`,
+      // Shows on the payer's bank statement, so it names the shop, not a label
+      // the shop happens to stock.
+      description: `Three 33 ${order.orderNo}`,
       callbackUrl: buildCallbackUrl(
         env.APP_URL,
         order.orderNo,

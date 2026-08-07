@@ -3,7 +3,7 @@ import { tugrikToMungu } from '~/lib/money'
 import {
   clampQty,
   computeTotals,
-  zoneForDistrict,
+  zoneForProvince,
   type ShippingRates,
 } from './pricing'
 
@@ -19,15 +19,22 @@ const line = (price: number, qty: number) => ({
   qty,
 })
 
-describe('zoneForDistrict', () => {
-  it('treats the nine UB districts as the city zone', () => {
-    expect(zoneForDistrict('Хан-Уул')).toBe('ub')
-    expect(zoneForDistrict('Баянзүрх')).toBe('ub')
+describe('zoneForProvince', () => {
+  it('treats the capital as the city zone', () => {
+    expect(zoneForProvince('Улаанбаатар')).toBe('ub')
   })
 
-  it('treats anything else as countryside', () => {
-    expect(zoneForDistrict('Дархан')).toBe('countryside')
-    expect(zoneForDistrict('')).toBe('countryside')
+  it('treats every aimag as countryside', () => {
+    expect(zoneForProvince('Дархан-Уул')).toBe('countryside')
+    expect(zoneForProvince('Орхон')).toBe('countryside')
+    expect(zoneForProvince('')).toBe('countryside')
+  })
+
+  it('does not read a sum name as the capital', () => {
+    // 'Сүхбаатар' and 'Баянгол' are both UB districts and countryside sums;
+    // only the province decides.
+    expect(zoneForProvince('Сүхбаатар')).toBe('countryside')
+    expect(zoneForProvince('Баянгол')).toBe('countryside')
   })
 })
 

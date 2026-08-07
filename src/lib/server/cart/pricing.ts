@@ -1,4 +1,5 @@
 import { lineTotal, sumMungu, type Mungu } from '~/lib/money'
+import { ULAANBAATAR } from '~/lib/mn-regions'
 
 /**
  * Cart arithmetic. Pure — no database, no request — because this decides what
@@ -9,31 +10,15 @@ import { lineTotal, sumMungu, type Mungu } from '~/lib/money'
  * read from product_variants; see lib/server/README.md rule 3.
  */
 
-/**
- * Ulaanbaatar's nine districts. Anything else is a countryside address and
- * pays the higher flat rate. Stored as the canonical district values used by
- * the address form and by orders.shipping_address_snapshot.
- */
-export const UB_DISTRICTS = [
-  'Багануур',
-  'Багахангай',
-  'Баянгол',
-  'Баянзүрх',
-  'Налайх',
-  'Сонгинохайрхан',
-  'Сүхбаатар',
-  'Хан-Уул',
-  'Чингэлтэй',
-] as const
-
-export type UbDistrict = (typeof UB_DISTRICTS)[number]
-
 export type ShippingZone = 'ub' | 'countryside'
 
-export function zoneForDistrict(district: string): ShippingZone {
-  return (UB_DISTRICTS as readonly string[]).includes(district)
-    ? 'ub'
-    : 'countryside'
+/**
+ * Keyed off аймаг/хот, not сум/дүүрэг. Sum names repeat across aimags —
+ * 'Булган' is a sum in five of them — so deciding the zone from the second
+ * level alone would quote city delivery for a countryside address.
+ */
+export function zoneForProvince(province: string): ShippingZone {
+  return province === ULAANBAATAR ? 'ub' : 'countryside'
 }
 
 export interface PricedLine {

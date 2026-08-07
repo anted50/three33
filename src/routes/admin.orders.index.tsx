@@ -86,9 +86,18 @@ function Orders() {
                   </td>
                   <td>{order.address?.name ?? '—'}</td>
                   <td className="adm__muted adm__num">{order.phone}</td>
-                  {/* Zone first: it decides who delivers and how fast. */}
+                  {/*
+                    Zone first: it decides who delivers and how fast. Outside
+                    the city the аймаг leads, because a сум name alone does not
+                    identify a place — five aimags have a Булган сум.
+                  */}
                   <td className="adm__muted">
-                    {order.address?.district ?? '—'}
+                    {order.address
+                      ? order.address.zone === 'countryside' &&
+                        order.address.province
+                        ? `${order.address.province}, ${order.address.district}`
+                        : order.address.district
+                      : '—'}
                     {order.address?.zone === 'countryside' && (
                       <span className="ship__zone">Орон нутаг</span>
                     )}

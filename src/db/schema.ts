@@ -92,7 +92,14 @@ export interface ShippingAddress {
   name: string
   phone: string
   email: string | null
+  /**
+   * Аймаг/хот. Optional because orders placed before the address form asked
+   * for it have no such field — readers fall back to the zone.
+   */
+  province?: string
+  /** Сум/дүүрэг. */
   district: string
+  /** Баг/хороо. */
   khoroo: string
   line1: string
   line2: string | null

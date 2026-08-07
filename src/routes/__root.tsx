@@ -15,9 +15,25 @@ export const Route = createRootRoute({
     meta: [
       { charSet: 'utf-8' },
       { name: 'viewport', content: 'width=device-width, initial-scale=1' },
-      { title: 'Uppercut Deluxe Mongolia' },
+      { title: 'Three 33 Barbershop' },
+      // Tints the browser chrome on Android to match the hero band.
+      { name: 'theme-color', content: '#0b0b0b' },
+      // Label under the icon when iOS saves the site to the home screen.
+      { name: 'apple-mobile-web-app-title', content: 'Three 33' },
     ],
     links: [
+      /*
+       * SVG first: browsers that support it take it and get a mark that is
+       * sharp at any size and follows the tab strip's light/dark scheme. The
+       * .ico is the fallback for those that do not, and is also what a browser
+       * fetches from the domain root regardless of markup.
+       */
+      { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' },
+      { rel: 'icon', type: 'image/png', sizes: '96x96', href: '/favicon-96x96.png' },
+      { rel: 'shortcut icon', href: '/favicon.ico' },
+      { rel: 'apple-touch-icon', sizes: '180x180', href: '/apple-touch-icon.png' },
+      { rel: 'manifest', href: '/site.webmanifest' },
+
       // Preconnect before the stylesheet: the CSS request is render-blocking
       // and the font files come from a second origin.
       { rel: 'preconnect', href: 'https://fonts.googleapis.com' },

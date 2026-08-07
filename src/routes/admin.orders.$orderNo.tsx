@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router'
 import type { OrderStatus } from '~/db/schema'
+import { formatArea } from '~/lib/mn-regions'
 import { formatMnt } from '~/lib/money'
 import { getOrderDetail, setOrderStatus } from '~/lib/server/admin/admin'
 import { STATUS_LABEL, StatusBadge } from '~/components/admin-bits'
@@ -187,17 +188,32 @@ function OrderDetail() {
                 </a>
               </dd>
             </div>
+            {order.address.province && (
+              <div className="ship__row">
+                <dt>Аймаг/Хот</dt>
+                <dd>
+                  {order.address.province}
+                  <span className="ship__zone">
+                    {order.address.zone === 'ub' ? 'Улаанбаатар' : 'Орон нутаг'}
+                  </span>
+                </dd>
+              </div>
+            )}
             <div className="ship__row">
-              <dt>Дүүрэг</dt>
+              <dt>Сум/Дүүрэг</dt>
               <dd>
                 {order.address.district}
-                <span className="ship__zone">
-                  {order.address.zone === 'ub' ? 'Улаанбаатар' : 'Орон нутаг'}
-                </span>
+                {/* Older orders carry no province, so the zone badge rides
+                    here instead — it must appear exactly once. */}
+                {!order.address.province && (
+                  <span className="ship__zone">
+                    {order.address.zone === 'ub' ? 'Улаанбаатар' : 'Орон нутаг'}
+                  </span>
+                )}
               </dd>
             </div>
             <div className="ship__row">
-              <dt>Хороо</dt>
+              <dt>Баг/Хороо</dt>
               <dd>{order.address.khoroo}</dd>
             </div>
             <div className="ship__row">
@@ -247,7 +263,7 @@ function OrderDetail() {
                 [
                   order.address.name,
                   order.address.phone,
-                  `${order.address.district}, ${order.address.khoroo}`,
+                  formatArea(order.address),
                   order.address.line1,
                   order.address.line2,
                   order.orderNo,

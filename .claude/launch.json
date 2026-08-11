@@ -3,8 +3,8 @@
   "configurations": [
     {
       "name": "uppercut-dev",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeExecutable": "mise",
+      "runtimeArgs": ["exec", "--", "npm", "run", "dev"],
       "port": 3000
     }
   ]

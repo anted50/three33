@@ -1,6 +1,5 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { HeroAscii } from '~/components/hero-ascii'
-import { HeroField } from '~/components/hero-field'
 import { Page } from '~/components/layout'
 import { ProductCard } from '~/components/product-card'
 import { listProducts } from '~/lib/server/products/queries'
@@ -25,7 +24,6 @@ function Home() {
   return (
     <Page>
       <section className="hero">
-        <HeroField engine="matrix" />
         <HeroAscii />
 
         <div className="wrap">

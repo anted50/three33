@@ -37,15 +37,6 @@
   /* Accent, not decoration: actions and live state. */
   --accent: #d81f26;
 
-  /*
-   * Barber pole. The hero is the one place the site is allowed to be
-   * decorative, and these three are what it decorates with — the red is the
-   * accent above, so the pole is tied to the rest of the UI rather than being
-   * a second palette.
-   */
-  --pole-red: #d81f26;
-  --pole-blue: #1e56d6;
-  --pole-white: #f2f2f5;
   --accent-dark: #b3161c;
   --accent-tint: #fdf2f2;
 
@@ -395,113 +386,103 @@ h3 {
 /* --------------------------------------------------------------- hero */
 
 /*
- * A dark band directly under the white header. The contrast is the point: it
- * gives the shop a front door instead of dropping straight into a product grid,
- * and it is the one place on the site the accent red is allowed to be
- * decorative rather than state.
+ * A paper band directly under the white header, carrying the shop's own
+ * photograph as ASCII across its full width. It gives the shop a front door
+ * instead of dropping straight into a product grid.
+ *
+ * Paper and not the black it used to be, because the art is now a photograph
+ * rather than an abstract scene. background-clip paints colour where a glyph
+ * puts ink down, so on black the tones came out as a negative — the barber's
+ * dark jacket lit up and the bright wall behind him fell away to nothing. Ink
+ * on paper is the arrangement the export was drawn for, and the one that keeps
+ * the picture's own light where the camera put it.
  */
 .hero {
   position: relative;
   isolation: isolate;
   overflow: hidden;
-  background: #0b0b0b;
-  color: #fff;
+
+  /* Slightly warm and slightly off the header's #fff, so the band still reads
+     as a distinct panel and not as the page running on. */
+  background: #eeeeeb;
+  color: var(--ink);
   padding: 44px 0 40px;
-}
-
-/*
- * The generative layer — matrix rain, behind the scene. Sits at z-index -2 so
- * it is under the barber scene at -1 and both are under the copy; .hero's
- * `isolation: isolate` keeps the negative indices inside the band instead of
- * dropping them behind the page.
- *
- * JS owns the font-size here, unlike the scene: the grid dimensions are
- * computed from the measured box, so the two have to be decided together or
- * the field would tile at the wrong scale.
- */
-.hero__field {
-  position: absolute;
-  inset: 0;
-  z-index: -2;
-  overflow: hidden;
-
-  /*
-   * Kept under the scene's own opacity so it stays behind it rather than
-   * competing — it is weather, not subject. Low on a phone, where the copy
-   * covers the whole band and there is nowhere for the field to be that the
-   * text is not.
-   */
-  opacity: 0.12;
-
-  /*
-   * Held to the right of the band and faded out well before the left edge, so
-   * no rain lands under the copy. A wider ellipse reached the lede, and text
-   * over moving characters is both a contrast problem and a distracting one.
-   */
-  -webkit-mask-image: radial-gradient(
-    88% 108% at 84% 64%,
-    #000 8%,
-    transparent 70%
-  );
-  mask-image: radial-gradient(88% 108% at 84% 64%, #000 8%, transparent 70%);
-}
-
-.hero__field-grid {
-  font-family: inherit;
-  line-height: 1;
-  white-space: pre;
-  color: var(--pole-white);
-  -webkit-font-smoothing: none;
-  text-rendering: optimizeSpeed;
 }
 
 /*
  * The ASCII barber scene, from src/assets/hero-ascii.txt.
  *
- * The double mask dissolves it into the band on both axes, so there is never a
- * hard edge for the layout to fail to line up against, and so the type never
- * sits on top of dense character noise.
+ * Full bleed: it is the band's surface, not an illustration parked in one
+ * corner of it. The mask dissolves the left of the art into the paper so the
+ * copy has somewhere quiet to sit, and softens the bottom edge so the band ends
+ * on a gradient rather than on a hard rule of characters.
  */
 .hero__art {
   /*
-   * Widest line in src/assets/hero-ascii.txt. If the art is ever re-cropped or
+   * Rows in src/assets/hero-ascii.txt. If the art is ever re-cropped or
    * replaced this is the one number to update — the font-size below is derived
    * from it, and a stale value shows up as the art overflowing or falling short
    * of the band rather than as anything obviously broken.
    */
-  --ascii-cols: 180;
+  --ascii-rows: 100;
 
   /*
-   * How many columns to fit across the container — the zoom dial, separate
-   * from the true column count above. Fitting all 180 on a phone puts the
-   * glyphs at 3.5px, which is below the size at which any of them has an
-   * inside, so the art collapses into grey fuzz. Fitting 120 scales them up
-   * and lets the container's overflow crop the outer columns instead; the
-   * figure is central, so what is lost is empty margin.
+   * How many rows to fit down the container — the zoom dial, separate from the
+   * true row count above. At --ascii-rows the whole photograph is in frame; below
+   * it the art overspills and the container's overflow crops, top and bottom.
+   *
+   * Held at the true count everywhere it is shown: the picture is 1.6 wide for
+   * its height and the band is wider than that, so fitting every row leaves
+   * width over rather than taking any away, and that remainder is filled with
+   * generated characters (see components/hero-ascii). Nothing here has to trade
+   * the top of the photograph for the band's full width.
    */
-  --ascii-fit-cols: 120;
+  --ascii-fit-rows: var(--ascii-rows);
 
   /*
-   * Where the left-hand fade starts and finishes, as a share of the art's own
-   * width. These move with the breakpoints below, because how far the art
-   * reaches under the text changes with the viewport: on a phone it is directly
-   * behind the copy, at 1100px and up it clears it entirely. The rule is that
-   * the copy must never sit on characters dense enough to cost it contrast.
+   * Not on a phone. The band there is about 380px tall, and fitting 100 rows
+   * into it puts the glyphs under 4px, where a character has no inside left and
+   * the picture is grey fuzz — and the way out of that is cropping the
+   * photograph, which is the thing this layout exists to avoid. The copy also
+   * covers the full width at that size, so the art would be entirely behind
+   * text.
+   *
+   * display and not opacity, so the browser has no 27,000-character text node
+   * to lay out on the smallest devices. The component watches for the box
+   * appearing and only then builds its fill or starts its animation.
    */
-  --ascii-fade-start: 6%;
-  --ascii-fade-end: 60%;
+  display: none;
+
+  /*
+   * Where the left-hand fade starts and finishes, as a share of the band's
+   * width. These move with the breakpoints below, because how much room the
+   * copy needs changes with the viewport. The rule is that the copy must never
+   * sit on characters dense enough to cost it contrast — which matters more now
+   * than it did on the old dark band, since ink-on-paper art and ink-on-paper
+   * text are the same colour and the art cannot simply be dimmed out of the
+   * way.
+   */
+  --ascii-fade-start: 4%;
+  --ascii-fade-end: 52%;
 
   position: absolute;
-  inset: 0 0 0 auto;
+  inset: 0;
   z-index: -1;
-  width: 100%;
   overflow: hidden;
-  display: flex;
   align-items: center;
-  justify-content: center;
 
-  /* 100cqi below is this element's width. */
-  container-type: inline-size;
+  /* The barber is pinned to the right edge and the generated fill grows away
+     from him to the left, into the space the copy occupies. Anchoring the other
+     way would slide the photograph under the text every time the band changed
+     width. */
+  justify-content: flex-end;
+
+  /* 100cqb below is this element's height. `size` rather than `inline-size`
+     because the block axis is the one the art is fitted to, and cqb does not
+     resolve against an inline-size container. Safe here only because the
+     element is absolutely positioned to all four edges, so its height comes
+     from .hero and never from the art it contains. */
+  container-type: size;
 
   -webkit-mask-image:
     linear-gradient(
@@ -509,7 +490,7 @@ h3 {
       transparent var(--ascii-fade-start),
       #000 var(--ascii-fade-end)
     ),
-    linear-gradient(to bottom, #000 76%, transparent 100%);
+    linear-gradient(to bottom, #000 82%, transparent 100%);
   -webkit-mask-composite: source-in;
   mask-image:
     linear-gradient(
@@ -517,10 +498,10 @@ h3 {
       transparent var(--ascii-fade-start),
       #000 var(--ascii-fade-end)
     ),
-    /* Only the last quarter fades. Starting at 60% cut the floor and the
-       counter out of the scene and left a dead strip along the bottom of the
-       band that the copy did not reach either. */
-      linear-gradient(to bottom, #000 76%, transparent 100%);
+    /* Only the last fifth fades. Starting earlier cut the barber's chair out of
+       the scene and left a dead strip along the bottom of the band that the
+       copy did not reach either. */
+      linear-gradient(to bottom, #000 82%, transparent 100%);
   mask-composite: intersect;
 }
 
@@ -529,25 +510,33 @@ h3 {
  * art occupies (cols × 0.6)em — meaning a font-size of width ÷ that lands it
  * exactly edge to edge, at any viewport, with no breakpoints to maintain.
  *
- * line-height must be exactly 1: the art's vertical proportions assume one line
- * box per row, and the site's inherited 1.55 stretches it half again as tall,
- * which shears the barber and the chair out of square.
+ * Fitted on the block axis, not the inline one. With line-height 1 a row is
+ * exactly 1em tall, so the art occupies (rows)em and a font-size of height ÷
+ * that lands it top to bottom with nothing cropped away — which is the whole
+ * point of fitting this way round. Width is then whatever it is, and the
+ * generated fill covers the difference.
+ *
+ * line-height must be exactly 1 for that reason and one other: the art's
+ * proportions assume one line box per row, and the site's inherited 1.55
+ * stretches it half again as tall, which shears the barber out of square.
  */
 .hero__ascii {
   font-family: inherit;
-  font-size: calc(100cqi / (var(--ascii-fit-cols) * 0.6));
+  font-size: calc(100cqb / var(--ascii-fit-rows));
   line-height: 1;
   white-space: pre;
-  color: #fff;
+  color: var(--ink);
 
   /*
-   * Low, because on a phone the copy sits directly on top of this. The worst
-   * case is the gradient's lightest stop at full character density — yellow
-   * #ffd60a at 0.2 over #0b0b0b composites to roughly #3c330a, which still
-   * leaves the lede above 4.5:1. The whole sweep passes, so no moment of the
-   * animation can quietly fail it.
+   * What keeps this safe to raise is that the art is not uniform where the text
+   * is. The copy sits over the generated fill, which decays towards the left by
+   * construction, so the band under the words is mostly bare paper with a few
+   * light glyphs in it — the dense end of the picture is the barber, over on
+   * the right, where nothing is written. Contrast is therefore governed by the
+   * fill's own falloff and the mask below, not by this number alone, which is
+   * why it can carry an ink that actually reads.
    */
-  opacity: 0.2;
+  opacity: 0.4;
 
   /*
    * At this size the glyphs are 3–8px and antialiasing greys them into mush;
@@ -558,48 +547,41 @@ h3 {
 }
 
 /*
- * Colour flowing across the art, anchored on the brand red and cycling through
- * the spectrum back to it.
+ * Colour through the glyphs, painted once and clipped to them.
  *
- * The motion is a hue-rotate on a static gradient rather than a scrolling
- * background-position. Both look similar, but background-position has to
- * re-rasterise 13,500 glyphs against a moved gradient every frame, whereas
- * hue-rotate is a filter the compositor applies to an already-painted layer.
- * One is a shader pass, the other is text layout at 60Hz.
+ * The art is a resampled photograph, so its tone is already carried by which
+ * character sits in each cell: the resample maps the source's ink coverage onto
+ * a density ramp, and background-clip re-reads that coverage as alpha, because a
+ * '$' paints most of its cell and a '.' paints almost none. Shading the glyphs
+ * individually would mean a span per cell — 26,900 of them, hydrated on every
+ * page load — to reproduce a gradient the type is already producing for free.
  *
- * 100% repeats the 0% stop so the gradient is seamless across the sweep, and
- * 360deg of hue rotation lands exactly back where it started, so the loop has
- * no visible seam in either axis.
+ * So the background's job is the ink colour, not the detail. Near-neutral and
+ * near-black, which is what the export itself looks like: the photograph is a
+ * shop interior, and tinting it red made a colour-cast photo rather than a
+ * drawing of one. The red stays on the eyebrow and the buttons, where it is
+ * state.
+ *
+ * The slight lean off pure black, and off pure vertical, is what keeps it from
+ * reading as flat fill: the ink is a shade warmer at the top left, where the
+ * photograph's own light comes from, and settles darker through the middle
+ * where the barber is.
  *
  * Behind @supports because the fallback for an unsupported background-clip is
  * transparent text: the art would not degrade, it would disappear.
  */
 @supports (background-clip: text) or (-webkit-background-clip: text) {
-  .hero__ascii,
-  .hero__field-grid {
+  .hero__ascii {
     color: transparent;
     -webkit-background-clip: text;
     background-clip: text;
-
-    /*
-     * Barber pole, laid diagonally across the art. Wider than the layer and
-     * offset, so what shows is a slice of the pole rather than the whole
-     * sequence squeezed into frame — the same reason a real pole reads as
-     * motion from a stripe or two, not from the full wrap.
-     */
     background-image: linear-gradient(
-      118deg,
-      var(--pole-red) 0%,
-      var(--pole-white) 16%,
-      var(--pole-blue) 32%,
-      var(--pole-white) 48%,
-      var(--pole-red) 64%,
-      var(--pole-white) 80%,
-      var(--pole-blue) 96%,
-      var(--pole-red) 100%
+      168deg,
+      #3c3c42 0%,
+      #1b1b1f 34%,
+      #0c0c0e 68%,
+      #191920 100%
     );
-    background-size: 180% 180%;
-    background-position: 30% 40%;
   }
 }
 
@@ -637,10 +619,11 @@ h3 {
 
 .hero__lede {
   /*
-   * Not var(--muted): that is tuned for grey-on-white and drops under 4.5:1
-   * against #0b0b0b. This clears it.
+   * --ink-soft rather than --muted: the art sits behind this text, so the
+   * effective background is a little darker than the bare band and the lighter
+   * grey lost more contrast than it could spare.
    */
-  color: #a1a1aa;
+  color: var(--ink-soft);
   max-width: 44ch;
 }
 
@@ -657,21 +640,29 @@ h3 {
   margin-top: 26px;
 }
 
-/* The primary .btn is near-black, which is invisible here. */
+/*
+ * The band is paper now, so the site's own near-black primary button reads
+ * correctly here and the white-on-dark override it used to need is gone. It is
+ * still qualified with .hero for the background, because the art runs behind it
+ * and a transparent button would have characters showing through its face.
+ */
 .hero .btn {
-  background: #fff;
-  color: var(--ink);
+  background: var(--ink);
+  color: #fff;
 }
 
 .hero .btn:hover:not(:disabled) {
-  background: #e4e4e7;
+  background: #2f2f33;
 }
 
 /*
  * The border is the only thing saying this is a button, so it has to clear the
- * band it sits on. At #3f3f46 against #0b0b0b it was a 1.9:1 edge and the
- * control read as a stray line of text — WCAG wants 3:1 for the boundary of an
- * interactive element.
+ * band it sits on — WCAG wants 3:1 for the boundary of an interactive element,
+ * and against #eeeeeb that means no lighter than about #767674.
+ *
+ * Opaque and not a translucent black: the art behind it varies from bare paper
+ * to dense character, and an alpha border changed weight along its own length
+ * as it crossed the barber.
  *
  * Qualified with .hero, and not because it is hero-only: `.btn` declares
  * `border: 0` at the same specificity and is defined further down the file, so
@@ -679,52 +670,40 @@ h3 {
  */
 .hero .btn--onDark {
   background: transparent;
-  color: #fff;
-  border: 1px solid rgba(255, 255, 255, 0.32);
+  color: var(--ink);
+  border: 1px solid #6b6b69;
 }
 
 .hero .btn--onDark:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(18, 18, 18, 0.06);
 }
 
 @media (min-width: 700px) {
   .hero {
     padding: 76px 0 68px;
+
+    /*
+     * The band has to be tall enough to hold the whole picture at a size where
+     * its characters still resolve, because the art is fitted by height and
+     * nothing crops it. 100 rows in 520px is a 5.2px glyph, which is about the
+     * floor. Left to the copy alone the band came out around 390px here, and
+     * the art would have been fuzz.
+     */
+    min-height: 520px;
   }
 
   .hero h1 {
     font-size: 52px;
   }
 
-  /*
-   * Wide enough that the art no longer needs to sit under the text.
-   *
-   * The max-width is not cosmetic. Height here is a function of width — the
-   * art is 75 rows at width/108 per row, so about 0.69 × width — and left
-   * uncapped on a wide monitor it grew taller than the band and got centre-
-   * cropped through the barber's head. Capping the width caps the height.
-   */
+  /* The picture comes in from here up. */
   .hero__art {
-    width: 62%;
-    max-width: 860px;
+    display: flex;
 
-    /* Room for the whole scene once the art has a column of its own. */
-    --ascii-fit-cols: var(--ascii-cols);
-
-    /* The copy still runs under the art's left edge at this width, so the fade
-       is pushed well right of where the text ends. */
-    --ascii-fade-start: 20%;
-    --ascii-fade-end: 72%;
-  }
-
-  .hero__ascii {
-    opacity: 0.55;
-  }
-
-  /* The copy has its own column from here up, so the field can come forward
-     in the space to the right of it. */
-  .hero__field {
-    opacity: 0.26;
+    /* The copy takes a much larger share of a tablet's width than a desktop's,
+       so the fade has to run further across before the ink is at full strength. */
+    --ascii-fade-start: 8%;
+    --ascii-fade-end: 62%;
   }
 
   .hero__actions {
@@ -743,9 +722,9 @@ h3 {
   .hero {
     padding: 96px 0 88px;
 
-    /* Sized to the art, not to the copy — but only just. At 620px the band ran
-       a good 60px past the bottom of both the art and the text, which read as
-       the section having failed to load something. */
+    /* Sized to the art, not to the copy. Every row of the photograph is on
+       screen at 5.6px a glyph, and the width the picture does not use is where
+       the generated fill and the copy go. */
     min-height: 560px;
   }
 
@@ -753,16 +732,22 @@ h3 {
     font-size: 64px;
   }
 
-  /* The capped art now starts to the right of where the copy ends, so nothing
-     is sitting on it and the scene can come up to near full strength. */
+  /* The lede ends at about 34% of the band from here up, so the fade is held
+     open until just past it: the words keep a quiet ground, and the picture
+     still has two thirds of the width to itself. */
   .hero__art {
-    --ascii-fade-start: 2%;
-    --ascii-fade-end: 45%;
+    --ascii-fade-start: 5%;
+    --ascii-fade-end: 44%;
   }
 
-  /* Nothing sits on the art at this width, so the colour can come up. */
+  /*
+   * The band is taller here and the copy occupies a smaller share of its width,
+   * so the ink can come up further than it can on a tablet. Still short of
+   * full: past about 0.65 the art stops reading as the surface of the band and
+   * starts reading as a photograph someone has parked behind the words.
+   */
   .hero__ascii {
-    opacity: 0.72;
+    opacity: 0.55;
   }
 }
 

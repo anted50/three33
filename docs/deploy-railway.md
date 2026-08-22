@@ -82,12 +82,21 @@ ADMIN_TOKEN=<16+ chars>
 ALLOW_TEMP_ADMIN=true     # see below
 MONTHLY_ORDER_GOAL=100
 SENTRY_DSN=
+MAIL_API_TOKEN=<full "Zoho-enczapikey ..." value from ZeptoMail>
+QPAY_EBARIMT_INVOICE_CODE=<VAT-enabled invoice code, requested from QPay>
 ```
 
 `APP_URL` matters more than it looks: it builds the QPay callback URL. Point it
 at the wrong host and payments still settle — the payment page polls
 `payment/check` — but the callback never arrives and every order waits on the
-hourly sweep instead.
+hourly sweep instead. It also builds the receipt email's "view order" link and
+the logo image URL, so a stale `APP_URL` here shows up as a broken image and a
+dead link in the email, not as an error anywhere.
+
+`MAIL_API_TOKEN` unset is not an error either — `sendEmail()` returns `false`
+silently, by design, so a receipt just never arrives with nothing in the logs
+to explain why. `.env` never deploys, so this one is easy to set locally and
+forget to set on the actual host.
 
 ## Admin will refuse to start on production
 

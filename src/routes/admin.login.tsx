@@ -13,6 +13,17 @@ function AdminLogin() {
   const [email, setEmail] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  // Bumped on every failed code attempt and used as the input's key below, so
+  // a wrong code doesn't just sit there under the error message — React
+  // remounts the field fresh, same as switching steps already does.
+  const [codeAttempt, setCodeAttempt] = useState(0)
+  // Bumped when "use a different email" is clicked, and used as that input's
+  // key. The two steps are already separate <form> trees, so React itself
+  // never carries a value across them — but the browser's own autofill does,
+  // restoring the just-typed address into the fresh uncontrolled input by its
+  // name/type/autocomplete. A new key means a genuinely new DOM node, which
+  // autofill has no history for.
+  const [emailAttempt, setEmailAttempt] = useState(0)
   const navigate = useNavigate()
   const router = useRouter()
 
@@ -55,6 +66,7 @@ function AdminLogin() {
           <label className="field">
             <span>Имэйл</span>
             <input
+              key={emailAttempt}
               name="email"
               type="email"
               autoFocus
@@ -89,10 +101,12 @@ function AdminLogin() {
               } else {
                 setError(result.error ?? 'Алдаа гарлаа')
                 setBusy(false)
+                setCodeAttempt((n) => n + 1)
               }
             } catch (err) {
               setError(err instanceof Error ? err.message : 'Алдаа гарлаа')
               setBusy(false)
+              setCodeAttempt((n) => n + 1)
             }
           }}
         >
@@ -104,6 +118,7 @@ function AdminLogin() {
           <label className="field">
             <span>Код</span>
             <input
+              key={codeAttempt}
               name="code"
               inputMode="numeric"
               pattern="[0-9]{6}"
@@ -127,6 +142,7 @@ function AdminLogin() {
             disabled={busy}
             onClick={() => {
               setError(null)
+              setEmailAttempt((n) => n + 1)
               setStep('email')
             }}
           >

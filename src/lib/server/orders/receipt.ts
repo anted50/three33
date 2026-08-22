@@ -126,29 +126,25 @@ function itemRow(item: ReceiptItem): string {
 }
 
 /**
- * Renders the e-barimt QR when there is one, or a same-sized placeholder box
- * naming the missing env var when there isn't — so the layout looks the same
- * either way, and turning e-barimt on later is a config change, not a design
- * change.
+ * The e-barimt section, or nothing at all when there's no e-barimt to show —
+ * QPAY_EBARIMT_INVOICE_CODE isn't configured yet, so this simply doesn't
+ * render rather than showing a placeholder for a feature that isn't live.
  */
-function ebarimtBlock(ebarimt: EbarimtReceipt | null): string {
-  if (ebarimt?.qrImage) {
-    const link = ebarimt.qrData?.startsWith('http')
-      ? `<p style="margin:10px 0 0;font-size:12px"><a href="${escapeHtml(ebarimt.qrData)}" style="color:#0a0a0a;text-decoration:underline">Онлайнаар харах ↗</a></p>`
-      : ''
-    return `
+function ebarimtSection(ebarimt: EbarimtReceipt | null): string {
+  if (!ebarimt?.qrImage) return ''
+
+  const link = ebarimt.qrData?.startsWith('http')
+    ? `<p style="margin:10px 0 0;font-size:12px"><a href="${escapeHtml(ebarimt.qrData)}" style="color:#0a0a0a;text-decoration:underline">Онлайнаар харах ↗</a></p>`
+    : ''
+
+  return `
+    <div style="max-width:${MAX_WIDTH}px;margin:0 auto;padding:0 24px 36px;text-align:center;border-top:1px solid #ececea;padding-top:32px">
+      <p style="margin:0 0 16px;font-size:11px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:#5c5c58">И-баримт</p>
       <img src="data:image/png;base64,${ebarimt.qrImage}" width="160" height="160" alt="И-баримтын QR код" style="display:block;margin:0 auto;width:160px;height:160px;border:1px solid #0a0a0a" />
       ${ebarimt.id ? `<p style="margin:12px 0 0;font-size:12px;color:#5c5c58">Дугаар: ${escapeHtml(ebarimt.id)}</p>` : ''}
       ${ebarimt.lottery ? `<p style="margin:2px 0 0;font-size:12px;color:#5c5c58">Сугалаа: ${escapeHtml(ebarimt.lottery)}</p>` : ''}
       ${link}
-    `
-  }
-
-  return `
-    <div style="width:160px;height:160px;margin:0 auto;border:1px dashed #c8c8c2;display:flex;align-items:center;justify-content:center;box-sizing:border-box;padding:12px">
-      <span style="font-size:10.5px;line-height:1.5;color:#8a8a86;font-family:'SFMono-Regular',Consolas,monospace;text-align:center">[ QPAY_EBARIMT_<br/>INVOICE_CODE ]</span>
     </div>
-    <p style="margin:12px 0 0;font-size:12px;color:#8a8a86">Тохируулагдмагц QR код энд гарч ирнэ</p>
   `
 }
 
@@ -221,10 +217,7 @@ function renderReceipt(
         </table>
       </div>
 
-      <div style="max-width:${MAX_WIDTH}px;margin:0 auto;padding:0 24px 36px;text-align:center;border-top:1px solid #ececea;padding-top:32px">
-        <p style="margin:0 0 16px;font-size:11px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:#5c5c58">И-баримт</p>
-        ${ebarimtBlock(ebarimt)}
-      </div>
+      ${ebarimtSection(ebarimt)}
 
       <div style="border-top:1px solid #ececea;padding:24px;text-align:center">
         <p style="margin:0;font-size:12px;color:#8a8a86">Танд баярлалаа — Three 33 Barbershop</p>

@@ -15,6 +15,13 @@
       "when": 1785732053343,
       "tag": "0001_fantastic_magneto",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1787384700000,
+      "tag": "0002_brave_gatekeeper",
+      "breakpoints": true
     }
   ]
 }

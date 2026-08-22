@@ -3,6 +3,13 @@
 **Verdict: yes, and it is the better default here.** Roughly a day's work once a
 sending domain exists.
 
+**Status: shipped for admin.** `/admin/login` — see
+`src/lib/server/auth/otp.ts` and `src/lib/server/admin/auth.ts`. This also
+retired the temporary shared-token gate, as predicted below. Customer-facing
+OTP (checkout accounts, order history) is not built — the pieces below
+(`otp_codes`, `sendEmail`, the `users` table) are shared and ready for it, but
+nothing calls them from the storefront yet.
+
 ## Why passwordless fits this shop
 
 Most customers will buy once or twice a year. A password is friction at the only

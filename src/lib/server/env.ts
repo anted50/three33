@@ -15,7 +15,6 @@ const schema = z.object({
     .enum(['development', 'test', 'production'])
     .default('development'),
   APP_URL: z.url(),
-  SESSION_SECRET: z.string().min(32),
 
   // Optional: unset means the PGlite driver, which needs no connection string.
   DATABASE_URL: z.string().startsWith('postgres').optional(),
@@ -65,13 +64,6 @@ const schema = z.object({
   SHIPPING_FEE_COUNTRYSIDE: z.coerce.number().int().nonnegative(),
 
   SENTRY_DSN: z.string().optional(),
-
-  /**
-   * TEMPORARY: shared-token admin gate, pending Phase 2 auth. Unset disables
-   * the admin section entirely. See lib/server/admin/gate.ts.
-   */
-  ADMIN_TOKEN: z.string().min(16).optional(),
-  ALLOW_TEMP_ADMIN: z.string().optional(),
 })
 
 const parsed = schema.safeParse(process.env)

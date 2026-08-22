@@ -7,7 +7,7 @@
 | Database | PGlite in `.pglite/` | **Railway Postgres** — add the plugin, it injects `DATABASE_URL` |
 | Object storage | none — images are static files in `public/` | **still none needed**, see below |
 | QPay callbacks | unreachable (`localhost`) | **finally work** — set `APP_URL` to the Railway domain |
-| Admin gate | shared token | **refuses to run** unless `ALLOW_TEMP_ADMIN=true` |
+| Admin login | email OTP | **works as-is** — just needs `MAIL_API_TOKEN` and an admin granted via `npm run admin:add` |
 | Reconciliation sweep | manual | needs a **cron service** |
 
 ## Database — solved by deploying
@@ -65,7 +65,6 @@ NODE_ENV=production
 APP_URL=https://<your-railway-domain>
 DB_DRIVER=postgres
 DATABASE_URL=<injected by the Postgres plugin>
-SESSION_SECRET=<openssl rand -base64 48>
 QPAY_BASE_URL=https://merchant.qpay.mn/v2
 QPAY_USERNAME=THREE33_BARBER
 QPAY_PASSWORD=<rotate this before launch>
@@ -73,16 +72,17 @@ QPAY_INVOICE_CODE=THREE33_BARBER_INVOICE
 QPAY_CALLBACK_SECRET=<openssl rand -base64 48>
 SHIPPING_FEE_UB=500000
 SHIPPING_FEE_COUNTRYSIDE=1500000
+MAIL_API_TOKEN=<full "Zoho-enczapikey ..." value from ZeptoMail>
 ```
+
+Admin login (email OTP) needs `MAIL_API_TOKEN` to actually send the code — see
+below.
 
 **Optional**
 
 ```
-ADMIN_TOKEN=<16+ chars>
-ALLOW_TEMP_ADMIN=true     # see below
 MONTHLY_ORDER_GOAL=100
 SENTRY_DSN=
-MAIL_API_TOKEN=<full "Zoho-enczapikey ..." value from ZeptoMail>
 QPAY_EBARIMT_INVOICE_CODE=<VAT-enabled invoice code, requested from QPay>
 ```
 
@@ -98,14 +98,22 @@ silently, by design, so a receipt just never arrives with nothing in the logs
 to explain why. `.env` never deploys, so this one is easy to set locally and
 forget to set on the actual host.
 
-## Admin will refuse to start on production
+## Admin login
 
-By design. The shared-token gate declines to work when `NODE_ENV=production`
-unless `ALLOW_TEMP_ADMIN=true` is set explicitly, because it has no per-user
-identity and no audit trail of who changed a price or cancelled an order.
+Real per-user auth, not a shared password: `/admin/login` emails a 6-digit
+code via ZeptoMail to any address that belongs to a `users` row with
+`role = 'admin'`. No signup form exists — an OTP only ever logs someone into
+an account that already exists.
 
-Either set that variable and accept the tradeoff for now, or finish email OTP
-login first — see `docs/email-otp.md`.
+Grant the first (and every later) admin from a shell with access to the
+production database:
+
+```
+npm run admin:add you@three33barber.com "Your Name"
+```
+
+Safe to re-run; it promotes an existing user to admin if the email already
+exists, or creates one if it doesn't.
 
 ## The reconciliation sweep needs its own service
 
@@ -133,7 +141,7 @@ Both scripts exist and are load-bearing:
   binds `0.0.0.0` on `PORT`.
 
 Verified locally against the production build: every route 200s, `/admin`
-redirects to unlock, static assets serve with immutable caching.
+redirects to `/admin/login`, static assets serve with immutable caching.
 
 ## Known wart
 

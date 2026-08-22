@@ -69,7 +69,7 @@ export const setOrderStatusInput = z.object({
 export const setOrderStatus = createServerFn({ method: 'POST' })
   .validator(setOrderStatusInput)
   .handler(async ({ data }) => {
-    assertAdmin()
+    await assertAdmin()
 
     return db.transaction(async (tx) => {
       const [order] = await tx
@@ -108,7 +108,7 @@ export const setVariantInput = z.object({
 export const setVariant = createServerFn({ method: 'POST' })
   .validator(setVariantInput)
   .handler(async ({ data }) => {
-    assertAdmin()
+    await assertAdmin()
 
     return db.transaction(async (tx) => {
       const [current] = await tx
@@ -176,7 +176,7 @@ export const createProductInput = z.object({
 export const createProduct = createServerFn({ method: 'POST' })
   .validator(createProductInput)
   .handler(async ({ data }) => {
-    assertAdmin()
+    await assertAdmin()
 
     try {
       return await insertProduct({
@@ -218,7 +218,7 @@ export const updateProductInput = z.object({
 export const updateProduct = createServerFn({ method: 'POST' })
   .validator(updateProductInput)
   .handler(async ({ data }) => {
-    assertAdmin()
+    await assertAdmin()
 
     return updateProductRow({
       slug: data.slug,

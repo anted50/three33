@@ -133,7 +133,6 @@ export const users = pgTable(
     id: id(),
     email: text('email').notNull(),
     phone: text('phone'),
-    passwordHash: text('password_hash').notNull(), // argon2id
     name: text('name').notNull(),
     role: userRole('role').notNull().default('customer'),
     emailVerifiedAt: timestamp('email_verified_at', { withTimezone: true }),
@@ -162,18 +161,26 @@ export const sessions = pgTable(
   (t) => [index('sessions_user_id_idx').on(t.userId)],
 )
 
-export const passwordResetTokens = pgTable(
-  'password_reset_tokens',
+/**
+ * One-time login codes for the admin OTP flow. Not tied to a user_id — a code
+ * is requested by email before we know (or want to reveal) whether an admin
+ * account exists for it, so the lookup at verification time goes through
+ * email the same way the request did.
+ */
+export const otpCodes = pgTable(
+  'otp_codes',
   {
-    id: text('id').primaryKey(), // hash of the emailed token, never the token itself
-    userId: uuid('user_id')
-      .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
+    id: id(),
+    email: text('email').notNull(),
+    /** SHA-256 of the 6-digit code, never the code itself — same reasoning as
+     * sessions.id. */
+    codeHash: text('code_hash').notNull(),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
-    usedAt: timestamp('used_at', { withTimezone: true }),
+    attempts: integer('attempts').notNull().default(0),
+    consumedAt: timestamp('consumed_at', { withTimezone: true }),
     createdAt: createdAt(),
   },
-  (t) => [index('password_reset_tokens_user_id_idx').on(t.userId)],
+  (t) => [index('otp_codes_email_idx').on(t.email)],
 )
 
 export const addresses = pgTable(

@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, gte, inArray, sql, sum } from 'drizzle-orm'
+import { and, asc, count, desc, eq, gte, inArray, sql } from 'drizzle-orm'
 import { db } from '~/db'
 import {
   orderItems,
@@ -8,7 +8,7 @@ import {
   products,
   categories,
 } from '~/db/schema'
-import { isAdmin } from './gate-internal'
+import { assertAdminSession } from './auth-internal'
 
 /**
  * Server-only admin internals. Never imported from a route — see
@@ -22,8 +22,8 @@ import { isAdmin } from './gate-internal'
  * HTTP endpoint: anyone can call it directly with the right payload, layout or
  * no layout. Route guards decide what renders; this decides what is allowed.
  */
-export function assertAdmin(): void {
-  if (!isAdmin()) throw new Error('UNAUTHORISED')
+export async function assertAdmin(): Promise<void> {
+  await assertAdminSession()
 }
 
 /** Statuses whose revenue counts as real. */
@@ -52,7 +52,7 @@ function fillDays(
 }
 
 export async function dashboard() {
-  assertAdmin()
+  await assertAdmin()
 
   const monthStart = new Date()
   monthStart.setUTCDate(1)
@@ -195,7 +195,7 @@ export async function dashboard() {
 }
 
 export async function listOrders(status?: string) {
-  assertAdmin()
+  await assertAdmin()
 
   const rows = await db
     .select({
@@ -232,7 +232,7 @@ export async function listOrders(status?: string) {
 }
 
 export async function orderDetail(orderNo: string) {
-  assertAdmin()
+  await assertAdmin()
 
   const [order] = await db
     .select()
@@ -281,7 +281,7 @@ export async function orderDetail(orderNo: string) {
 }
 
 export async function listProducts() {
-  assertAdmin()
+  await assertAdmin()
 
   const rows = await db
     .select({
@@ -303,7 +303,7 @@ export async function listProducts() {
 }
 
 export async function productDetail(slug: string) {
-  assertAdmin()
+  await assertAdmin()
 
   const [product] = await db
     .select({
@@ -340,7 +340,7 @@ export async function productDetail(slug: string) {
 }
 
 export async function categoryOptions() {
-  assertAdmin()
+  await assertAdmin()
 
   return db
     .select({ id: categories.id, nameMn: categories.nameMn })
@@ -369,7 +369,7 @@ export interface NewProductInput {
  * hanging around in the catalogue.
  */
 export async function insertProduct(input: NewProductInput) {
-  assertAdmin()
+  await assertAdmin()
 
   return db.transaction(async (tx) => {
     const [product] = await tx
@@ -412,7 +412,7 @@ export interface ProductUpdate {
 /** Slug is the lookup key here, not something this edits — see ProductForm's
  * slugEditable prop for why. */
 export async function updateProductRow(input: ProductUpdate) {
-  assertAdmin()
+  await assertAdmin()
 
   await db
     .update(products)

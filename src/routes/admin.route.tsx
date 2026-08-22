@@ -1,6 +1,6 @@
 import { createFileRoute, Link, Outlet, redirect, useRouter } from '@tanstack/react-router'
 import adminCss from '~/styles/admin.css?url'
-import { checkAdmin, lockAdmin } from '~/lib/server/admin/gate'
+import { adminLogout, checkAdminSession } from '~/lib/server/admin/auth'
 import {
   BoxIcon,
   CartIcon,
@@ -13,9 +13,9 @@ import {
  *
  * beforeLoad runs on the server for the initial request and again on client
  * navigation, so the check is not a one-time hydration decision. It is still
- * only half the story: every admin server function re-checks independently,
- * because a server function is a public HTTP endpoint that does not care which
- * layout the caller rendered.
+ * only half the story: every admin server function re-checks independently
+ * via assertAdminSession, because a server function is a public HTTP endpoint
+ * that does not care which layout the caller rendered.
  */
 export const Route = createFileRoute('/admin')({
   head: () => ({
@@ -23,11 +23,11 @@ export const Route = createFileRoute('/admin')({
     meta: [{ title: 'Admin — Three 33' }],
   }),
   beforeLoad: async ({ location }) => {
-    const { ok } = await checkAdmin()
-    if (!ok && !location.pathname.startsWith('/admin/unlock')) {
-      throw redirect({ to: '/admin/unlock' })
+    const { ok, name } = await checkAdminSession()
+    if (!ok && !location.pathname.startsWith('/admin/login')) {
+      throw redirect({ to: '/admin/login' })
     }
-    return { isAdmin: ok }
+    return { isAdmin: ok, adminName: name }
   },
   component: AdminShell,
 })
@@ -45,10 +45,10 @@ const NAV: Array<{
 ]
 
 function AdminShell() {
-  const { isAdmin } = Route.useRouteContext()
+  const { isAdmin, adminName } = Route.useRouteContext()
   const router = useRouter()
 
-  // The unlock page is nested in this layout but must not show the nav —
+  // The login page is nested in this layout but must not show the nav —
   // advertising the sections to someone who has not got in yet is pointless.
   if (!isAdmin) return <Outlet />
 
@@ -94,12 +94,12 @@ function AdminShell() {
           <button
             type="button"
             className="adm__signout"
-            title="Гарах"
+            title={adminName ? `Гарах (${adminName})` : 'Гарах'}
             aria-label="Гарах"
             onClick={async () => {
-              await lockAdmin()
+              await adminLogout()
               await router.invalidate()
-              await router.navigate({ to: '/admin/unlock' })
+              await router.navigate({ to: '/admin/login' })
             }}
           >
             <SignOutIcon />

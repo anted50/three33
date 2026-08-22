@@ -47,13 +47,13 @@ function Home() {
               <Link to="/products" className="btn">
                 Бүтээгдэхүүн үзэх
               </Link>
-              <Link
+              {/* <Link
                 to="/products"
                 search={{ category: 'styling' }}
                 className="btn btn--onDark"
               >
                 Үс засалт
-              </Link>
+              </Link> */}
             </div>
           </div>
         </div>

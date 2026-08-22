@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildFill,
+  buildRowFill,
   densityOf,
   edgeTones,
+  edgeTonesRow,
   glyphFor,
   neighbour,
   RAMP,
@@ -75,6 +77,62 @@ describe('edgeTones', () => {
     const tones = edgeTones(['    ', '$$$$', '    '], 4)
     expect(tones[1]).toBeLessThan(1)
     expect(tones[0]).toBeGreaterThan(0)
+  })
+})
+
+describe('edgeTonesRow', () => {
+  it('reports one tone per column', () => {
+    expect(edgeTonesRow(['$$$$', '    ', '....'], 'top').length).toBe(4)
+  })
+
+  it('reads a darker top edge as heavier than a lighter one', () => {
+    const darkTop = edgeTonesRow(['$$$$$$$$', '........'], 'top', 1)
+    const lightTop = edgeTonesRow(['........', '$$$$$$$$'], 'top', 1)
+    expect(darkTop[0]).toBeGreaterThan(lightTop[0] as number)
+  })
+
+  it('samples the opposite end for the bottom edge', () => {
+    const tones = edgeTonesRow(['$$$$$$$$', '        '], 'bottom', 1)
+    // Bottom row is all spaces, so the bottom edge reads as unlit.
+    expect(tones[0]).toBe(0)
+  })
+
+  it('smooths horizontally, so one stray column cannot stripe the fill', () => {
+    const tones = edgeTonesRow([' $ ', ' $ '], 'top', 2)
+    expect(tones[1]).toBeLessThan(1)
+    expect(tones[0]).toBeGreaterThan(0)
+  })
+})
+
+describe('buildRowFill', () => {
+  const tones = [0.8, 0.5, 0.2]
+
+  it('returns the requested number of rows, each as wide as the tones', () => {
+    const fill = buildRowFill(tones, 12, seededRandom(1))
+    expect(fill.length).toBe(12)
+    for (const line of fill) expect(line.length).toBe(tones.length)
+  })
+
+  it('is stable for a given seed', () => {
+    expect(buildRowFill(tones, 20, seededRandom(7))).toEqual(
+      buildRowFill(tones, 20, seededRandom(7)),
+    )
+  })
+
+  it('thins out towards row 0, away from the picture', () => {
+    const fill = buildRowFill([1], 400, seededRandom(3))
+    const half = Math.floor(fill.length / 2)
+    const ink = (rows: string[]) =>
+      rows.reduce(
+        (sum, row) => sum + [...row].reduce((s, c) => s + densityOf(c), 0),
+        0,
+      )
+
+    expect(ink(fill.slice(0, half))).toBeLessThan(ink(fill.slice(half)))
+  })
+
+  it('handles a zero-row request without producing undefined entries', () => {
+    expect(buildRowFill(tones, 0, seededRandom(5))).toEqual([])
   })
 })
 

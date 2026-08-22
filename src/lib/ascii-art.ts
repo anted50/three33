@@ -93,6 +93,67 @@ export function edgeTones(lines: ReadonlyArray<string>, sample = 16): number[] {
 }
 
 /**
+ * Per-column ink coverage along the top or bottom edge of the art, smoothed
+ * horizontally — the same idea as edgeTones, transposed. Used to fill above
+ * or below the picture instead of beside it, which is what a phone needs:
+ * fit by width instead of by height (see app.css), the picture comes out
+ * shorter than the band instead of narrower.
+ */
+export function edgeTonesRow(
+  lines: ReadonlyArray<string>,
+  edge: 'top' | 'bottom',
+  sample = 16,
+): number[] {
+  const sampled = edge === 'top' ? lines.slice(0, sample) : lines.slice(-sample)
+  const cols = Math.max(0, ...lines.map((line) => line.length))
+
+  const raw = Array.from({ length: cols }, (_, x) => {
+    const cells = sampled.map((line) => line[x]).filter((c) => c !== undefined)
+    if (cells.length === 0) return 0
+    return cells.reduce((sum, char) => sum + densityOf(char), 0) / cells.length
+  })
+
+  return raw.map((_, x) => {
+    let sum = 0
+    let n = 0
+    for (let i = x - 2; i <= x + 2; i++) {
+      const v = raw[i]
+      if (v === undefined) continue
+      sum += v
+      n++
+    }
+    return n === 0 ? 0 : sum / n
+  })
+}
+
+/**
+ * Generates `rows` rows of ASCII to sit above or below the art — buildFill,
+ * transposed. Row 0 is farthest from the picture (near blank); the last row
+ * sits flush against it, at full tone. Callers reverse that order themselves
+ * when appending below the art, so the strong end lands next to the picture
+ * either way — see components/hero-ascii.
+ */
+export function buildRowFill(
+  tones: ReadonlyArray<number>,
+  rows: number,
+  rand: () => number,
+): string[] {
+  if (rows <= 0) return []
+
+  const out: string[] = []
+  for (let y = 0; y < rows; y++) {
+    const reach = Math.pow((y + 1) / rows, 1.7)
+    let line = ''
+    for (const tone of tones) {
+      const density = tone * reach * (0.55 + rand() * 0.9)
+      line += density < 0.05 ? ' ' : glyphFor(density)
+    }
+    out.push(line)
+  }
+  return out
+}
+
+/**
  * Generates `cols` columns of ASCII to sit to the left of the art, one string
  * per row.
  *

@@ -427,6 +427,14 @@ h3 {
   --ascii-rows: 100;
 
   /*
+   * Columns in src/assets/hero-ascii.txt — every line is padded to the same
+   * width. Used on a phone (see the max-width query below) to fit the art by
+   * width instead of by height, same reason and same upkeep note as
+   * --ascii-rows above.
+   */
+  --ascii-cols: 269;
+
+  /*
    * How many rows to fit down the container — the zoom dial, separate from the
    * true row count above. At --ascii-rows the whole photograph is in frame; below
    * it the art overspills and the container's overflow crops, top and bottom.
@@ -470,7 +478,9 @@ h3 {
   /* The barber is pinned to the right edge and the generated fill grows away
      from him to the left, into the space the copy occupies. Anchoring the other
      way would slide the photograph under the text every time the band changed
-     width. */
+     width. Phone flips this — see the max-width query below — because there
+     the picture is wider than the whole viewport and this side is the one
+     that turns out to be worth keeping. */
   justify-content: flex-end;
 
   /* 100cqb below is this element's height. `size` rather than `inline-size`
@@ -499,18 +509,6 @@ h3 {
        copy did not reach either. */
       linear-gradient(to bottom, #000 82%, transparent 100%);
   mask-composite: intersect;
-}
-
-/*
- * Phone only. Fewer rows than the 100 used from 700px up, so each glyph is
- * still a handful of pixels wide instead of the sub-4px fuzz a full-height fit
- * would give a ~380px band — this crops the bottom of the photograph rather
- * than shrinking it past legibility.
- */
-@media (max-width: 699px) {
-  .hero__art {
-    --ascii-fit-rows: 42;
-  }
 }
 
 /*
@@ -555,15 +553,36 @@ h3 {
 }
 
 /*
- * Below the opacity set above, and only on a phone: the copy is full width
- * here rather than beside the art, so it sits directly over the picture and
- * needs the ground quieter than the tablet/desktop opacity allows. Placed
- * after the base rule, not inside the --ascii-fit-rows query above, so equal
- * specificity resolves in this rule's favour by source order.
+ * Phone overrides of the two rules above. Placed after the base .hero__ascii
+ * rule, not beside .hero__art's own max-width query further up, so equal
+ * specificity resolves in this block's favour by source order.
+ *
+ * Opacity: originally much dimmer than the desktop value on the theory that
+ * full-width copy needed a quieter ground — in practice that read as
+ * barely-there rather than quiet, and on a phone screen the art is the only
+ * place this photograph is seen at all up close. Matched to the desktop
+ * opacity instead; the fade mask above already keeps the left, text-heavy
+ * portion of the band calmer than the barber's side.
+ *
+ * Font-size: switched from fitting by height (cqb, the desktop/tablet rule)
+ * to fitting by width (cqi). Fit by height, this picture's 269 columns render
+ * wider than a phone screen at any row count legible enough to read as
+ * texture rather than fuzz — around 900px against a ~375px viewport — and
+ * whichever edge .hero__art anchors to crops the rest away. The edges are the
+ * picture's least interesting part: flat wall, uniformly dense in every row
+ * of the source file, no more a photograph than a swatch of one character
+ * repeated. There is no height-fit crop that keeps the actual subject in
+ * frame at a legible size on a phone. Fitting by width instead guarantees the
+ * whole picture is in frame — nothing cropped off either edge — at the cost
+ * of the glyphs themselves: 269 columns into ~375px is a couple of pixels
+ * each, well past the "grey fuzz" point the height-fit rule exists to avoid.
+ * Deliberate trade for this breakpoint: the whole photograph, indistinct,
+ * over a sharp crop of the wall behind the subject.
  */
 @media (max-width: 699px) {
   .hero__ascii {
-    opacity: 0.18;
+    opacity: 0.4;
+    font-size: calc(100cqi / (var(--ascii-cols) * 0.6));
   }
 }
 

@@ -82,6 +82,33 @@ export const qpayErrorResponse = z.object({
 })
 
 /**
+ * Response from POST /ebarimt/create. Permissive, and more so than the other
+ * schemas here: this endpoint is undocumented beyond the one line in
+ * docs/asset-request.md, so field names are a best guess from the wider QPay
+ * v2 spec rather than a verified sample response. `.passthrough()` and
+ * optional everywhere means an unexpected shape still parses — createEbarimt
+ * treats "no recognisable QR field" the same as "call failed", not as a crash.
+ */
+export const qpayEbarimtResponse = z
+  .object({
+    id: z.coerce.string().optional(),
+    ebarimt_qr_data: z.string().optional(),
+    qr_data: z.string().optional(),
+    /**
+     * A ready-rendered QR, if QPay sends one — mirrors qr_image on the invoice
+     * response above (base64 PNG, no `data:` prefix). Guessed field names,
+     * same caveat as the rest of this schema; createEbarimt falls back to
+     * rendering ebarimt_qr_data/qr_data itself when none of these are present.
+     */
+    ebarimt_qr_image: z.string().optional(),
+    qr_image: z.string().optional(),
+    ebarimt_lottery: z.string().nullish(),
+    lottery: z.string().nullish(),
+  })
+  .passthrough()
+export type QpayEbarimtResponse = z.infer<typeof qpayEbarimtResponse>
+
+/**
  * What QPay POSTs to our callback URL. Notably thin — which is exactly why the
  * callback is treated as a notification and never as proof of payment.
  */

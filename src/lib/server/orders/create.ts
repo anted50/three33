@@ -38,6 +38,16 @@ export const checkoutInput = z
     line1: z.string().trim().min(1).max(255),
     line2: z.string().trim().max(255).optional().or(z.literal('')),
     note: z.string().trim().max(1000).optional().or(z.literal('')),
+    // A Google Maps link the customer pasted in. Optional and unvalidated
+    // beyond "looks like a URL" — most fields above already say where to
+    // deliver, this is a courier convenience, not a required input.
+    mapLink: z
+      .string()
+      .trim()
+      .max(500)
+      .refine((v) => v === '' || /^https?:\/\//i.test(v), 'Холбоос буруу байна')
+      .optional()
+      .or(z.literal('')),
   })
   /**
    * The сум must belong to the аймаг. Without this, a browser could pair
@@ -150,6 +160,7 @@ export const createOrder = createServerFn({ method: 'POST' })
             line1: data.line1,
             line2: data.line2 || null,
             zone,
+            ...(data.mapLink ? { mapLink: data.mapLink } : {}),
           },
         })
         .returning()

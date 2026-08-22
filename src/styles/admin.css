@@ -208,6 +208,12 @@
   font-size: 22px;
 }
 
+.adm__headactions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
 .adm__card {
   background: #fff;
   border: 1px solid var(--border);

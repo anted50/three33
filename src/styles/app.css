@@ -440,18 +440,14 @@ h3 {
   --ascii-fit-rows: var(--ascii-rows);
 
   /*
-   * Not on a phone. The band there is about 380px tall, and fitting 100 rows
-   * into it puts the glyphs under 4px, where a character has no inside left and
-   * the picture is grey fuzz — and the way out of that is cropping the
-   * photograph, which is the thing this layout exists to avoid. The copy also
-   * covers the full width at that size, so the art would be entirely behind
-   * text.
-   *
-   * display and not opacity, so the browser has no 27,000-character text node
-   * to lay out on the smallest devices. The component watches for the box
-   * appearing and only then builds its fill or starts its animation.
+   * Shown on a phone too, but at a much lower --ascii-fit-rows (set below,
+   * under 700px) than the 100 used everywhere else — the band there is only
+   * about 380px tall, and fitting all 100 rows into it puts glyphs under 4px,
+   * where a character has no inside left and the picture is grey fuzz. Fitting
+   * fewer rows crops the photograph instead of shrinking it past legibility,
+   * which is the trade this layout makes on the smallest screens.
    */
-  display: none;
+  display: flex;
 
   /*
    * Where the left-hand fade starts and finishes, as a share of the band's
@@ -506,6 +502,18 @@ h3 {
 }
 
 /*
+ * Phone only. Fewer rows than the 100 used from 700px up, so each glyph is
+ * still a handful of pixels wide instead of the sub-4px fuzz a full-height fit
+ * would give a ~380px band — this crops the bottom of the photograph rather
+ * than shrinking it past legibility.
+ */
+@media (max-width: 699px) {
+  .hero__art {
+    --ascii-fit-rows: 42;
+  }
+}
+
+/*
  * Sized to fit, not to a fixed px. A monospace character advances 0.6em, so the
  * art occupies (cols × 0.6)em — meaning a font-size of width ÷ that lands it
  * exactly edge to edge, at any viewport, with no breakpoints to maintain.
@@ -544,6 +552,19 @@ h3 {
    */
   -webkit-font-smoothing: none;
   text-rendering: optimizeSpeed;
+}
+
+/*
+ * Below the opacity set above, and only on a phone: the copy is full width
+ * here rather than beside the art, so it sits directly over the picture and
+ * needs the ground quieter than the tablet/desktop opacity allows. Placed
+ * after the base rule, not inside the --ascii-fit-rows query above, so equal
+ * specificity resolves in this rule's favour by source order.
+ */
+@media (max-width: 699px) {
+  .hero__ascii {
+    opacity: 0.18;
+  }
 }
 
 /*
@@ -1468,6 +1489,29 @@ button:focus-visible {
   color: var(--muted);
   font-size: 12px;
   margin-top: 4px;
+}
+
+/* Step-by-step instructions for the Google Maps link field, tucked behind a
+   toggle so the form does not grow taller for someone who does not need them. */
+.field details {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.field details summary {
+  cursor: pointer;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.field details ol {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+.field details li {
+  margin-bottom: 4px;
 }
 
 .error {

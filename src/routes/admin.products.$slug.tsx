@@ -1,19 +1,27 @@
 import { useState } from 'react'
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router'
+import { ProductForm } from '~/components/product-form'
 import { formatMnt, munguToTugrik, tugrikToMungu } from '~/lib/money'
 import {
+  getCategoryOptions,
   getProductDetail,
-  setProductStatus,
   setVariant,
+  updateProduct,
 } from '~/lib/server/admin/admin'
 
 export const Route = createFileRoute('/admin/products/$slug')({
-  loader: ({ params }) => getProductDetail({ data: { slug: params.slug } }),
+  loader: async ({ params }) => {
+    const [product, categories] = await Promise.all([
+      getProductDetail({ data: { slug: params.slug } }),
+      getCategoryOptions(),
+    ])
+    return { product, categories }
+  },
   component: ProductAdmin,
 })
 
 function ProductAdmin() {
-  const product = Route.useLoaderData()
+  const { product, categories } = Route.useLoaderData()
   const router = useRouter()
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -38,30 +46,37 @@ function ProductAdmin() {
           </p>
           <h1>{product.nameMn}</h1>
         </div>
-
-        <select
-          value={product.status}
-          onChange={async (event) => {
-            setBusy('status')
-            try {
-              await setProductStatus({
-                data: {
-                  slug: product.slug,
-                  status: event.target.value as never,
-                },
-              })
-              await router.invalidate()
-            } finally {
-              setBusy(null)
-            }
-          }}
-          disabled={busy === 'status'}
-        >
-          <option value="draft">draft</option>
-          <option value="active">active</option>
-          <option value="archived">archived</option>
-        </select>
       </header>
+
+      <ProductForm
+        categories={categories}
+        initial={{
+          nameMn: product.nameMn,
+          nameEn: product.nameEn,
+          slug: product.slug,
+          categoryId: product.categoryId ?? '',
+          brandLine: product.brandLine ?? '',
+          descriptionMn: product.descriptionMn ?? '',
+          status: product.status,
+        }}
+        slugEditable={false}
+        submitLabel="Хадгалах"
+        busyLabel="Хадгалж байна…"
+        onSubmit={async (values) => {
+          await updateProduct({
+            data: {
+              slug: product.slug,
+              nameMn: values.nameMn,
+              nameEn: values.nameEn,
+              descriptionMn: values.descriptionMn || undefined,
+              categoryId: values.categoryId || undefined,
+              brandLine: values.brandLine || undefined,
+              status: values.status,
+            },
+          })
+          await router.invalidate()
+        }}
+      />
 
       {error && <p className="error">{error}</p>}
 
@@ -112,13 +127,6 @@ function ProductAdmin() {
           Нөөц өөрчлөх бүрд inventory_ledger-т бичлэг үүснэ.
         </p>
       </section>
-
-      {product.descriptionMn && (
-        <section className="adm__card adm__pad">
-          <p className="adm__statlabel">Тайлбар</p>
-          <p>{product.descriptionMn}</p>
-        </section>
-      )}
     </>
   )
 }

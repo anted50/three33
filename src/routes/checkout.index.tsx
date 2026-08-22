@@ -80,6 +80,7 @@ function Checkout() {
           line1: String(form.get('line1') ?? ''),
           line2: String(form.get('line2') ?? ''),
           note: String(form.get('note') ?? ''),
+          mapLink: String(form.get('mapLink') ?? ''),
         },
       })
 
@@ -196,6 +197,43 @@ function Checkout() {
           <label className="field">
             <span>Нэмэлт хаяг</span>
             <input name="line2" maxLength={255} />
+          </label>
+
+          <label className="field">
+            <span>Google Maps холбоос (заавал биш)</span>
+            <input
+              name="mapLink"
+              type="url"
+              maxLength={500}
+              placeholder="https://maps.app.goo.gl/…"
+            />
+            <small>
+              Хүргэлтийн жолооч танай хаягийг олоход хялбар болгоно
+            </small>
+            <details>
+              <summary>Холбоосыг хэрхэн авах вэ?</summary>
+              <ol>
+                <li>Google Maps апп-аа нээгээд байршлаа олно уу</li>
+                <li>Байршлыг дараад доор гарч ирэх картыг татна уу</li>
+                <li>
+                  <strong>Хуваалцах</strong> (Share) товч дараад{' '}
+                  <strong>Холбоос хуулах</strong> (Copy link) сонгоно уу
+                </li>
+                <li>Дараа нь энд буулгана уу (Урт дараад &quot;Буулгах&quot;)</li>
+              </ol>
+              <p>
+                Компьютер дээрээс бол{' '}
+                <a
+                  href="https://maps.google.com"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  maps.google.com
+                </a>{' '}
+                дээр байршлаа хайж олоод <strong>Хуваалцах</strong> →{' '}
+                <strong>Холбоос хуулах</strong> дарна уу.
+              </p>
+            </details>
           </label>
 
           <label className="field">

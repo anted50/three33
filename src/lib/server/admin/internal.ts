@@ -312,6 +312,7 @@ export async function productDetail(slug: string) {
       nameMn: products.nameMn,
       nameEn: products.nameEn,
       descriptionMn: products.descriptionMn,
+      categoryId: products.categoryId,
       status: products.status,
       brandLine: products.brandLine,
     })
@@ -336,4 +337,94 @@ export async function productDetail(slug: string) {
 
   const { id: _id, ...rest } = product
   return { ...rest, variants }
+}
+
+export async function categoryOptions() {
+  assertAdmin()
+
+  return db
+    .select({ id: categories.id, nameMn: categories.nameMn })
+    .from(categories)
+    .orderBy(asc(categories.sortOrder))
+}
+
+export interface NewProductInput {
+  slug: string
+  nameMn: string
+  nameEn: string
+  descriptionMn: string | null
+  categoryId: string | null
+  brandLine: string | null
+  status: 'draft' | 'active' | 'archived'
+  sku: string
+  size: string | null
+  price: number
+  stockQty: number
+}
+
+/**
+ * A product with no variant has nothing a shopper can add to cart, so
+ * registration always creates the first one alongside the product row —
+ * same transaction, so a failed variant insert never leaves a stub product
+ * hanging around in the catalogue.
+ */
+export async function insertProduct(input: NewProductInput) {
+  assertAdmin()
+
+  return db.transaction(async (tx) => {
+    const [product] = await tx
+      .insert(products)
+      .values({
+        slug: input.slug,
+        nameMn: input.nameMn,
+        nameEn: input.nameEn,
+        descriptionMn: input.descriptionMn,
+        categoryId: input.categoryId,
+        brandLine: input.brandLine,
+        status: input.status,
+      })
+      .returning({ id: products.id })
+
+    if (!product) throw new Error('Бүтээгдэхүүн үүсгэж чадсангүй')
+
+    await tx.insert(productVariants).values({
+      productId: product.id,
+      sku: input.sku,
+      size: input.size,
+      price: input.price,
+      stockQty: input.stockQty,
+    })
+
+    return { slug: input.slug }
+  })
+}
+
+export interface ProductUpdate {
+  slug: string
+  nameMn: string
+  nameEn: string
+  descriptionMn: string | null
+  categoryId: string | null
+  brandLine: string | null
+  status: 'draft' | 'active' | 'archived'
+}
+
+/** Slug is the lookup key here, not something this edits — see ProductForm's
+ * slugEditable prop for why. */
+export async function updateProductRow(input: ProductUpdate) {
+  assertAdmin()
+
+  await db
+    .update(products)
+    .set({
+      nameMn: input.nameMn,
+      nameEn: input.nameEn,
+      descriptionMn: input.descriptionMn,
+      categoryId: input.categoryId,
+      brandLine: input.brandLine,
+      status: input.status,
+    })
+    .where(eq(products.slug, input.slug))
+
+  return { ok: true as const }
 }

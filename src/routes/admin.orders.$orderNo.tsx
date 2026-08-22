@@ -266,6 +266,7 @@ function OrderDetail() {
                   formatArea(order.address),
                   order.address.line1,
                   order.address.line2,
+                  order.address.mapLink,
                   order.orderNo,
                 ]
                   .filter(Boolean)
@@ -277,6 +278,15 @@ function OrderDetail() {
           >
             {copied ? '✓ Хуулсан' : 'Хаяг хуулах'}
           </button>
+
+          {order.address.mapLink && (
+            <div style={{ marginTop: 16 }}>
+              <p className="adm__statlabel">Байршил (хэрэглэгчийн тэмдэглэсэн)</p>
+              <a href={order.address.mapLink} target="_blank" rel="noreferrer">
+                Google Maps дээр нээх ↗
+              </a>
+            </div>
+          )}
 
           <p className="adm__statlabel" style={{ marginTop: 24 }}>
             Төлбөр

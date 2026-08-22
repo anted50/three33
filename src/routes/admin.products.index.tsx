@@ -16,7 +16,12 @@ function Products() {
     <>
       <header className="adm__head">
         <h1>Бүтээгдэхүүн</h1>
-        <span className="adm__muted">{products.length} бүтээгдэхүүн</span>
+        <div className="adm__headactions">
+          <span className="adm__muted">{products.length} бүтээгдэхүүн</span>
+          <Link to="/admin/products/new" className="btn btn--sm">
+            + Шинэ бүтээгдэхүүн
+          </Link>
+        </div>
       </header>
 
       <section className="adm__card">

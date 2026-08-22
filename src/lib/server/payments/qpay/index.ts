@@ -1,3 +1,4 @@
+import QRCode from 'qrcode'
 import { toQpayAmount, type Mungu } from '~/lib/money'
 import { env } from '~/lib/server/env'
 import type {
@@ -8,7 +9,39 @@ import type {
 } from '../provider'
 import { decideSettlement } from '../settlement'
 import { QpayClient, sanitizeDescription } from './client'
-import { qpayInvoiceResponse, qpayPaymentCheckResponse } from './types'
+import {
+  qpayEbarimtResponse,
+  qpayInvoiceResponse,
+  qpayPaymentCheckResponse,
+} from './types'
+
+export interface EbarimtReceipt {
+  id: string | null
+  /** Raw QR payload/URL QPay returned, if any — kept for a "view" link even
+   * when it is not itself an image. */
+  qrData: string | null
+  /** Base64 PNG, no `data:` prefix — same convention as CreatedInvoice.qrImage.
+   * Either passed through from QPay or rendered locally from qrData; null only
+   * when there was nothing to turn into a QR at all. */
+  qrImage: string | null
+  lottery: string | null
+}
+
+/** Renders a base64 PNG (no `data:` prefix) from arbitrary QR text, for the
+ * case where QPay hands back a payload but not a pre-rendered image. */
+async function renderQr(data: string): Promise<string | null> {
+  try {
+    const dataUrl = await QRCode.toDataURL(data, {
+      margin: 1,
+      width: 320,
+      errorCorrectionLevel: 'M',
+    })
+    return dataUrl.replace(/^data:image\/png;base64,/, '')
+  } catch (error) {
+    console.error('Failed to render e-barimt QR locally:', error)
+    return null
+  }
+}
 
 /**
  * QPay implementation of PaymentProvider.
@@ -82,6 +115,55 @@ export class QpayProvider implements PaymentProvider {
     await this.client.request(`/invoice/${encodeURIComponent(invoiceId)}`, {
       method: 'DELETE',
     })
+  }
+
+  /**
+   * Requests a real e-barimt for a settled payment.
+   *
+   * Not part of the PaymentProvider interface — e-barimt is a Mongolian tax
+   * requirement specific to this provider, not a concept a card processor
+   * would share, so it stays on the concrete class rather than leaking into
+   * the generic abstraction.
+   *
+   * Returns null, never throws, when QPAY_EBARIMT_INVOICE_CODE is unset or the
+   * call fails — callers treat "no e-barimt" as a normal outcome (the order
+   * receipt still emails without it) rather than an error to propagate into a
+   * payment-settlement path.
+   */
+  async createEbarimt(
+    paymentId: string,
+    ebarimtInvoiceCode: string | undefined,
+  ): Promise<EbarimtReceipt | null> {
+    if (!ebarimtInvoiceCode) return null
+
+    try {
+      const raw = await this.client.request<unknown>('/ebarimt/create', {
+        method: 'POST',
+        body: {
+          payment_id: paymentId,
+          ebarimt_receiver_type: 'CITIZEN',
+          invoice_code: ebarimtInvoiceCode,
+        },
+      })
+
+      const parsed = qpayEbarimtResponse.parse(raw)
+      const qrData = parsed.ebarimt_qr_data ?? parsed.qr_data ?? null
+      const readyImage = parsed.ebarimt_qr_image ?? parsed.qr_image ?? null
+      if (!qrData && !readyImage) return null
+
+      return {
+        id: parsed.id ?? null,
+        qrData,
+        qrImage: readyImage ?? (qrData ? await renderQr(qrData) : null),
+        lottery: parsed.ebarimt_lottery ?? parsed.lottery ?? null,
+      }
+    } catch (error) {
+      console.error(
+        `QPay /ebarimt/create failed for payment ${paymentId}:`,
+        error,
+      )
+      return null
+    }
   }
 }
 

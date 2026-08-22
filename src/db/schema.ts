@@ -104,6 +104,14 @@ export interface ShippingAddress {
   line1: string
   line2: string | null
   zone: 'ub' | 'countryside'
+  /**
+   * A Google Maps link the customer pasted in themselves, e.g.
+   * https://maps.app.goo.gl/... — optional, and absent on orders placed
+   * before the field existed. The typed address fields above remain the
+   * actual delivery instructions; this is a courier convenience on top,
+   * not something the app parses or validates beyond "looks like a URL".
+   */
+  mapLink?: string
 }
 
 /** Shape of payments.invoice_payload — the QPay invoice as first returned. */

@@ -8,6 +8,7 @@ import {
   productVariants,
 } from '~/db/schema'
 import { getQpayProvider } from '../payments/qpay'
+import { sendOrderReceipt } from './receipt'
 import { assertTransition } from './state'
 
 export type SettleOutcome =
@@ -153,6 +154,15 @@ export async function settleOrder(orderNo: string): Promise<SettleOutcome> {
     if (error instanceof AlreadySettled) return 'already_settled'
     throw error
   }
+
+  /**
+   * Not awaited into the response: settlement itself already committed, and
+   * whoever called settleOrder (the QPay callback, or a customer's browser
+   * polling the payment page) is waiting on this call to return. Sending mail
+   * is a background side effect of a payment that already happened, not a
+   * step it should wait through.
+   */
+  void sendOrderReceipt(orderNo)
 
   return 'settled'
 }

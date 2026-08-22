@@ -2,15 +2,18 @@ import { createServerFn } from '@tanstack/react-start'
 import { eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '~/db'
-import { inventoryLedger, orders, productVariants, products } from '~/db/schema'
+import { inventoryLedger, orders, productVariants } from '~/db/schema'
 import { assertTransition } from '../orders/state'
 import {
   assertAdmin,
+  categoryOptions,
   dashboard,
+  insertProduct,
   listOrders,
   listProducts,
   orderDetail,
   productDetail,
+  updateProductRow,
 } from './internal'
 
 /**
@@ -142,20 +145,88 @@ export const setVariant = createServerFn({ method: 'POST' })
     })
   })
 
-export const setProductStatusInput = z.object({
-  slug: z.string().min(1).max(128),
+export const getCategoryOptions = createServerFn({ method: 'GET' }).handler(
+  () => categoryOptions(),
+)
+
+export const createProductInput = z.object({
+  slug: z
+    .string()
+    .min(1)
+    .max(128)
+    .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'зөвхөн латин жижиг үсэг, тоо, зураас'),
+  nameMn: z.string().min(1).max(200),
+  nameEn: z.string().min(1).max(200),
+  descriptionMn: z.string().max(4000).optional(),
+  categoryId: z.uuid().optional(),
+  brandLine: z.string().max(200).optional(),
   status: z.enum(['draft', 'active', 'archived']),
+  sku: z.string().min(1).max(64),
+  size: z.string().max(64).optional(),
+  /** Mungu. Integer only — see lib/money.ts. */
+  price: z.number().int().min(0).max(1_000_000_000),
+  stockQty: z.number().int().min(0).max(1_000_000),
 })
 
-export const setProductStatus = createServerFn({ method: 'POST' })
-  .validator(setProductStatusInput)
+/**
+ * Registers a new product with its first sellable variant. Unique slug/SKU
+ * violations come back from Postgres as code 23505 — surfaced here as a
+ * message a shop owner can act on instead of the raw driver error.
+ */
+export const createProduct = createServerFn({ method: 'POST' })
+  .validator(createProductInput)
   .handler(async ({ data }) => {
     assertAdmin()
 
-    await db
-      .update(products)
-      .set({ status: data.status })
-      .where(eq(products.slug, data.slug))
+    try {
+      return await insertProduct({
+        slug: data.slug,
+        nameMn: data.nameMn,
+        nameEn: data.nameEn,
+        descriptionMn: data.descriptionMn ?? null,
+        categoryId: data.categoryId ?? null,
+        brandLine: data.brandLine ?? null,
+        status: data.status,
+        sku: data.sku,
+        size: data.size ?? null,
+        price: data.price,
+        stockQty: data.stockQty,
+      })
+    } catch (err) {
+      if (
+        err &&
+        typeof err === 'object' &&
+        'code' in err &&
+        err.code === '23505'
+      ) {
+        throw new Error('Ийм slug эсвэл SKU аль хэдийн бүртгэлтэй байна')
+      }
+      throw err
+    }
+  })
 
-    return { ok: true as const }
+export const updateProductInput = z.object({
+  slug: z.string().min(1).max(128),
+  nameMn: z.string().min(1).max(200),
+  nameEn: z.string().min(1).max(200),
+  descriptionMn: z.string().max(4000).optional(),
+  categoryId: z.uuid().optional(),
+  brandLine: z.string().max(200).optional(),
+  status: z.enum(['draft', 'active', 'archived']),
+})
+
+export const updateProduct = createServerFn({ method: 'POST' })
+  .validator(updateProductInput)
+  .handler(async ({ data }) => {
+    assertAdmin()
+
+    return updateProductRow({
+      slug: data.slug,
+      nameMn: data.nameMn,
+      nameEn: data.nameEn,
+      descriptionMn: data.descriptionMn ?? null,
+      categoryId: data.categoryId ?? null,
+      brandLine: data.brandLine ?? null,
+      status: data.status,
+    })
   })

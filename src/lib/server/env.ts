@@ -41,6 +41,25 @@ const schema = z.object({
   RESEND_API_KEY: z.string().optional(),
   EMAIL_FROM: z.string().default('Three 33 Barbershop <noreply@localhost>'),
 
+  /**
+   * Transactional email for order receipts, via ZeptoMail's HTTP API.
+   * The full `Authorization` header value ZeptoMail issues, e.g.
+   * "Zoho-enczapikey <token>" — sent through as-is, not reassembled from a
+   * bare token, because that is the shape ZeptoMail's dashboard hands out.
+   * Unset means receipt sending is silently skipped — see
+   * lib/server/email/zeptomail.ts — so an unfinished mail setup never blocks
+   * checkout or settlement.
+   */
+  MAIL_API_TOKEN: z.string().optional(),
+
+  /**
+   * A second, VAT-enabled QPay invoice code, required for POST /ebarimt/create
+   * to return a real receipt. QPAY_INVOICE_CODE above is the plain one and
+   * cannot be used for this — see docs/asset-request.md #6. Unset means the
+   * e-barimt step is skipped and only the plain order receipt is emailed.
+   */
+  QPAY_EBARIMT_INVOICE_CODE: z.string().optional(),
+
   // Mungu. Configurable in admin later; env is the v1 source of truth.
   SHIPPING_FEE_UB: z.coerce.number().int().nonnegative(),
   SHIPPING_FEE_COUNTRYSIDE: z.coerce.number().int().nonnegative(),

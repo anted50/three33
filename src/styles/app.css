@@ -99,6 +99,17 @@ select {
   color: inherit;
 }
 
+/*
+ * iOS Safari zooms the viewport on focus for any text input rendered below
+ * 16px, regardless of the page's own font-size elsewhere. Keeping this at
+ * 16px (rather than the 14px body copy) is what stops that zoom.
+ */
+input,
+select,
+textarea {
+  font-size: 16px;
+}
+
 a {
   color: inherit;
   text-decoration: none;
@@ -208,7 +219,7 @@ h3 {
   border: 0;
   outline: 0;
   background: none;
-  font-size: 15px;
+  font-size: 16px;
 }
 
 /* Safari draws its own clear button on type=search; we have our own. */

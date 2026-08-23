@@ -52,7 +52,7 @@ export function Header() {
           announces as "link" and the site loses its name in the a11y tree, in
           search results' link context, and to anyone with images off.
         */}
-                <Link to="/" className="logo" aria-label="Three 33 Barbershop — нүүр">
+                <Link to="/" className="logo" aria-label="Three33 Barber — нүүр">
                     <Logo className="logo__mark" />
                 </Link>
 

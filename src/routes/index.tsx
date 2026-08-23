@@ -36,8 +36,8 @@ function Home() {
             */}
             <p className="hero__eyebrow">Улаанбаатар</p>
             <h1>
-              Three 33
-              <span className="hero__accent">Barbershop</span>
+              Three33
+              <span className="hero__accent">Barber</span>
             </h1>
             <p className="hero__lede">
               Мэргэжлийн үс засал, сахал арчилгааны бүтээгдэхүүн. Улаанбаатар

@@ -24,7 +24,7 @@ export async function sendAdminOtpEmail(
   const html = `
     <div style="background:#ffffff;font-family:${SANS};color:#0a0a0a">
       <div style="max-width:420px;margin:0 auto;padding:36px 24px 0;text-align:center">
-        <img src="${env.APP_URL}/email-logo.png" alt="Three 33 Barbershop" width="200" height="28" style="display:inline-block;width:200px;height:28px" />
+        <img src="${env.APP_URL}/email-logo.png" alt="Three33 Barbershop" width="200" height="28" style="display:inline-block;width:200px;height:28px" />
       </div>
       <div style="max-width:420px;margin:28px auto 0;background:#f4f4f2;padding:32px 24px;text-align:center">
         <p style="margin:0 0 18px;font-size:14px">Админ нэвтрэх код</p>

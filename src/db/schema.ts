@@ -92,25 +92,19 @@ export interface ShippingAddress {
   name: string
   phone: string
   email: string | null
+  /** The whole delivery address as one free-text block, as typed. */
+  address?: string
   /**
-   * Аймаг/хот. Optional because orders placed before the address form asked
-   * for it have no such field — readers fall back to the zone.
+   * Orders placed while the form asked for аймаг/сум/хороо separately keep the
+   * fields they were stored with. Readers go through lib/address.ts, which
+   * renders either shape.
    */
   province?: string
-  /** Сум/дүүрэг. */
-  district: string
-  /** Баг/хороо. */
-  khoroo: string
-  line1: string
-  line2: string | null
-  zone: 'ub' | 'countryside'
-  /**
-   * A Google Maps link the customer pasted in themselves, e.g.
-   * https://maps.app.goo.gl/... — optional, and absent on orders placed
-   * before the field existed. The typed address fields above remain the
-   * actual delivery instructions; this is a courier convenience on top,
-   * not something the app parses or validates beyond "looks like a URL".
-   */
+  district?: string
+  khoroo?: string
+  line1?: string
+  line2?: string | null
+  zone?: 'ub' | 'countryside'
   mapLink?: string
 }
 
@@ -440,6 +434,16 @@ export const reviews = pgTable(
  * fast read; this is the explanation. Written in the same transaction as the
  * stock change, always.
  */
+/**
+ * Shop-wide knobs an admin can turn without a deploy — currently the delivery
+ * fee. Values are stored as text and parsed by the module that owns each key
+ * (see lib/server/settings.ts), so adding a knob needs no migration.
+ */
+export const settings = pgTable('settings', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(),
+})
+
 export const inventoryLedger = pgTable(
   'inventory_ledger',
   {

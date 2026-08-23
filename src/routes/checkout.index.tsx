@@ -3,13 +3,7 @@ import { useRouter, createFileRoute, Link, useNavigate } from '@tanstack/react-r
 import { Page } from '~/components/layout'
 import { useCartDrawer } from '~/components/cart-drawer'
 import { formatMnt } from '~/lib/money'
-import {
-    MN_PROVINCES,
-    ULAANBAATAR,
-    unitsForProvince,
-} from '~/lib/mn-regions'
 import { getCart, getShippingRates } from '~/lib/server/cart/cart'
-import { zoneForProvince } from '~/lib/server/cart/pricing'
 import { createOrder } from '~/lib/server/orders/create'
 
 export const Route = createFileRoute('/checkout/')({
@@ -27,23 +21,13 @@ function Checkout() {
     const router = useRouter()
     const [error, setError] = useState<string | null>(null)
     const [busy, setBusy] = useState(false)
-    /**
-     * Аймаг/хот → сум/дүүрэг. The second level is derived from the first, and
-     * changing the first clears it: leaving 'Хан-Уул' selected after switching to
-     * Дархан-Уул would submit a pair that does not exist.
-     */
-    const [province, setProvince] = useState<string>(ULAANBAATAR)
-    const [district, setDistrict] = useState<string>('')
-    const districts = unitsForProvince(province)
 
     /**
      * Computed from the server's own rates, so what is quoted here and what the
      * order is charged cannot drift. The server still recomputes at checkout —
      * this is a preview of that result, not an input to it.
      */
-    const zone = zoneForProvince(province)
-    const shipping =
-        zone === 'ub' && cart.subtotal >= rates.freeUbThreshold ? 0 : rates[zone]
+    const shipping = cart.subtotal >= rates.freeThreshold ? 0 : rates.fee
 
     if (cart.lines.length === 0) {
         return (
@@ -75,13 +59,8 @@ function Checkout() {
                     name: String(form.get('name') ?? ''),
                     phone: String(form.get('phone') ?? ''),
                     email: String(form.get('email') ?? ''),
-                    province: String(form.get('province') ?? ''),
-                    district: String(form.get('district') ?? ''),
-                    khoroo: String(form.get('khoroo') ?? ''),
-                    line1: String(form.get('line1') ?? ''),
-                    line2: String(form.get('line2') ?? ''),
+                    address: String(form.get('address') ?? ''),
                     note: String(form.get('note') ?? ''),
-                    mapLink: String(form.get('mapLink') ?? ''),
                 },
             })
 
@@ -137,106 +116,16 @@ function Checkout() {
                     </label>
 
                     <label className="field">
-                        <span>Аймаг / Хот *</span>
-                        <select
-                            name="province"
-                            required
-                            value={province}
-                            onChange={(e) => {
-                                setProvince(e.target.value)
-                                setDistrict('')
-                            }}
-                        >
-                            {MN_PROVINCES.map((p) => (
-                                <option key={p.name} value={p.name}>
-                                    {p.name}
-                                </option>
-                            ))}
-                        </select>
-                    </label>
-
-                    <label className="field">
-                        <span>Сум / Дүүрэг *</span>
-                        <select
-                            name="district"
-                            required
-                            value={district}
-                            onChange={(e) => setDistrict(e.target.value)}
-                        >
-                            <option value="" disabled>
-                                Сонгоно уу
-                            </option>
-                            {districts.map((d) => (
-                                <option key={d} value={d}>
-                                    {d}
-                                </option>
-                            ))}
-                        </select>
-                    </label>
-
-                    <label className="field">
-                        <span>Баг / Хороо *</span>
-                        <input
-                            name="khoroo"
-                            required
-                            maxLength={100}
-                            placeholder={
-                                province === ULAANBAATAR ? '24-р хороо' : '1-р баг'
-                            }
-                        />
-                    </label>
-
-                    <label className="field">
                         <span>Хаяг *</span>
-                        <input
-                            name="line1"
+                        <textarea
+                            name="address"
                             required
-                            maxLength={255}
-                            placeholder="Байр, орц, тоот"
+                            rows={4}
+                            maxLength={500}
+                            minLength={5}
+                            placeholder="Дүүрэг, хороо, байр, орц, тоот — хүргэлтийн жолооч олоход хангалттай бичнэ үү"
                             autoComplete="street-address"
                         />
-                    </label>
-
-                    <label className="field">
-                        <span>Нэмэлт хаяг</span>
-                        <input name="line2" maxLength={255} />
-                    </label>
-
-                    <label className="field">
-                        <span>Google Maps холбоос (заавал биш)</span>
-                        <input
-                            name="mapLink"
-                            type="url"
-                            maxLength={500}
-                            placeholder="https://maps.app.goo.gl/…"
-                        />
-                        <small>
-                            Хүргэлтийн жолооч танай хаягийг олоход хялбар болгоно
-                        </small>
-                        <details>
-                            <summary>Холбоосыг хэрхэн авах вэ?</summary>
-                            <ol>
-                                <li>Google Maps апп-аа нээгээд байршлаа олно уу</li>
-                                <li>Байршлыг дараад доор гарч ирэх картыг татна уу</li>
-                                <li>
-                                    <strong>Хуваалцах</strong> (Share) товч дараад{' '}
-                                    <strong>Холбоос хуулах</strong> (Copy link) сонгоно уу
-                                </li>
-                                <li>Дараа нь энд буулгана уу (Урт дараад &quot;Буулгах&quot;)</li>
-                            </ol>
-                            <p>
-                                Компьютер дээрээс бол{' '}
-                                <a
-                                    href="https://maps.google.com"
-                                    target="_blank"
-                                    rel="noreferrer"
-                                >
-                                    maps.google.com
-                                </a>{' '}
-                                дээр байршлаа хайж олоод <strong>Хуваалцах</strong> →{' '}
-                                <strong>Холбоос хуулах</strong> дарна уу.
-                            </p>
-                        </details>
                     </label>
 
                     <label className="field">

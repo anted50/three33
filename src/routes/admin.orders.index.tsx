@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { z } from 'zod'
+import { formatAddress } from '~/lib/address'
 import { formatMnt } from '~/lib/money'
 import { getOrders } from '~/lib/server/admin/admin'
 import { STATUS_LABEL, StatusBadge } from '~/components/admin-bits'
@@ -86,21 +87,8 @@ function Orders() {
                   </td>
                   <td>{order.address?.name ?? '—'}</td>
                   <td className="adm__muted adm__num">{order.phone}</td>
-                  {/*
-                    Zone first: it decides who delivers and how fast. Outside
-                    the city the аймаг leads, because a сум name alone does not
-                    identify a place — five aimags have a Булган сум.
-                  */}
-                  <td className="adm__muted">
-                    {order.address
-                      ? order.address.zone === 'countryside' &&
-                        order.address.province
-                        ? `${order.address.province}, ${order.address.district}`
-                        : order.address.district
-                      : '—'}
-                    {order.address?.zone === 'countryside' && (
-                      <span className="ship__zone">Орон нутаг</span>
-                    )}
+                  <td className="adm__muted adm__ellipsis">
+                    {order.address ? formatAddress(order.address) : '—'}
                   </td>
                   <td className="adm__num">{order.items}</td>
                   <td className="adm__num">{formatMnt(order.total)}</td>

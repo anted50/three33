@@ -4,8 +4,10 @@ import { adminLogout, checkAdminSession } from '~/lib/server/admin/auth'
 import {
   BoxIcon,
   CartIcon,
+  GearIcon,
   GridIcon,
   SignOutIcon,
+  TruckIcon,
 } from '~/components/admin-icons'
 
 /**
@@ -20,7 +22,7 @@ import {
 export const Route = createFileRoute('/admin')({
   head: () => ({
     links: [{ rel: 'stylesheet', href: adminCss }],
-    meta: [{ title: 'Admin — Three 33' }],
+    meta: [{ title: 'Admin — Three33' }],
   }),
   beforeLoad: async ({ location }) => {
     const { ok, name } = await checkAdminSession()
@@ -42,6 +44,8 @@ const NAV: Array<{
   { to: '/admin', label: 'Хяналтын самбар', icon: GridIcon, exact: true },
   { to: '/admin/orders', label: 'Захиалга', icon: CartIcon },
   { to: '/admin/products', label: 'Бүтээгдэхүүн', icon: BoxIcon },
+  { to: '/admin/purchases', label: 'Татан авалт', icon: TruckIcon },
+  { to: '/admin/settings', label: 'Тохиргоо', icon: GearIcon },
 ]
 
 function AdminShell() {
@@ -56,7 +60,7 @@ function AdminShell() {
     <div className="adm">
       <aside className="adm__side">
         <Link to="/admin" className="adm__logo">
-          Three 33 <span>Admin</span>
+          Three33 <span>Admin</span>
         </Link>
 
         <nav className="adm__nav">
@@ -121,5 +125,7 @@ function Crumb() {
 
   if (path.startsWith('/admin/orders')) return <>Захиалга</>
   if (path.startsWith('/admin/products')) return <>Бүтээгдэхүүн</>
+  if (path.startsWith('/admin/purchases')) return <>Татан авалт</>
+  if (path.startsWith('/admin/settings')) return <>Тохиргоо</>
   return <>Хяналтын самбар</>
 }

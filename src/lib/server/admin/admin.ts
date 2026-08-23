@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { db } from '~/db'
 import { inventoryLedger, orders, productVariants } from '~/db/schema'
 import { assertTransition } from '../orders/state'
+import { loadShippingRates, saveShippingRates } from '../settings'
 import {
   assertAdmin,
   categoryOptions,
@@ -11,8 +12,10 @@ import {
   insertProduct,
   listOrders,
   listProducts,
+  listVariants,
   orderDetail,
   productDetail,
+  replaceProductImages,
   updateProductRow,
 } from './internal'
 
@@ -149,6 +152,33 @@ export const getCategoryOptions = createServerFn({ method: 'GET' }).handler(
   () => categoryOptions(),
 )
 
+/**
+ * An http(s) URL — images are hosted elsewhere (Shopify's CDN today). A
+ * site-relative path is also accepted: the packshots seeded into public/ are
+ * stored that way, and rejecting them would make their products unsaveable.
+ */
+const imageUrl = z
+  .string()
+  .trim()
+  .max(1000)
+  .regex(
+    /^(https?:\/\/|\/)\S*$/i,
+    'Зургийн хаяг http://, https:// эсвэл / -ээр эхлэх ёстой',
+  )
+
+export const productImageInput = z.object({
+  url: imageUrl,
+  alt: z.string().max(200).optional(),
+})
+
+export const productVariantInput = z.object({
+  sku: z.string().trim().min(1).max(64),
+  size: z.string().trim().max(64).optional(),
+  /** Mungu. Integer only — see lib/money.ts. */
+  price: z.number().int().min(0).max(1_000_000_000),
+  stockQty: z.number().int().min(0).max(1_000_000),
+})
+
 export const createProductInput = z.object({
   slug: z
     .string()
@@ -161,15 +191,12 @@ export const createProductInput = z.object({
   categoryId: z.uuid().optional(),
   brandLine: z.string().max(200).optional(),
   status: z.enum(['draft', 'active', 'archived']),
-  sku: z.string().min(1).max(64),
-  size: z.string().max(64).optional(),
-  /** Mungu. Integer only — see lib/money.ts. */
-  price: z.number().int().min(0).max(1_000_000_000),
-  stockQty: z.number().int().min(0).max(1_000_000),
+  variants: z.array(productVariantInput).min(1).max(20),
+  images: z.array(productImageInput).max(10),
 })
 
 /**
- * Registers a new product with its first sellable variant. Unique slug/SKU
+ * Registers a new product with its sellable variants. Unique slug/SKU
  * violations come back from Postgres as code 23505 — surfaced here as a
  * message a shop owner can act on instead of the raw driver error.
  */
@@ -177,6 +204,11 @@ export const createProduct = createServerFn({ method: 'POST' })
   .validator(createProductInput)
   .handler(async ({ data }) => {
     await assertAdmin()
+
+    const skus = data.variants.map((v) => v.sku)
+    if (new Set(skus).size !== skus.length) {
+      throw new Error('Хувилбаруудын SKU давхардсан байна')
+    }
 
     try {
       return await insertProduct({
@@ -187,10 +219,13 @@ export const createProduct = createServerFn({ method: 'POST' })
         categoryId: data.categoryId ?? null,
         brandLine: data.brandLine ?? null,
         status: data.status,
-        sku: data.sku,
-        size: data.size ?? null,
-        price: data.price,
-        stockQty: data.stockQty,
+        variants: data.variants.map((v) => ({
+          sku: v.sku,
+          size: v.size || null,
+          price: v.price,
+          stockQty: v.stockQty,
+        })),
+        images: data.images.map((i) => ({ url: i.url, alt: i.alt || null })),
       })
     } catch (err) {
       if (
@@ -229,4 +264,106 @@ export const updateProduct = createServerFn({ method: 'POST' })
       brandLine: data.brandLine ?? null,
       status: data.status,
     })
+  })
+
+export const setProductImagesInput = z.object({
+  slug: z.string().min(1).max(128),
+  images: z.array(productImageInput).max(10),
+})
+
+export const setProductImages = createServerFn({ method: 'POST' })
+  .validator(setProductImagesInput)
+  .handler(async ({ data }) => {
+    await assertAdmin()
+
+    return replaceProductImages(
+      data.slug,
+      data.images.map((i) => ({ url: i.url, alt: i.alt || null })),
+    )
+  })
+
+export const getVariants = createServerFn({ method: 'GET' }).handler(() =>
+  listVariants(),
+)
+
+export const receiveStockInput = z.object({
+  lines: z
+    .array(
+      z.object({
+        variantId: z.uuid(),
+        /** Units arriving. 0 means "only correct the price". */
+        qty: z.number().int().min(0).max(1_000_000),
+        /** Mungu. The new selling price for this variant. */
+        price: z.number().int().min(0).max(1_000_000_000),
+      }),
+    )
+    .min(1)
+    .max(200),
+})
+
+/**
+ * A goods-received note: several variants restocked and repriced in one pass.
+ *
+ * One transaction for the whole sheet — a delivery that half-applied would
+ * leave the shop guessing which lines it still has to enter. Each arriving unit
+ * writes a `restock` ledger row, same as a single-variant edit does, so the
+ * stock number keeps its explanation.
+ */
+export const receiveStock = createServerFn({ method: 'POST' })
+  .validator(receiveStockInput)
+  .handler(async ({ data }) => {
+    await assertAdmin()
+
+    return db.transaction(async (tx) => {
+      for (const line of data.lines) {
+        const [current] = await tx
+          .select({ stockQty: productVariants.stockQty })
+          .from(productVariants)
+          .where(eq(productVariants.id, line.variantId))
+          .for('update')
+          .limit(1)
+
+        if (!current) throw new Error('Хувилбар олдсонгүй')
+
+        await tx
+          .update(productVariants)
+          .set({
+            price: line.price,
+            stockQty: current.stockQty + line.qty,
+          })
+          .where(eq(productVariants.id, line.variantId))
+
+        if (line.qty > 0) {
+          await tx.insert(inventoryLedger).values({
+            variantId: line.variantId,
+            delta: line.qty,
+            reason: 'restock',
+          })
+        }
+      }
+
+      return { ok: true as const, lines: data.lines.length }
+    })
+  })
+
+export const getShopSettings = createServerFn({ method: 'GET' }).handler(
+  async () => {
+    await assertAdmin()
+    return loadShippingRates()
+  },
+)
+
+export const setShippingRatesInput = z.object({
+  /** Mungu. */
+  fee: z.number().int().min(0).max(100_000_000),
+  freeThreshold: z.number().int().min(0).max(10_000_000_000),
+})
+
+export const setShippingRates = createServerFn({ method: 'POST' })
+  .validator(setShippingRatesInput)
+  .handler(async ({ data }) => {
+    await assertAdmin()
+
+    await saveShippingRates(data)
+    return { ok: true as const }
   })

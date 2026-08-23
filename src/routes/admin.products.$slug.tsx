@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router'
+import { ImageUrlEditor, type ImageEntry } from '~/components/image-url-editor'
 import { ProductForm } from '~/components/product-form'
 import { formatMnt, munguToTugrik, tugrikToMungu } from '~/lib/money'
 import {
   getCategoryOptions,
   getProductDetail,
+  setProductImages,
   setVariant,
   updateProduct,
 } from '~/lib/server/admin/admin'
@@ -80,6 +82,8 @@ function ProductAdmin() {
 
       {error && <p className="error">{error}</p>}
 
+      <ProductImages slug={product.slug} initial={product.images} />
+
       <section className="adm__card">
         <div className="adm__cardhead">
           <h2>Хувилбар</h2>
@@ -128,6 +132,61 @@ function ProductAdmin() {
         </p>
       </section>
     </>
+  )
+}
+
+function ProductImages({
+  slug,
+  initial,
+}: {
+  slug: string
+  initial: Array<{ url: string; alt: string | null }>
+}) {
+  const router = useRouter()
+  const [images, setImages] = useState<ImageEntry[]>(
+    initial.map((i) => ({ url: i.url, alt: i.alt ?? '' })),
+  )
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  return (
+    <section className="adm__card adm__pad">
+      <h2 className="adm__cardhead">Зураг</h2>
+
+      <ImageUrlEditor images={images} onChange={setImages} />
+
+      {error && <p className="error">{error}</p>}
+
+      <button
+        type="button"
+        className="btn"
+        disabled={busy}
+        onClick={async () => {
+          setBusy(true)
+          setError(null)
+          try {
+            await setProductImages({
+              data: {
+                slug,
+                images: images.map((image) => ({
+                  url: image.url,
+                  alt: image.alt || undefined,
+                })),
+              },
+            })
+            await router.invalidate()
+          } catch (err) {
+            setError(
+              err instanceof Error ? err.message : 'Хадгалахад алдаа гарлаа',
+            )
+          } finally {
+            setBusy(false)
+          }
+        }}
+      >
+        {busy ? 'Хадгалж байна…' : 'Зураг хадгалах'}
+      </button>
+    </section>
   )
 }
 

@@ -1,6 +1,6 @@
 # Assets needed from the client
 
-Send to: Three 33 barbershop / Erdenebileg Damdinsuren
+Send to: Three33 barbershop / Erdenebileg Damdinsuren
 
 The site currently renders the wordmark as text in Cormorant Garamond. That is
 a deliberate placeholder, not a design decision — everything below is blocked on
@@ -14,7 +14,7 @@ only raster exists, send PNG with transparency at 1000px+ on the long edge.
 
 | What | Where it goes | Notes |
 |---|---|---|
-| Primary Three 33 logo | Site header | Horizontal lockup works best in a 56px-tall bar |
+| Primary Three33 logo | Site header | Horizontal lockup works best in a 56px-tall bar |
 | Light-on-dark version | Footer | The footer is black now — a dark logo disappears |
 | Icon / monogram, square | Favicon, phone home screen | Must stay legible at 32×32 |
 | Uppercut Deluxe retailer lockup | Homepage, footer | **Only if the distribution agreement permits displaying it** — please confirm |

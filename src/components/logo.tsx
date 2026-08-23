@@ -1,5 +1,5 @@
 /**
- * The Three 33 mark: two outlined circles around a solid one.
+ * The Three33 mark: two outlined circles around a solid one.
  *
  * Traced to SVG from ui/logo header light.png rather than shipping that file.
  * The mark is three circles, so the trace is exact, not an approximation — the

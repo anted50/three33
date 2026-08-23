@@ -32,15 +32,15 @@ interface ProductFormProps {
   busyLabel: string
   onSubmit: (values: ProductFormValues, form: FormData) => Promise<void>
   /** Extra fields rendered inside the same <form>, above the submit button —
-   * the new-product route uses this for its first-variant fields. */
+   * the new-product route uses this for its variant rows and images. */
   children?: ReactNode
 }
 
 /**
  * Product-level fields shared by the create and edit admin pages, so the two
  * flows can't drift into asking for the same information two different ways.
- * Variant rows are not part of this form: creation needs exactly one to make
- * the product sellable, editing already has its own table for that.
+ * Variant rows are not part of this form: creation collects them alongside it,
+ * editing already has its own table for that.
  */
 export function ProductForm({
   categories,

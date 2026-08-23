@@ -27,15 +27,15 @@ export const getCart = createServerFn({ method: 'GET' }).handler(
  * The shipping rates the server will actually apply.
  *
  * Checkout used to hardcode these in the component to show an estimate, which
- * silently diverged the moment the env values changed — the page said 5,000₮
+ * silently diverged the moment the stored values changed — the page said 5,000₮
  * while the invoice would have been 0₮. A quoted price that disagrees with the
  * charge is worse than no quote, so the estimate now comes from the same
  * numbers the charge does.
  */
 export const getShippingRates = createServerFn({ method: 'GET' }).handler(
   async () => {
-    const { shippingRates } = await import('./internal')
-    return { ...shippingRates }
+    const { loadShippingRates } = await import('../settings')
+    return loadShippingRates()
   },
 )
 

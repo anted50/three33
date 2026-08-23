@@ -19,7 +19,7 @@ export const Route = createRootRoute({
             // Tints the browser chrome on Android to match the hero band.
             { name: 'theme-color', content: '#0b0b0b' },
             // Label under the icon when iOS saves the site to the home screen.
-            { name: 'apple-mobile-web-app-title', content: 'Three 33' },
+            { name: 'apple-mobile-web-app-title', content: 'Three33' },
         ],
         links: [
             /*

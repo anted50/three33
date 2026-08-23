@@ -3,10 +3,9 @@ import { getCookie, setCookie } from '@tanstack/react-start/server'
 import { asc, eq, sql } from 'drizzle-orm'
 import { db } from '~/db'
 import { carts, productImages, productVariants, products } from '~/db/schema'
-import type { Mungu } from '~/lib/money'
+import { sumMungu, type Mungu } from '~/lib/money'
 import { CART_COOKIE, CART_MAX_AGE, cartCookieOptions } from '../cookies'
-import { env } from '../env'
-import { clampQty, computeTotals, type ShippingRates } from './pricing'
+import { clampQty } from './pricing'
 import { cartItems } from '~/db/schema'
 
 /**
@@ -21,13 +20,6 @@ import { cartItems } from '~/db/schema'
  * cart button. The real problem was secrets being handed to the client bundler
  * at all. Nothing here may be imported from a route.
  */
-
-export const shippingRates: ShippingRates = {
-  ub: env.SHIPPING_FEE_UB,
-  countryside: env.SHIPPING_FEE_COUNTRYSIDE,
-  /** Matches the promise in the site's announcement bar: 50,000₮. */
-  freeUbThreshold: 5_000_000,
-}
 
 export interface CartLine {
   variantId: string
@@ -149,11 +141,9 @@ export async function readCart(cartId: string): Promise<CartView> {
     })
   }
 
-  const { subtotal } = computeTotals(lines, 'ub', shippingRates)
-
   return {
     lines,
-    subtotal,
+    subtotal: sumMungu(lines.map((l) => l.lineTotal)),
     itemCount: lines.reduce((n, l) => n + l.qty, 0),
   }
 }

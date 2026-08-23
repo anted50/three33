@@ -4,6 +4,7 @@ import {
   orderItems,
   orders,
   payments,
+  productImages,
   productVariants,
   products,
   categories,
@@ -335,8 +336,37 @@ export async function productDetail(slug: string) {
     .where(eq(productVariants.productId, product.id))
     .orderBy(asc(productVariants.price))
 
+  const images = await db
+    .select({ url: productImages.url, alt: productImages.alt })
+    .from(productImages)
+    .where(eq(productImages.productId, product.id))
+    .orderBy(asc(productImages.sortOrder))
+
   const { id: _id, ...rest } = product
-  return { ...rest, variants }
+  return { ...rest, variants, images }
+}
+
+/**
+ * Every variant in the shop, flattened for the stock-receipt picker. Inactive
+ * ones are included: restocking is usually how a variant comes back on sale.
+ */
+export async function listVariants() {
+  await assertAdmin()
+
+  return db
+    .select({
+      id: productVariants.id,
+      sku: productVariants.sku,
+      size: productVariants.size,
+      price: productVariants.price,
+      stockQty: productVariants.stockQty,
+      isActive: productVariants.isActive,
+      productName: products.nameMn,
+      productSlug: products.slug,
+    })
+    .from(productVariants)
+    .innerJoin(products, eq(products.id, productVariants.productId))
+    .orderBy(asc(products.nameMn), asc(productVariants.price))
 }
 
 export async function categoryOptions() {
@@ -356,15 +386,18 @@ export interface NewProductInput {
   categoryId: string | null
   brandLine: string | null
   status: 'draft' | 'active' | 'archived'
-  sku: string
-  size: string | null
-  price: number
-  stockQty: number
+  variants: Array<{
+    sku: string
+    size: string | null
+    price: number
+    stockQty: number
+  }>
+  images: Array<{ url: string; alt: string | null }>
 }
 
 /**
  * A product with no variant has nothing a shopper can add to cart, so
- * registration always creates the first one alongside the product row —
+ * registration always creates its variants alongside the product row —
  * same transaction, so a failed variant insert never leaves a stub product
  * hanging around in the catalogue.
  */
@@ -387,16 +420,66 @@ export async function insertProduct(input: NewProductInput) {
 
     if (!product) throw new Error('Бүтээгдэхүүн үүсгэж чадсангүй')
 
-    await tx.insert(productVariants).values({
-      productId: product.id,
-      sku: input.sku,
-      size: input.size,
-      price: input.price,
-      stockQty: input.stockQty,
-    })
+    await tx.insert(productVariants).values(
+      input.variants.map((variant) => ({
+        productId: product.id,
+        sku: variant.sku,
+        size: variant.size,
+        price: variant.price,
+        stockQty: variant.stockQty,
+      })),
+    )
+
+    if (input.images.length > 0) {
+      await tx.insert(productImages).values(
+        input.images.map((image, i) => ({
+          productId: product.id,
+          url: image.url,
+          alt: image.alt,
+          sortOrder: i,
+        })),
+      )
+    }
 
     return { slug: input.slug }
   })
+}
+
+/**
+ * Replaces a product's image list wholesale. Images are ordered by position in
+ * the array — the first one is what the catalogue and cart show — so a reorder
+ * and a removal are the same operation and cannot half-apply.
+ */
+export async function replaceProductImages(
+  slug: string,
+  images: Array<{ url: string; alt: string | null }>,
+) {
+  await assertAdmin()
+
+  await db.transaction(async (tx) => {
+    const [product] = await tx
+      .select({ id: products.id })
+      .from(products)
+      .where(eq(products.slug, slug))
+      .limit(1)
+
+    if (!product) throw new Error('Бүтээгдэхүүн олдсонгүй')
+
+    await tx.delete(productImages).where(eq(productImages.productId, product.id))
+
+    if (images.length > 0) {
+      await tx.insert(productImages).values(
+        images.map((image, i) => ({
+          productId: product.id,
+          url: image.url,
+          alt: image.alt,
+          sortOrder: i,
+        })),
+      )
+    }
+  })
+
+  return { ok: true as const }
 }
 
 export interface ProductUpdate {

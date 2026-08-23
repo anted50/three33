@@ -1,6 +1,6 @@
 /**
  * Seeds the real Uppercut Deluxe catalogue from packing list #SO0341156
- * (Three 33 barbershop, 24 June 2026). Idempotent — safe to re-run.
+ * (Three33 barbershop, 24 June 2026). Idempotent — safe to re-run.
  *
  * Stock quantities are the actual quantities received.
  *

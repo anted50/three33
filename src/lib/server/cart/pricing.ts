@@ -1,5 +1,4 @@
 import { lineTotal, sumMungu, type Mungu } from '~/lib/money'
-import { ULAANBAATAR } from '~/lib/mn-regions'
 
 /**
  * Cart arithmetic. Pure — no database, no request — because this decides what
@@ -9,17 +8,6 @@ import { ULAANBAATAR } from '~/lib/mn-regions'
  * Nothing here accepts a total from the client. Callers pass prices they just
  * read from product_variants; see lib/server/README.md rule 3.
  */
-
-export type ShippingZone = 'ub' | 'countryside'
-
-/**
- * Keyed off аймаг/хот, not сум/дүүрэг. Sum names repeat across aimags —
- * 'Булган' is a sum in five of them — so deciding the zone from the second
- * level alone would quote city delivery for a countryside address.
- */
-export function zoneForProvince(province: string): ShippingZone {
-  return province === ULAANBAATAR ? 'ub' : 'countryside'
-}
 
 export interface PricedLine {
   variantId: string
@@ -35,15 +23,14 @@ export interface CartTotals {
 }
 
 export interface ShippingRates {
-  ub: Mungu
-  countryside: Mungu
-  /** Orders at or above this subtotal ship free within UB. */
-  freeUbThreshold: Mungu
+  /** Flat delivery fee, set by the shop in /admin/settings. */
+  fee: Mungu
+  /** Orders at or above this subtotal ship free. */
+  freeThreshold: Mungu
 }
 
 export function computeTotals(
   lines: readonly PricedLine[],
-  zone: ShippingZone,
   rates: ShippingRates,
 ): CartTotals {
   const subtotal = sumMungu(lines.map((l) => lineTotal(l.unitPrice, l.qty)))
@@ -51,11 +38,7 @@ export function computeTotals(
   // An empty cart ships for nothing; charging delivery on nothing is a bug
   // that only shows up when someone empties their cart on the checkout page.
   const shippingFee =
-    lines.length === 0
-      ? 0
-      : zone === 'ub' && subtotal >= rates.freeUbThreshold
-        ? 0
-        : rates[zone]
+    lines.length === 0 || subtotal >= rates.freeThreshold ? 0 : rates.fee
 
   return {
     subtotal,

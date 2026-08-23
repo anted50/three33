@@ -1,4 +1,4 @@
-// One-off: rasterizes the Three 33 mark (see src/components/logo.tsx) plus a
+// One-off: rasterizes the Three33 mark (see src/components/logo.tsx) plus a
 // wordmark into a small PNG for the receipt email — inline SVG is unreliable
 // across email clients (Outlook desktop drops it entirely), so this bakes a
 // static image once instead of computing one per send.

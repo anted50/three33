@@ -38,7 +38,7 @@ const schema = z.object({
   QPAY_CALLBACK_SECRET: z.string().min(32),
 
   RESEND_API_KEY: z.string().optional(),
-  EMAIL_FROM: z.string().default('Three 33 Barbershop <noreply@localhost>'),
+  EMAIL_FROM: z.string().default('Three33 Barbershop <noreply@localhost>'),
 
   /**
    * Transactional email for order receipts, via ZeptoMail's HTTP API.
@@ -58,10 +58,6 @@ const schema = z.object({
    * e-barimt step is skipped and only the plain order receipt is emailed.
    */
   QPAY_EBARIMT_INVOICE_CODE: z.string().optional(),
-
-  // Mungu. Configurable in admin later; env is the v1 source of truth.
-  SHIPPING_FEE_UB: z.coerce.number().int().nonnegative(),
-  SHIPPING_FEE_COUNTRYSIDE: z.coerce.number().int().nonnegative(),
 
   SENTRY_DSN: z.string().optional(),
 })

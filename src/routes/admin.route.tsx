@@ -7,6 +7,7 @@ import {
   GearIcon,
   GridIcon,
   SignOutIcon,
+  TagIcon,
   TruckIcon,
 } from '~/components/admin-icons'
 
@@ -44,6 +45,7 @@ const NAV: Array<{
   { to: '/admin', label: 'Хяналтын самбар', icon: GridIcon, exact: true },
   { to: '/admin/orders', label: 'Захиалга', icon: CartIcon },
   { to: '/admin/products', label: 'Бүтээгдэхүүн', icon: BoxIcon },
+  { to: '/admin/categories', label: 'Ангилал', icon: TagIcon },
   { to: '/admin/purchases', label: 'Татан авалт', icon: TruckIcon },
   { to: '/admin/settings', label: 'Тохиргоо', icon: GearIcon },
 ]
@@ -125,6 +127,7 @@ function Crumb() {
 
   if (path.startsWith('/admin/orders')) return <>Захиалга</>
   if (path.startsWith('/admin/products')) return <>Бүтээгдэхүүн</>
+  if (path.startsWith('/admin/categories')) return <>Ангилал</>
   if (path.startsWith('/admin/purchases')) return <>Татан авалт</>
   if (path.startsWith('/admin/settings')) return <>Тохиргоо</>
   return <>Хяналтын самбар</>

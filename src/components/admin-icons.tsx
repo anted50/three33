@@ -57,10 +57,12 @@ export function SignOutIcon() {
 }
 
 export function GearIcon() {
+  // A ring with plain rays around it reads as a sun, not a settings icon —
+  // the teeth need to be part of the outline, not separate spokes.
   return (
     <svg {...base}>
       <circle cx="12" cy="12" r="3" />
-      <path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.2 5.2l2.1 2.1M16.7 16.7l2.1 2.1M18.8 5.2l-2.1 2.1M7.3 16.7l-2.1 2.1" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
     </svg>
   )
 }
@@ -71,6 +73,40 @@ export function TruckIcon() {
       <path d="M3 6h11v9H3zM14 9h4l3 3v3h-7z" />
       <circle cx="7" cy="18" r="1.6" />
       <circle cx="17" cy="18" r="1.6" />
+    </svg>
+  )
+}
+
+export function TagIcon() {
+  return (
+    <svg {...base}>
+      <path d="M20.6 12.9 12.9 20.6a2 2 0 0 1-2.8 0l-6.7-6.7a2 2 0 0 1 0-2.8L11.1 3.4A2 2 0 0 1 12.5 3H19a1 1 0 0 1 1 1v6.5a2 2 0 0 1-.6 1.4Z" />
+      <circle cx="15.5" cy="8.5" r="1.2" />
+    </svg>
+  )
+}
+
+export function TrashIcon() {
+  return (
+    <svg {...base} width={16} height={16}>
+      <path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0-.9 13.4a2 2 0 0 1-2 1.6H6.9a2 2 0 0 1-2-1.6L4 6" />
+      <path d="M10 11v6M14 11v6" />
+    </svg>
+  )
+}
+
+export function ChevronLeftIcon() {
+  return (
+    <svg {...base} width={16} height={16}>
+      <path d="M15 5l-7 7 7 7" />
+    </svg>
+  )
+}
+
+export function ChevronRightIcon() {
+  return (
+    <svg {...base} width={16} height={16}>
+      <path d="M9 5l7 7-7 7" />
     </svg>
   )
 }

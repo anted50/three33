@@ -1,6 +1,7 @@
-import { and, asc, count, desc, eq, gte, inArray, sql } from 'drizzle-orm'
+import { and, asc, count, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm'
 import { db } from '~/db'
 import {
+  inventoryLedger,
   orderItems,
   orders,
   payments,
@@ -195,10 +196,36 @@ export async function dashboard() {
   }
 }
 
-export async function listOrders(status?: string) {
-  await assertAdmin()
+export interface OrdersFilter {
+  status?: string
+  /** Inclusive, as a 'YYYY-MM-DD' date — the admin picks a day, not a
+   * timestamp. */
+  dateFrom?: string
+  dateTo?: string
+}
 
-  const rows = await db
+/**
+ * Runs on orders_status_created_at_idx when a status is given — the common
+ * case, since the order list defaults to a status chip. A date-only filter
+ * with no status falls back to a plain scan, which is fine at the order
+ * volumes this shop sees; worth a dedicated index only if that stops holding.
+ */
+function ordersWhereClause(filter: OrdersFilter) {
+  const clauses = []
+  if (filter.status && filter.status !== 'all') {
+    clauses.push(eq(orders.status, filter.status as never))
+  }
+  if (filter.dateFrom) {
+    clauses.push(gte(orders.createdAt, new Date(`${filter.dateFrom}T00:00:00.000Z`)))
+  }
+  if (filter.dateTo) {
+    clauses.push(lte(orders.createdAt, new Date(`${filter.dateTo}T23:59:59.999Z`)))
+  }
+  return clauses.length > 0 ? and(...clauses) : undefined
+}
+
+function ordersQuery(where: ReturnType<typeof ordersWhereClause>) {
+  return db
     .select({
       orderNo: orders.orderNo,
       status: orders.status,
@@ -212,11 +239,7 @@ export async function listOrders(status?: string) {
     })
     .from(orders)
     .leftJoin(orderItems, eq(orderItems.orderId, orders.id))
-    .where(
-      status && status !== 'all'
-        ? eq(orders.status, status as never)
-        : undefined,
-    )
+    .where(where)
     .groupBy(
       orders.id,
       orders.orderNo,
@@ -227,9 +250,38 @@ export async function listOrders(status?: string) {
       orders.shippingAddressSnapshot,
     )
     .orderBy(desc(orders.createdAt))
-    .limit(200)
+}
 
-  return rows
+export async function listOrders(
+  filter: OrdersFilter & { page?: number; pageSize?: number },
+) {
+  await assertAdmin()
+
+  const page = filter.page && filter.page > 0 ? filter.page : 1
+  const pageSize =
+    filter.pageSize && filter.pageSize > 0 ? Math.min(filter.pageSize, 100) : 50
+  const where = ordersWhereClause(filter)
+
+  // One round trip for the page, one for the count it's paginating against —
+  // not the count query issued once per page-size guess.
+  const [rows, [totalRow]] = await Promise.all([
+    ordersQuery(where)
+      .limit(pageSize)
+      .offset((page - 1) * pageSize),
+    db.select({ value: count(orders.id) }).from(orders).where(where),
+  ])
+
+  return { rows, total: totalRow?.value ?? 0, page, pageSize }
+}
+
+/**
+ * Every order matching the filter, unpaginated — backs the Excel export,
+ * which has to cover everything the admin filtered to, not just the page
+ * they're currently looking at.
+ */
+export async function listOrdersForExport(filter: OrdersFilter) {
+  await assertAdmin()
+  return ordersQuery(ordersWhereClause(filter))
 }
 
 export async function orderDetail(orderNo: string) {
@@ -378,6 +430,98 @@ export async function categoryOptions() {
     .orderBy(asc(categories.sortOrder))
 }
 
+/**
+ * Categories with how many products sit in each — one query with a join and
+ * a group-by, not a count-per-category loop. The join runs on
+ * products_category_id_idx.
+ */
+export async function listCategories() {
+  await assertAdmin()
+
+  return db
+    .select({
+      id: categories.id,
+      slug: categories.slug,
+      nameMn: categories.nameMn,
+      nameEn: categories.nameEn,
+      sortOrder: categories.sortOrder,
+      productCount: count(products.id),
+    })
+    .from(categories)
+    .leftJoin(products, eq(products.categoryId, categories.id))
+    .groupBy(categories.id)
+    .orderBy(asc(categories.sortOrder))
+}
+
+export interface NewCategoryInput {
+  slug: string
+  nameMn: string
+  nameEn: string
+  sortOrder: number
+}
+
+export async function insertCategory(input: NewCategoryInput) {
+  await assertAdmin()
+
+  const [created] = await db
+    .insert(categories)
+    .values({
+      slug: input.slug,
+      nameMn: input.nameMn,
+      nameEn: input.nameEn,
+      sortOrder: input.sortOrder,
+    })
+    .returning({ id: categories.id })
+
+  if (!created) throw new Error('Ангилал үүсгэж чадсангүй')
+  return { id: created.id }
+}
+
+export async function updateCategorySortOrder(categoryId: string, sortOrder: number) {
+  await assertAdmin()
+
+  const [updated] = await db
+    .update(categories)
+    .set({ sortOrder })
+    .where(eq(categories.id, categoryId))
+    .returning({ id: categories.id })
+
+  if (!updated) throw new Error('Ангилал олдсонгүй')
+  return { ok: true as const }
+}
+
+/**
+ * Refuses to remove a category still holding products — products.category_id
+ * is nullable and set-null on delete, so nothing would break, but silently
+ * knocking a batch of products out of the storefront nav is the kind of thing
+ * that should be a deliberate reassignment, not a side effect of cleanup.
+ * The check runs on products_category_id_idx.
+ */
+export async function removeCategory(categoryId: string) {
+  await assertAdmin()
+
+  const [inUse] = await db
+    .select({ id: products.id })
+    .from(products)
+    .where(eq(products.categoryId, categoryId))
+    .limit(1)
+
+  if (inUse) {
+    throw new Error(
+      'Энэ ангилалд бүтээгдэхүүн хамаарч байгаа тул устгах боломжгүй — эхлээд өөр ангилалд шилжүүлнэ үү',
+    )
+  }
+
+  const [deleted] = await db
+    .delete(categories)
+    .where(eq(categories.id, categoryId))
+    .returning({ id: categories.id })
+
+  if (!deleted) throw new Error('Ангилал олдсонгүй')
+
+  return { ok: true as const }
+}
+
 export interface NewProductInput {
   slug: string
   nameMn: string
@@ -442,6 +586,102 @@ export async function insertProduct(input: NewProductInput) {
     }
 
     return { slug: input.slug }
+  })
+}
+
+/**
+ * Adds one variant to a product that already exists — new sizes, colors, or
+ * any other variation showing up after the product was first listed. Same
+ * ledger discipline as receiveStock/setVariant: an opening stock count above
+ * zero gets its own inventory_ledger row, so it has the same paper trail a
+ * later restock would.
+ */
+export async function insertVariant(
+  slug: string,
+  variant: { sku: string; size: string | null; price: number; stockQty: number },
+) {
+  await assertAdmin()
+
+  return db.transaction(async (tx) => {
+    const [product] = await tx
+      .select({ id: products.id })
+      .from(products)
+      .where(eq(products.slug, slug))
+      .limit(1)
+
+    if (!product) throw new Error('Бүтээгдэхүүн олдсонгүй')
+
+    const [created] = await tx
+      .insert(productVariants)
+      .values({
+        productId: product.id,
+        sku: variant.sku,
+        size: variant.size,
+        price: variant.price,
+        stockQty: variant.stockQty,
+      })
+      .returning({ id: productVariants.id })
+
+    if (!created) throw new Error('Хувилбар үүсгэж чадсангүй')
+
+    if (variant.stockQty > 0) {
+      await tx.insert(inventoryLedger).values({
+        variantId: created.id,
+        delta: variant.stockQty,
+        reason: 'restock',
+      })
+    }
+
+    return { id: created.id }
+  })
+}
+
+/**
+ * Removes a variant outright — for the mistake just added, or a size that
+ * never sold. Refuses if it has ever shipped in a real order: that's a
+ * business record, not a draft, and order_items keeps its own name/SKU
+ * snapshot regardless, so the row survives a variant delete either way — this
+ * guard is about not letting the catalogue quietly disagree with history.
+ * Deactivating (the checkbox already on each row) is the right move there.
+ * Also refuses to take the last variant off a product, since a product with
+ * none has nothing a shopper can add to cart.
+ */
+export async function removeVariant(variantId: string) {
+  await assertAdmin()
+
+  return db.transaction(async (tx) => {
+    const [variant] = await tx
+      .select({ id: productVariants.id, productId: productVariants.productId })
+      .from(productVariants)
+      .where(eq(productVariants.id, variantId))
+      .limit(1)
+
+    if (!variant) throw new Error('Хувилбар олдсонгүй')
+
+    const [sold] = await tx
+      .select({ id: orderItems.id })
+      .from(orderItems)
+      .where(eq(orderItems.variantId, variantId))
+      .limit(1)
+
+    if (sold) {
+      throw new Error(
+        'Энэ хувилбараар захиалга орсон тул устгах боломжгүй — идэвхгүй болгоно уу',
+      )
+    }
+
+    const [{ value: siblingCount }] = await tx
+      .select({ value: count(productVariants.id) })
+      .from(productVariants)
+      .where(eq(productVariants.productId, variant.productId))
+
+    if (siblingCount <= 1) {
+      throw new Error('Бүтээгдэхүүнд ядаж нэг хувилбар байх ёстой')
+    }
+
+    await tx.delete(productVariants).where(eq(productVariants.id, variantId))
+
+    return { ok: true as const }
   })
 }
 

@@ -357,7 +357,12 @@ export const orderItems = pgTable(
     unitPrice: money('unit_price').notNull(),
     qty: integer('qty').notNull(),
   },
-  (t) => [index('order_items_order_id_idx').on(t.orderId)],
+  (t) => [
+    index('order_items_order_id_idx').on(t.orderId),
+    // removeVariant checks "has this ever been sold?" by variant — without
+    // this, that's a sequential scan over every order line ever written.
+    index('order_items_variant_id_idx').on(t.variantId),
+  ],
 )
 
 export const payments = pgTable(

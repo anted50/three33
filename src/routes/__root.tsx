@@ -8,7 +8,6 @@ import {
 import appCss from '~/styles/app.css?url'
 import { CartProvider } from '~/components/cart-drawer'
 import { getCart } from '~/lib/server/cart/cart'
-import { listCategories } from '~/lib/server/products/queries'
 
 export const Route = createRootRoute({
     head: () => ({
@@ -54,12 +53,11 @@ export const Route = createRootRoute({
         ],
     }),
     /**
-     * Categories and the cart count feed the header, which is on every page.
-     * Loading them here means one query per navigation instead of every route
-     * remembering to fetch what its own chrome needs.
+     * The cart count feeds the header, which is on every page. Loading it
+     * here means one query per navigation instead of every route remembering
+     * to fetch what its own chrome needs.
      */
     loader: async () => ({
-        categories: await listCategories(),
         cartCount: (await getCart()).itemCount,
     }),
     component: RootComponent,

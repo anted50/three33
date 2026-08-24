@@ -100,7 +100,7 @@ function Payment() {
                 <li key={link.name}>
                   <a href={link.link} className="bank">
                     {link.logo ? (
-                      <img src={link.logo} alt="" width={28} height={28} loading="lazy" />
+                      <img src={link.logo} alt="" width={36} height={36} loading="lazy" />
                     ) : (
                       <span className="bank__dot" />
                     )}

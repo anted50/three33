@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
 import { requestAdminLogin, verifyAdminLogin } from '~/lib/server/admin/auth'
+import { clearValidity, localizeValidity } from '~/lib/form-messages'
 
 export const Route = createFileRoute('/admin/login')({
   component: AdminLogin,
@@ -45,6 +46,8 @@ function AdminLogin() {
       {step === 'email' ? (
         <form
           className="adm__card adm__unlockcard"
+          onInvalidCapture={localizeValidity}
+          onInput={clearValidity}
           onSubmit={async (event) => {
             event.preventDefault()
             const target = String(
@@ -84,6 +87,8 @@ function AdminLogin() {
       ) : (
         <form
           className="adm__card adm__unlockcard"
+          onInvalidCapture={localizeValidity}
+          onInput={clearValidity}
           onSubmit={async (event) => {
             event.preventDefault()
             setError(null)

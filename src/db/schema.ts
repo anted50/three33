@@ -89,7 +89,8 @@ export const inventoryReason = pgEnum('inventory_reason', [
  * to serialise `unknown` across the server-function boundary.
  */
 export interface ShippingAddress {
-  name: string
+  /** Not collected at checkout anymore — kept for orders placed before that changed. */
+  name: string | null
   phone: string
   email: string | null
   /** The whole delivery address as one free-text block, as typed. */

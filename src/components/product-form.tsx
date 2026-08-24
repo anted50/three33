@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react'
+import { clearValidity, localizeValidity } from '~/lib/form-messages'
 
 /** Mirrors the slug regex the server validates against, so a bad slug is
  * caught before submit rather than round-tripping to the server first. */
@@ -66,6 +67,8 @@ export function ProductForm({
 
       <form
         className="adm__card adm__pad"
+        onInvalidCapture={localizeValidity}
+        onInput={clearValidity}
         onSubmit={async (event) => {
           event.preventDefault()
           setError(null)

@@ -176,10 +176,12 @@ function OrderDetail() {
           <p className="adm__statlabel">Хүргэлт</p>
 
           <dl className="ship">
-            <div className="ship__row">
-              <dt>Хүлээн авагч</dt>
-              <dd>{order.address.name}</dd>
-            </div>
+            {order.address.name && (
+              <div className="ship__row">
+                <dt>Хүлээн авагч</dt>
+                <dd>{order.address.name}</dd>
+              </div>
+            )}
             <div className="ship__row">
               <dt>Утас</dt>
               <dd>

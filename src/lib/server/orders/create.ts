@@ -19,7 +19,6 @@ import { env } from '../env'
 import { generateOrderNo } from './order-no'
 
 export const checkoutInput = z.object({
-  name: z.string().trim().min(1).max(100),
   phone: z
     .string()
     .trim()
@@ -32,7 +31,6 @@ export const checkoutInput = z.object({
    * customer lives; the courier reads the address either way.
    */
   address: z.string().trim().min(5).max(500),
-  note: z.string().trim().max(1000).optional().or(z.literal('')),
 })
 
 export interface CheckoutResult {
@@ -125,9 +123,9 @@ export const createOrder = createServerFn({ method: 'POST' })
           shippingFee: totals.shippingFee,
           total: totals.total,
           contactPhone: data.phone,
-          note: data.note || null,
+          note: null,
           shippingAddressSnapshot: {
-            name: data.name,
+            name: null,
             phone: data.phone,
             email: data.email || null,
             address: data.address,
@@ -174,7 +172,9 @@ export const createOrder = createServerFn({ method: 'POST' })
         env.QPAY_CALLBACK_SECRET,
       ),
       customer: {
-        name: data.name,
+        // No name is collected at checkout; QPay still requires a payer
+        // name, so the phone number stands in for it.
+        name: data.phone,
         phone: data.phone,
         email: data.email || undefined,
       },

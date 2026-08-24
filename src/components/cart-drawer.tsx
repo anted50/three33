@@ -6,9 +6,12 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { Link, useRouter } from '@tanstack/react-router'
+import { useNavigate, useRouter } from '@tanstack/react-router'
+import { Link } from '@tanstack/react-router'
 import { formatMnt } from '~/lib/money'
-import { getCart, setCartQty, type CartView } from '~/lib/server/cart/cart'
+import { getCart, getShippingRates, setCartQty, type CartView } from '~/lib/server/cart/cart'
+import { createOrder } from '~/lib/server/orders/create'
+import { clearValidity, localizeValidity } from '~/lib/form-messages'
 
 /**
  * Cart as a slide-in drawer rather than a page.
@@ -20,6 +23,10 @@ import { getCart, setCartQty, type CartView } from '~/lib/server/cart/cart'
  * State lives at the root so the header button and the product page can both
  * open it. Contents are fetched when it opens rather than on every page load,
  * since most visits never touch the cart.
+ *
+ * The delivery form lives here too, not on its own page — one drawer to fill
+ * in phone, e-mail, and address and pay, instead of a drawer that hands off
+ * to a whole second page for three fields.
  */
 
 interface CartContext {
@@ -53,9 +60,15 @@ export function CartProvider({ children }: { children: ReactNode }) {
 function CartDrawer() {
   const { open, closeCart } = useCartDrawer()
   const router = useRouter()
+  const navigate = useNavigate()
 
   const [cart, setCart] = useState<CartView | null>(null)
+  const [shippingFee, setShippingFee] = useState<number | null>(null)
+  const [freeThreshold, setFreeThreshold] = useState(0)
   const [busy, setBusy] = useState(false)
+
+  const [orderBusy, setOrderBusy] = useState(false)
+  const [orderError, setOrderError] = useState<string | null>(null)
 
   // Load on open, and reload each time it reopens — stock or prices may have
   // moved while the drawer was shut.
@@ -64,6 +77,12 @@ function CartDrawer() {
     let cancelled = false
     void getCart().then((data) => {
       if (!cancelled) setCart(data)
+    })
+    void getShippingRates().then((rates) => {
+      if (!cancelled) {
+        setShippingFee(rates.fee)
+        setFreeThreshold(rates.freeThreshold)
+      }
     })
     return () => {
       cancelled = true
@@ -106,7 +125,42 @@ function CartDrawer() {
     }
   }
 
+  async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setOrderError(null)
+    setOrderBusy(true)
+
+    const form = new FormData(event.currentTarget)
+
+    try {
+      const result = await createOrder({
+        data: {
+          phone: String(form.get('phone') ?? ''),
+          email: String(form.get('email') ?? ''),
+          address: String(form.get('address') ?? ''),
+        },
+      })
+
+      closeCart()
+      await navigate({
+        to: '/checkout/payment/$orderNo',
+        params: { orderNo: result.orderNo },
+      })
+
+      await router.invalidate()
+    } catch (err) {
+      setOrderError(err instanceof Error ? err.message : 'Захиалга үүсгэхэд алдаа гарлаа')
+      setOrderBusy(false)
+    }
+  }
+
   const empty = !cart || cart.lines.length === 0
+  const shipping =
+    cart && shippingFee !== null
+      ? cart.subtotal >= freeThreshold
+        ? 0
+        : shippingFee
+      : null
 
   return (
     <div className="drawer" role="dialog" aria-modal="true" aria-label="Сагс">
@@ -146,65 +200,111 @@ function CartDrawer() {
               </Link>
             </div>
           ) : (
-            <ul className="lines">
-              {cart.lines.map((line) => (
-                <li key={line.variantId} className="line">
-                  <div className="line__media">
-                    {line.imageUrl ? (
-                      <img src={line.imageUrl} alt={line.productName} />
-                    ) : (
-                      <span className="card__ph">{line.productName}</span>
-                    )}
-                  </div>
-
-                  <div className="line__body">
-                    <Link
-                      to="/products/$slug"
-                      params={{ slug: line.productSlug }}
-                      className="line__name"
-                      onClick={closeCart}
-                    >
-                      {line.productName}
-                      {line.size ? ` ${line.size}` : ''}
-                    </Link>
-                    <p className="line__price">{formatMnt(line.unitPrice)}</p>
-
-                    <div className="line__foot">
-                      <div className="qty qty--sm">
-                        <button
-                          type="button"
-                          onClick={() => change(line.variantId, line.qty - 1)}
-                          disabled={busy}
-                          aria-label="Хасах"
-                        >
-                          −
-                        </button>
-                        <span>{line.qty}</span>
-                        <button
-                          type="button"
-                          onClick={() => change(line.variantId, line.qty + 1)}
-                          disabled={busy || line.qty >= line.stockQty}
-                          aria-label="Нэмэх"
-                        >
-                          +
-                        </button>
-                      </div>
-
-                      <strong>{formatMnt(line.lineTotal)}</strong>
+            <>
+              <ul className="lines">
+                {cart.lines.map((line) => (
+                  <li key={line.variantId} className="line">
+                    <div className="line__media">
+                      {line.imageUrl ? (
+                        <img src={line.imageUrl} alt={line.productName} />
+                      ) : (
+                        <span className="card__ph">{line.productName}</span>
+                      )}
                     </div>
 
-                    <button
-                      type="button"
-                      className="linkish"
-                      onClick={() => change(line.variantId, 0)}
-                      disabled={busy}
-                    >
-                      Устгах
-                    </button>
-                  </div>
-                </li>
-              ))}
-            </ul>
+                    <div className="line__body">
+                      <Link
+                        to="/products/$slug"
+                        params={{ slug: line.productSlug }}
+                        className="line__name"
+                        onClick={closeCart}
+                      >
+                        {line.productName}
+                        {line.size ? ` ${line.size}` : ''}
+                      </Link>
+                      <p className="line__price">{formatMnt(line.unitPrice)}</p>
+
+                      <div className="line__foot">
+                        <div className="qty qty--sm">
+                          <button
+                            type="button"
+                            onClick={() => change(line.variantId, line.qty - 1)}
+                            disabled={busy}
+                            aria-label="Хасах"
+                          >
+                            −
+                          </button>
+                          <span>{line.qty}</span>
+                          <button
+                            type="button"
+                            onClick={() => change(line.variantId, line.qty + 1)}
+                            disabled={busy || line.qty >= line.stockQty}
+                            aria-label="Нэмэх"
+                          >
+                            +
+                          </button>
+                        </div>
+
+                        <strong>{formatMnt(line.lineTotal)}</strong>
+                      </div>
+
+                      <button
+                        type="button"
+                        className="linkish"
+                        onClick={() => change(line.variantId, 0)}
+                        disabled={busy}
+                      >
+                        Устгах
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+
+              <form
+                id="drawer-checkout-form"
+                onSubmit={onSubmit}
+                onInvalidCapture={localizeValidity}
+                onInput={clearValidity}
+                className="form drawer__form"
+              >
+                <h3 className="drawer__form-title">Хүргэлтийн мэдээлэл</h3>
+
+                <label className="field">
+                  <span>Утас *</span>
+                  <input
+                    name="phone"
+                    required
+                    inputMode="numeric"
+                    pattern="[0-9]{8}"
+                    maxLength={8}
+                    placeholder="99112233"
+                    autoComplete="tel"
+                  />
+                  <small>8 оронтой дугаар</small>
+                </label>
+
+                <label className="field">
+                  <span>И-мэйл</span>
+                  <input name="email" type="email" autoComplete="email" />
+                </label>
+
+                <label className="field">
+                  <span>Хаяг *</span>
+                  <textarea
+                    name="address"
+                    required
+                    rows={3}
+                    maxLength={500}
+                    minLength={5}
+                    placeholder="Дүүрэг, хороо, байр, орц, тоот — хүргэлтийн жолооч олоход хангалттай бичнэ үү"
+                    autoComplete="street-address"
+                  />
+                </label>
+
+                {orderError && <p className="error">{orderError}</p>}
+              </form>
+            </>
           )}
         </div>
 
@@ -214,12 +314,24 @@ function CartDrawer() {
               <span>Дүн</span>
               <strong>{formatMnt(cart.subtotal)}</strong>
             </div>
-            <p className="totals__note">
-              Хүргэлтийн төлбөр хаягаа оруулсны дараа тооцогдоно.
-            </p>
-            <Link to="/checkout" className="btn" onClick={closeCart}>
-              Захиалах
-            </Link>
+            <div className="totals__row">
+              <span>Хүргэлт</span>
+              <strong>
+                {shipping === null ? '…' : shipping === 0 ? 'Үнэгүй' : formatMnt(shipping)}
+              </strong>
+            </div>
+            <div className="totals__row totals__row--grand">
+              <span>Нийт</span>
+              <strong>{formatMnt(cart.subtotal + (shipping ?? 0))}</strong>
+            </div>
+            <button
+              type="submit"
+              form="drawer-checkout-form"
+              className="btn"
+              disabled={orderBusy}
+            >
+              {orderBusy ? 'Түр хүлээнэ үү…' : 'Төлбөр төлөх'}
+            </button>
           </footer>
         )}
       </aside>

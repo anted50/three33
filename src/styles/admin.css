@@ -585,6 +585,12 @@
   color: #166534;
 }
 
+.badge2[data-tone='blue'] {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1d4ed8;
+}
+
 .badge2[data-tone='dead'] {
   background: var(--surface);
   color: var(--muted);

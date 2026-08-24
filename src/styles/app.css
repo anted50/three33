@@ -1206,6 +1206,15 @@ h3 {
 }
 
 /*
+ * Ghost buttons are white, not black, so they need their own hover — the
+ * base .btn:hover above goes to a near-black fill, which on a ghost button
+ * reads as a dark smudge instead of a hover state.
+ */
+.btn--ghost:hover:not(:disabled) {
+  background: var(--surface);
+}
+
+/*
  * On a phone the buy action stays pinned; on desktop it sits inline in the
  * right-hand column, as in the Figma frame.
  */

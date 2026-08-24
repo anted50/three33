@@ -15,10 +15,10 @@ export const STATUS_LABEL: Record<OrderStatus, string> = {
 /** Visual weight follows what needs attention, not the enum order. */
 const TONE: Record<OrderStatus, string> = {
   pending_payment: 'wait',
-  paid: 'ok',
+  paid: 'done',
   processing: 'ok',
   shipped: 'ok',
-  delivered: 'done',
+  delivered: 'blue',
   cancelled: 'dead',
   expired: 'dead',
   refunded: 'warn',

@@ -5,22 +5,11 @@ import { Logo } from './logo'
 import { SearchBox } from './search-box'
 import { useCartDrawer } from './cart-drawer'
 
-/**
- * Header structure follows the reference site the client pointed at: a
- * dismissible utility strip, then the brand row with search/cart/account, then
- * a category row, then a secondary sort tab row on listing pages.
- *
- * The arrangement is theirs; the type, colour, copy and behaviour are ours.
- */
-
 interface RootData {
-    categories: Array<{ slug: string; nameMn: string; nameEn: string }>
     cartCount: number
 }
 
 export function Header() {
-    // Loaded once in the root route rather than by every page that renders a
-    // header — the category row is on all of them.
     const data = useLoaderData({ from: '__root__' }) as RootData
     const { openCart } = useCartDrawer()
 
@@ -92,64 +81,7 @@ export function Header() {
                     </div>
                 </div>
             )}
-
-            {/* Category row, as on the reference site. Scrolls horizontally on a phone. */}
-            <nav className="catnav">
-                <div className="wrap catnav__inner">
-                    <Link
-                        to="/products"
-                        search={(prev) => ({ ...prev, category: undefined })}
-                        className="catnav__link"
-                        activeOptions={{ exact: true, includeSearch: false }}
-                    >
-                        Бүгд
-                    </Link>
-                    {data.categories.map((c) => (
-                        <Link
-                            key={c.slug}
-                            to="/products"
-                            search={(prev) => ({ ...prev, category: c.slug })}
-                            className="catnav__link"
-                        >
-                            {c.nameEn.toUpperCase()}
-                        </Link>
-                    ))}
-                </div>
-            </nav>
         </header>
-    )
-}
-
-const SORTS = [
-    { key: undefined, label: 'Онцлох' },
-    { key: 'new' as const, label: 'Шинэ' },
-    { key: 'bestseller' as const, label: 'Бестселлер' },
-]
-
-/** Secondary tab row: Featured / New / Bestseller. */
-export function SortTabs({ current }: { current?: string }) {
-    return (
-        <div className="tabs" role="tablist">
-            {SORTS.map((sort) => {
-                const active = (current ?? undefined) === sort.key
-                return (
-                    <Link
-                        key={sort.label}
-                        to="/products"
-                        search={(prev: Record<string, unknown>) => ({
-                            ...prev,
-                            sort: sort.key,
-                        })}
-                        className="tabs__tab"
-                        role="tab"
-                        aria-selected={active}
-                        data-active={active}
-                    >
-                        {sort.label}
-                    </Link>
-                )
-            })}
-        </div>
     )
 }
 

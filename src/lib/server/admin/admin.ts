@@ -9,15 +9,25 @@ import {
   assertAdmin,
   categoryOptions,
   dashboard,
+  insertCategory,
   insertProduct,
+  insertVariant,
+  listCategories,
   listOrders,
+  listOrdersForExport,
   listProducts,
   listVariants,
   orderDetail,
   productDetail,
+  removeCategory,
+  removeVariant,
   replaceProductImages,
+  updateCategorySortOrder,
   updateProductRow,
 } from './internal'
+import { formatAddress } from '~/lib/address'
+import { munguToTugrik } from '~/lib/money'
+import { STATUS_LABEL } from '~/lib/order-status'
 
 /**
  * Admin's public surface. Routes import from HERE only.
@@ -28,13 +38,75 @@ export const getDashboard = createServerFn({ method: 'GET' }).handler(() =>
   dashboard(),
 )
 
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'YYYY-MM-DD')
+
 export const getOrdersInput = z.object({
   status: z.string().max(32).optional(),
+  dateFrom: isoDate.optional(),
+  dateTo: isoDate.optional(),
+  page: z.number().int().min(1).optional(),
+  pageSize: z.number().int().min(1).max(100).optional(),
 })
 
 export const getOrders = createServerFn({ method: 'GET' })
   .validator(getOrdersInput)
-  .handler(({ data }) => listOrders(data.status))
+  .handler(({ data }) => listOrders(data))
+
+export const exportOrdersInput = z.object({
+  status: z.string().max(32).optional(),
+  dateFrom: isoDate.optional(),
+  dateTo: isoDate.optional(),
+})
+
+/**
+ * The date filter and status chip apply; pagination doesn't — the point of
+ * an export is everything that matches, not just the page on screen.
+ *
+ * exceljs is dynamically imported so it never ends up in a client bundle —
+ * same reasoning as the dynamic settings import in cart/cart.ts.
+ */
+export const exportOrders = createServerFn({ method: 'POST' })
+  .validator(exportOrdersInput)
+  .handler(async ({ data }) => {
+    await assertAdmin()
+
+    const rows = await listOrdersForExport(data)
+
+    const ExcelJS = (await import('exceljs')).default
+    const workbook = new ExcelJS.Workbook()
+    const sheet = workbook.addWorksheet('Захиалга')
+
+    sheet.columns = [
+      { header: 'Дугаар', key: 'orderNo', width: 20 },
+      { header: 'Огноо', key: 'date', width: 12 },
+      { header: 'Хэрэглэгч', key: 'name', width: 22 },
+      { header: 'Утас', key: 'phone', width: 14 },
+      { header: 'Хаяг', key: 'address', width: 40 },
+      { header: 'Ширхэг', key: 'items', width: 10 },
+      { header: 'Дүн (₮)', key: 'total', width: 14 },
+      { header: 'Төлөв', key: 'status', width: 18 },
+    ]
+    sheet.getRow(1).font = { bold: true }
+
+    for (const row of rows) {
+      sheet.addRow({
+        orderNo: row.orderNo,
+        date: new Date(row.createdAt).toLocaleDateString('mn-MN'),
+        name: row.address?.name ?? '—',
+        phone: row.phone,
+        address: row.address ? formatAddress(row.address) : '—',
+        items: row.items,
+        total: munguToTugrik(row.total),
+        status: STATUS_LABEL[row.status],
+      })
+    }
+
+    const buffer = await workbook.xlsx.writeBuffer()
+    return {
+      filename: `zahialga-${new Date().toISOString().slice(0, 10)}.xlsx`,
+      base64: Buffer.from(buffer).toString('base64'),
+    }
+  })
 
 export const orderNoInput = z.object({ orderNo: z.string().min(1).max(45) })
 
@@ -152,6 +224,62 @@ export const getCategoryOptions = createServerFn({ method: 'GET' }).handler(
   () => categoryOptions(),
 )
 
+export const getCategories = createServerFn({ method: 'GET' }).handler(() =>
+  listCategories(),
+)
+
+export const createCategoryInput = z.object({
+  slug: z
+    .string()
+    .min(1)
+    .max(128)
+    .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'зөвхөн латин жижиг үсэг, тоо, зураас'),
+  nameMn: z.string().trim().min(1).max(100),
+  nameEn: z.string().trim().min(1).max(100),
+  sortOrder: z.number().int().min(0).max(9999),
+})
+
+export const createCategory = createServerFn({ method: 'POST' })
+  .validator(createCategoryInput)
+  .handler(async ({ data }) => {
+    await assertAdmin()
+
+    try {
+      return await insertCategory(data)
+    } catch (err) {
+      if (
+        err &&
+        typeof err === 'object' &&
+        'code' in err &&
+        err.code === '23505'
+      ) {
+        throw new Error('Ийм slug-тай ангилал аль хэдийн бүртгэлтэй байна')
+      }
+      throw err
+    }
+  })
+
+export const deleteCategoryInput = z.object({ categoryId: z.uuid() })
+
+export const deleteCategory = createServerFn({ method: 'POST' })
+  .validator(deleteCategoryInput)
+  .handler(async ({ data }) => {
+    await assertAdmin()
+    return removeCategory(data.categoryId)
+  })
+
+export const setCategorySortOrderInput = z.object({
+  categoryId: z.uuid(),
+  sortOrder: z.number().int().min(0).max(9999),
+})
+
+export const setCategorySortOrder = createServerFn({ method: 'POST' })
+  .validator(setCategorySortOrderInput)
+  .handler(async ({ data }) => {
+    await assertAdmin()
+    return updateCategorySortOrder(data.categoryId, data.sortOrder)
+  })
+
 /**
  * An http(s) URL — images are hosted elsewhere (Shopify's CDN today). A
  * site-relative path is also accepted: the packshots seeded into public/ are
@@ -238,6 +366,50 @@ export const createProduct = createServerFn({ method: 'POST' })
       }
       throw err
     }
+  })
+
+export const addVariantInput = z.object({
+  slug: z.string().min(1).max(128),
+  variant: productVariantInput,
+})
+
+/**
+ * Adds a variant to a product that already has a listing — a new size the
+ * supplier just started carrying, say. Separate from createProduct because
+ * the product row, its slug, and its other variants are untouched.
+ */
+export const addVariant = createServerFn({ method: 'POST' })
+  .validator(addVariantInput)
+  .handler(async ({ data }) => {
+    await assertAdmin()
+
+    try {
+      return await insertVariant(data.slug, {
+        sku: data.variant.sku,
+        size: data.variant.size || null,
+        price: data.variant.price,
+        stockQty: data.variant.stockQty,
+      })
+    } catch (err) {
+      if (
+        err &&
+        typeof err === 'object' &&
+        'code' in err &&
+        err.code === '23505'
+      ) {
+        throw new Error('Ийм SKU аль хэдийн бүртгэлтэй байна')
+      }
+      throw err
+    }
+  })
+
+export const deleteVariantInput = z.object({ variantId: z.uuid() })
+
+export const deleteVariant = createServerFn({ method: 'POST' })
+  .validator(deleteVariantInput)
+  .handler(async ({ data }) => {
+    await assertAdmin()
+    return removeVariant(data.variantId)
   })
 
 export const updateProductInput = z.object({

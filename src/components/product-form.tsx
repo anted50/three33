@@ -1,17 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { clearValidity, localizeValidity } from '~/lib/form-messages'
-
-/** Mirrors the slug regex the server validates against, so a bad slug is
- * caught before submit rather than round-tripping to the server first. */
-const SLUG_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/
-
-function slugify(value: string) {
-  return value
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-}
+import { SLUG_RE, slugify } from '~/lib/slugify'
 
 export interface ProductFormValues {
   nameMn: string
@@ -32,6 +21,9 @@ interface ProductFormProps {
   submitLabel: string
   busyLabel: string
   onSubmit: (values: ProductFormValues, form: FormData) => Promise<void>
+  /** Fires on every keystroke in "Нэр (EN)" — the new-product route uses this
+   * to keep its auto-generated variant SKUs in sync with the product name. */
+  onNameEnChange?: (nameEn: string) => void
   /** Extra fields rendered inside the same <form>, above the submit button —
    * the new-product route uses this for its variant rows and images. */
   children?: ReactNode
@@ -50,6 +42,7 @@ export function ProductForm({
   submitLabel,
   busyLabel,
   onSubmit,
+  onNameEnChange,
   children,
 }: ProductFormProps) {
   const [nameMn, setNameMn] = useState(initial.nameMn)
@@ -123,7 +116,10 @@ export function ProductForm({
               name="nameEn"
               value={nameEn}
               required
-              onChange={(e) => setNameEn(e.target.value)}
+              onChange={(e) => {
+                setNameEn(e.target.value)
+                onNameEnChange?.(e.target.value)
+              }}
             />
           </label>
         </div>

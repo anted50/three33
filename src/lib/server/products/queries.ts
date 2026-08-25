@@ -174,6 +174,108 @@ export const listProducts = createServerFn({ method: 'GET' })
     }))
   })
 
+export interface ProductGroup {
+  slug: string
+  nameMn: string
+  nameEn: string
+  products: ProductCard[]
+}
+
+/**
+ * Every active product, bucketed by category, for the left-nav "scroll to
+ * group" listing — one query for the categories, one for every product with
+ * its category slug attached, joined in memory rather than issuing a query
+ * per category. Products with no category land in a trailing "Бусад" group
+ * instead of vanishing from the listing.
+ *
+ * Renders every group's full product list today; if the catalogue grows past
+ * what's comfortable to render at once, this is the seam to add per-group
+ * pagination at — the shape (one array per category) already supports it
+ * without a client-side rework.
+ */
+export const listGroupedProducts = createServerFn({ method: 'GET' }).handler(
+  async (): Promise<ProductGroup[]> => {
+    const [cats, rows] = await Promise.all([
+      db
+        .select({
+          slug: categories.slug,
+          nameMn: categories.nameMn,
+          nameEn: categories.nameEn,
+        })
+        .from(categories)
+        .orderBy(asc(categories.sortOrder)),
+      db
+        .select({
+          slug: products.slug,
+          name: products.nameMn,
+          categorySlug: categories.slug,
+          fromPrice: min(productVariants.price),
+          totalStock: sql<number>`coalesce(sum(${productVariants.stockQty}), 0)::int`,
+          variantCount: sql<number>`count(${productVariants.id})::int`,
+          size: sql<string | null>`min(${productVariants.size})`,
+          imageUrl: sql<string | null>`(
+            select ${productImages.url}
+            from ${productImages}
+            where ${productImages.productId} = ${products.id}
+            order by ${productImages.sortOrder}
+            limit 1
+          )`,
+        })
+        .from(products)
+        .innerJoin(
+          productVariants,
+          and(
+            eq(productVariants.productId, products.id),
+            eq(productVariants.isActive, true),
+          ),
+        )
+        .leftJoin(categories, eq(categories.id, products.categoryId))
+        .where(eq(products.status, 'active'))
+        .groupBy(
+          products.id,
+          products.slug,
+          products.nameMn,
+          products.createdAt,
+          categories.slug,
+        )
+        .orderBy(asc(products.createdAt)),
+    ])
+
+    const byCategory = new Map<string, ProductCard[]>()
+    for (const row of rows) {
+      const key = row.categorySlug ?? ''
+      const card: ProductCard = {
+        slug: row.slug,
+        name: row.name,
+        size: row.variantCount === 1 ? row.size : null,
+        fromPrice: Number(row.fromPrice ?? 0),
+        totalStock: row.totalStock,
+        variantCount: row.variantCount,
+        imageUrl: row.imageUrl,
+      }
+      const bucket = byCategory.get(key)
+      if (bucket) bucket.push(card)
+      else byCategory.set(key, [card])
+    }
+
+    const groups = cats
+      .map((c) => ({ ...c, products: byCategory.get(c.slug) ?? [] }))
+      .filter((g) => g.products.length > 0)
+
+    const uncategorized = byCategory.get('')
+    if (uncategorized && uncategorized.length > 0) {
+      groups.push({
+        slug: '__other__',
+        nameMn: 'Бусад',
+        nameEn: 'Other',
+        products: uncategorized,
+      })
+    }
+
+    return groups
+  },
+)
+
 export const getProductInput = z.object({
   slug: z.string().min(1).max(128),
 })

@@ -1,9 +1,14 @@
 import { useState } from 'react'
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router'
+import { ConfirmDialog } from '~/components/confirm-dialog'
 import { ImageUrlEditor, type ImageEntry } from '~/components/image-url-editor'
 import { ProductForm } from '~/components/product-form'
+import { TrashIcon } from '~/components/admin-icons'
 import { formatMnt, munguToTugrik, tugrikToMungu } from '~/lib/money'
+import { generateSku } from '~/lib/sku'
 import {
+  addVariant,
+  deleteVariant,
   getCategoryOptions,
   getProductDetail,
   setProductImages,
@@ -27,6 +32,7 @@ function ProductAdmin() {
   const router = useRouter()
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
 
   if (!product) {
     return (
@@ -122,6 +128,7 @@ function ProductAdmin() {
                     setBusy(null)
                   }
                 }}
+                onRequestDelete={() => setConfirmDeleteId(variant.id)}
               />
             ))}
           </tbody>
@@ -130,8 +137,201 @@ function ProductAdmin() {
         <p className="adm__muted adm__pad">
           Нөөц өөрчлөх бүрд inventory_ledger-т бичлэг үүснэ.
         </p>
+
+        <AddVariantForm slug={product.slug} nameEn={product.nameEn} />
       </section>
+
+      {confirmDeleteId && (
+        <ConfirmDialog
+          title="Хувилбар устгах"
+          message={`"${
+            product.variants.find((v) => v.id === confirmDeleteId)?.sku ?? ''
+          }" хувилбарыг устгах уу? Энэ үйлдлийг буцаах боломжгүй.`}
+          busy={busy === confirmDeleteId}
+          onCancel={() => setConfirmDeleteId(null)}
+          onConfirm={async () => {
+            const variantId = confirmDeleteId
+            setBusy(variantId)
+            setError(null)
+            try {
+              await deleteVariant({ data: { variantId } })
+              await router.invalidate()
+              setConfirmDeleteId(null)
+            } catch (err) {
+              setError(err instanceof Error ? err.message : 'Устгахад алдаа гарлаа')
+            } finally {
+              setBusy(null)
+            }
+          }}
+        />
+      )}
     </>
+  )
+}
+
+interface VariantDraft {
+  sku: string
+  size: string
+  price: string
+  stockQty: string
+}
+
+const emptyDraft: VariantDraft = { sku: '', size: '', price: '0', stockQty: '0' }
+
+/**
+ * Adds a new size, color, or any other variation to a product that already
+ * exists — the create form collects the first variant, this covers the ones
+ * that show up later (a supplier adds a size, say).
+ */
+function AddVariantForm({ slug, nameEn }: { slug: string; nameEn: string }) {
+  const router = useRouter()
+  const [open, setOpen] = useState(false)
+  const [draft, setDraft] = useState<VariantDraft>({ ...emptyDraft })
+  const [skuTouched, setSkuTouched] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  function patch(next: Partial<VariantDraft>) {
+    setDraft((row) => ({ ...row, ...next }))
+  }
+
+  function changeSize(size: string) {
+    setDraft((row) => ({
+      ...row,
+      size,
+      sku: skuTouched ? row.sku : generateSku(nameEn, size),
+    }))
+  }
+
+  async function submit() {
+    setError(null)
+
+    const price = Number(draft.price)
+    const stockQty = Number(draft.stockQty)
+
+    if (draft.sku.trim() === '') {
+      setError('SKU шаардлагатай')
+      return
+    }
+    if (!Number.isFinite(price) || price < 0) {
+      setError('Үнэ буруу байна')
+      return
+    }
+    if (!Number.isInteger(stockQty) || stockQty < 0) {
+      setError('Нөөц буруу байна')
+      return
+    }
+
+    setBusy(true)
+    try {
+      await addVariant({
+        data: {
+          slug,
+          variant: {
+            sku: draft.sku.trim(),
+            size: draft.size.trim() || undefined,
+            price: tugrikToMungu(price),
+            stockQty,
+          },
+        },
+      })
+      await router.invalidate()
+      setDraft({ ...emptyDraft })
+      setSkuTouched(false)
+      setOpen(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Хадгалахад алдаа гарлаа')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (!open) {
+    return (
+      <div className="adm__pad">
+        <button
+          type="button"
+          className="btn btn--sm btn--ghost"
+          onClick={() => setOpen(true)}
+        >
+          + Хувилбар нэмэх
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="adm__pad">
+      <div className="varrow">
+        <div className="adm__cols">
+          <label className="field">
+            <span>SKU</span>
+            <input
+              value={draft.sku}
+              placeholder="UD-DP-30"
+              onChange={(e) => {
+                patch({ sku: e.target.value })
+                setSkuTouched(true)
+              }}
+            />
+            <small>
+              Нэр, хэмжээгээр автоматаар бөглөнө — дотоод код тул шаардлагатай бол засаж
+              болно
+            </small>
+          </label>
+
+          <label className="field">
+            <span>Хэмжээ</span>
+            <input
+              value={draft.size}
+              placeholder="100g"
+              onChange={(e) => changeSize(e.target.value)}
+            />
+          </label>
+        </div>
+
+        <div className="adm__cols">
+          <label className="field">
+            <span>Үнэ (₮)</span>
+            <input
+              value={draft.price}
+              inputMode="numeric"
+              onChange={(e) => patch({ price: e.target.value })}
+            />
+          </label>
+
+          <label className="field">
+            <span>Нөөц</span>
+            <input
+              value={draft.stockQty}
+              inputMode="numeric"
+              onChange={(e) => patch({ stockQty: e.target.value })}
+            />
+          </label>
+        </div>
+
+        {error && <p className="error">{error}</p>}
+
+        <div className="adm__actions">
+          <button type="button" className="btn btn--sm" disabled={busy} onClick={submit}>
+            {busy ? 'Хадгалж байна…' : 'Хувилбар нэмэх'}
+          </button>
+          <button
+            type="button"
+            className="btn btn--sm btn--ghost"
+            disabled={busy}
+            onClick={() => {
+              setOpen(false)
+              setDraft({ ...emptyDraft })
+              setSkuTouched(false)
+              setError(null)
+            }}
+          >
+            Цуцлах
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -151,7 +351,7 @@ function ProductImages({
 
   return (
     <section className="adm__card adm__pad">
-      <h2 className="adm__cardhead">Зураг</h2>
+      <h2 className="adm__cardhead adm__cardhead--flush">Зураг</h2>
 
       <ImageUrlEditor images={images} onChange={setImages} />
 
@@ -201,9 +401,10 @@ interface VariantRowProps {
   }
   busy: boolean
   onSave: (price: number, stockQty: number, isActive: boolean) => Promise<void>
+  onRequestDelete: () => void
 }
 
-function VariantRow({ variant, busy, onSave }: VariantRowProps) {
+function VariantRow({ variant, busy, onSave, onRequestDelete }: VariantRowProps) {
   // Editing happens in tugrik because that is what a shop owner thinks in;
   // it converts back to mungu on save, in the one place that is allowed to.
   const [price, setPrice] = useState(String(munguToTugrik(variant.price)))
@@ -242,20 +443,32 @@ function VariantRow({ variant, busy, onSave }: VariantRowProps) {
           onChange={(e) => setActive(e.target.checked)}
         />
       </td>
-      <td>
-        <button
-          type="button"
-          className="btn btn--sm"
-          disabled={!dirty || busy}
-          onClick={() => {
-            const tugrik = Number(price)
-            const qty = Number(stock)
-            if (!Number.isFinite(tugrik) || !Number.isInteger(qty)) return
-            void onSave(tugrikToMungu(tugrik), qty, active)
-          }}
-        >
-          {busy ? '…' : 'Хадгалах'}
-        </button>
+      <td className="adm__actionscell">
+        <div className="adm__rowactions">
+          <button
+            type="button"
+            className="btn btn--sm"
+            disabled={!dirty || busy}
+            onClick={() => {
+              const tugrik = Number(price)
+              const qty = Number(stock)
+              if (!Number.isFinite(tugrik) || !Number.isInteger(qty)) return
+              void onSave(tugrikToMungu(tugrik), qty, active)
+            }}
+          >
+            {busy ? '…' : 'Хадгалах'}
+          </button>
+          <button
+            type="button"
+            className="adm__iconbtn"
+            title="Устгах"
+            aria-label="Устгах"
+            disabled={busy}
+            onClick={onRequestDelete}
+          >
+            <TrashIcon />
+          </button>
+        </div>
         <div className="adm__muted adm__hint">{formatMnt(variant.price)}</div>
       </td>
     </tr>

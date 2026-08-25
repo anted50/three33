@@ -44,15 +44,20 @@ export function ProductCard({ product }: { product: ProductCardData }) {
         <SoldOutFlag stock={product.totalStock} />
       </div>
 
-      <div className="card__name">
-        {product.name}
-        {product.size ? ` ${product.size}` : ''}
-      </div>
+      {/* Its own wrapper so the mobile grouped-view layout (image left, this
+          stacked to the right) can flex the card as a row without name and
+          price scattering into separate columns. */}
+      <div className="card__body">
+        <div className="card__name">
+          {product.name}
+          {product.size ? ` ${product.size}` : ''}
+        </div>
 
-      <div className="card__meta">
-        <span className="card__price" data-out={product.totalStock <= 0}>
-          {formatMnt(product.fromPrice)}
-        </span>
+        <div className="card__meta">
+          <span className="card__price" data-out={product.totalStock <= 0}>
+            {formatMnt(product.fromPrice)}
+          </span>
+        </div>
       </div>
     </Link>
   )

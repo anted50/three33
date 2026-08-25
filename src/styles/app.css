@@ -321,77 +321,131 @@ h3 {
   }
 }
 
-/* --------------------------------------------------- category nav */
+/* --------------------------------------------------- product groups */
 
-.catnav {
-  border-top: 1px solid var(--border);
-  background: #fff;
-}
-
-.catnav__inner {
+/*
+ * Default /products view: a narrow category rail on the left, every
+ * category's products rendered below one another on the right. The rail
+ * tracks scroll position and jumps to a section on tap, rather than
+ * filtering and reloading — see components/product-groups.tsx.
+ */
+.pgroups {
   display: flex;
-  gap: 22px;
-  overflow-x: auto;
-  scrollbar-width: none;
-  -webkit-overflow-scrolling: touch;
+  align-items: flex-start;
+  gap: 4px;
+  padding-bottom: 40px;
 }
 
-.catnav__inner::-webkit-scrollbar {
+.pgroups__rail {
+  position: sticky;
+  flex: 0 0 120px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-height: 100vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  padding: 6px;
+}
+
+/* On a phone the rail is the whole left third of the screen — bleeding it
+   past .wrap's own gutter into the edge gives it (and the grid next to it)
+   back the width that padding would otherwise cost. */
+@media (max-width: 639px) {
+  .pgroups {
+    margin-left: calc(var(--gutter) * -1);
+  }
+
+  .pgroups__rail {
+    border-radius: 0;
+  }
+}
+
+.pgroups__rail::-webkit-scrollbar {
   display: none;
 }
 
-.catnav__link {
-  flex: 0 0 auto;
-  padding: 11px 0;
+.pgroups__railitem {
+  border: 0;
+  padding: 13px 10px;
+  border-radius: var(--radius);
+  background: transparent;
   font-size: 12px;
-  letter-spacing: 0.05em;
-  white-space: nowrap;
+  font-weight: 500;
+  line-height: 1.3;
+  letter-spacing: 0.01em;
+  text-align: left;
   color: var(--ink-soft);
-  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
-.catnav__link:hover {
+@media (hover: hover) and (pointer: fine) {
+  .pgroups__railitem:hover:not([data-active='true']) {
+    background: #fff;
+    color: var(--ink);
+  }
+}
+
+.pgroups__railitem[data-active='true'] {
+  background: #fff;
   color: var(--accent);
-}
-
-/* Router marks the matching link; the underline is the active affordance. */
-.catnav__link.active {
-  color: var(--ink);
-  border-bottom-color: var(--accent);
-}
-
-/* --------------------------------------------------- sort tabs */
-
-.tabs {
-  display: flex;
-  gap: 24px;
-  border-bottom: 1px solid var(--border);
-  margin-top: 20px;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.tabs::-webkit-scrollbar {
-  display: none;
-}
-
-.tabs__tab {
-  padding: 10px 0 12px;
-  font-size: 14px;
-  white-space: nowrap;
-  color: var(--muted);
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
-}
-
-.tabs__tab:hover {
-  color: var(--ink);
-}
-
-.tabs__tab[data-active='true'] {
-  color: var(--ink);
   font-weight: 700;
-  border-bottom-color: var(--accent);
+  box-shadow: 0 1px 4px rgba(18, 18, 18, 0.1);
+}
+
+.pgroups__main {
+  flex: 1;
+  min-width: 0;
+  padding-left: 14px;
+}
+
+/*
+ * Below the grid's own 640px breakpoint, the rail already eats into the
+ * width — a 2-up grid of cards in what's left is cramped. One row per
+ * product instead, photo on the left and name/price on the right, like the
+ * reference menu this view is modelled on.
+ */
+@media (max-width: 639px) {
+  .pgroups__main .grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .pgroups__main .card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .pgroups__main .card__media {
+    flex: 0 0 84px;
+    width: 84px;
+    margin-bottom: 0;
+  }
+
+  .pgroups__main .card__body {
+    min-width: 0;
+  }
+
+  .pgroups__main .card__name {
+    margin-bottom: 6px;
+  }
+}
+
+.pgroups__section {
+  padding-top: 16px;
+}
+
+.pgroups__title {
+  font-size: 17px;
+  margin-bottom: 12px;
 }
 
 /* --------------------------------------------------------------- hero */
@@ -1212,6 +1266,14 @@ h3 {
  */
 .btn--ghost:hover:not(:disabled) {
   background: var(--surface);
+}
+
+.btn--danger {
+  background: var(--danger);
+}
+
+.btn--danger:hover:not(:disabled) {
+  background: #991b1b;
 }
 
 /*

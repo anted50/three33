@@ -231,6 +231,17 @@
   border-bottom: 1px solid var(--border);
 }
 
+/*
+ * For a heading that sits inside a container which already has its own
+ * horizontal padding (the product create/edit forms) — adm__cardhead's usual
+ * left/right padding would stack on top of that and push the heading out of
+ * line with the fields around it. Vertical spacing only, so it aligns.
+ */
+.adm__cardhead--flush {
+  padding-left: 0;
+  padding-right: 0;
+}
+
 .adm__cardhead h2 {
   font-size: 15px;
 }
@@ -547,6 +558,130 @@
   margin-top: 10px;
 }
 
+/* Save + delete in one cell, close together — two separate <td>s let the
+   table's auto layout spread them across the row's leftover width. Right-
+   aligned so the actions column doesn't drift with the row's other widths. */
+.adm__rowactions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.adm__table td.adm__actionscell {
+  text-align: right;
+}
+
+/* -------------------------------------------------- order list filters */
+
+/* Status chips, date range, and the export button in one row — they're all
+   "what set of orders am I looking at", so they read as one control group
+   rather than three stacked ones. */
+.adm__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  /* Bottom-aligned, not centered — the date fields carry a label above the
+     input, so centering left every control's bottom edge at a different
+     height. This lines up the chips, inputs, and button on one edge. */
+  align-items: flex-end;
+  gap: 8px 20px;
+  margin-bottom: 12px;
+}
+
+.adm__toolbar .chips {
+  flex: 1 1 260px;
+  min-width: 0;
+  padding: 0;
+}
+
+/* Chip, date input, and export button all the same height, so the row reads
+   as one aligned control strip instead of three mismatched sizes. */
+.adm__toolbar .chip {
+  display: inline-flex;
+  align-items: center;
+  height: 40px;
+  padding: 0 14px;
+  box-sizing: border-box;
+}
+
+.adm__toolbar .adm__daterange {
+  margin-bottom: 0;
+}
+
+.adm__toolbar > .btn--sm {
+  height: 40px;
+  min-height: 40px;
+}
+
+.adm__daterange {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px 20px;
+  margin-bottom: 4px;
+}
+
+.adm__daterange .field > span {
+  margin-bottom: 3px;
+}
+
+.adm__daterange .field {
+  margin-bottom: 0;
+}
+
+.adm__daterange .field input {
+  height: 40px;
+  min-height: 0;
+  width: auto;
+  padding: 0 10px;
+  font-size: 13px;
+}
+
+.adm__pager {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 16px var(--gutter);
+  border-top: 1px solid var(--border);
+}
+
+/* Small square icon button — row-level destructive actions and, with the
+   --neutral modifier, plain navigation (pager chevrons). The 44px .icon-btn
+   is sized for touch targets on the storefront, too big for a dense admin
+   table row. */
+.adm__iconbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #fff;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.adm__iconbtn:hover:not(:disabled) {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: var(--danger);
+}
+
+.adm__iconbtn:disabled {
+  color: #d4d4d8;
+  cursor: not-allowed;
+}
+
+/* Red hover reads as "delete" — wrong for a page-forward button. */
+.adm__iconbtn--neutral:hover:not(:disabled) {
+  border-color: var(--ink);
+  background: var(--surface);
+  color: var(--ink);
+}
+
 .btn--sm {
   min-height: 36px;
   width: auto;
@@ -739,7 +874,9 @@
 
 .imgs__list {
   list-style: none;
-  margin: 12px 0 0;
+  /* Bottom margin too — the list otherwise sits flush against whatever
+     follows it (the "Зураг хадгалах" button, or the next section heading). */
+  margin: 12px 0 20px;
   padding: 0;
   display: grid;
   gap: 10px;
@@ -781,10 +918,19 @@
 /* --------------------------------------------- variant rows (create) */
 
 .varrow {
+  background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 14px;
-  margin-bottom: 12px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+/*
+ * "+ Хувилбар нэмэх" used to sit flush against the submit button below it —
+ * both are full-height .btns with no gap between, so they read as one bar.
+ */
+.addvariant-btn {
+  margin: 4px 0 24px;
 }
 
 /* ---------------------------------------------------- picker modal */
@@ -807,6 +953,20 @@
   max-height: 85vh;
   display: flex;
   flex-direction: column;
+}
+
+/* Confirm dialogs don't need the picker's 760px width — a line or two of
+   text and two buttons look lost in it. */
+.modal__card--sm {
+  width: min(420px, 100%);
+}
+
+.modal__card--sm .modal__body {
+  color: var(--ink-soft);
+}
+
+.modal__card--sm .modal__foot {
+  justify-content: flex-end;
 }
 
 .modal__head,

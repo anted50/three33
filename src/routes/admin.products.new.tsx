@@ -3,6 +3,7 @@ import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { ImageUrlEditor, type ImageEntry } from '~/components/image-url-editor'
 import { ProductForm } from '~/components/product-form'
 import { tugrikToMungu } from '~/lib/money'
+import { generateSku } from '~/lib/sku'
 import { createProduct, getCategoryOptions } from '~/lib/server/admin/admin'
 
 export const Route = createFileRoute('/admin/products/new')({
@@ -15,19 +16,48 @@ interface VariantDraft {
   size: string
   price: string
   stockQty: string
+  /** Off once the admin edits the SKU by hand — after that, typing in the
+   * name or size no longer overwrites what they wrote. */
+  skuTouched: boolean
 }
 
-const emptyVariant: VariantDraft = { sku: '', size: '', price: '0', stockQty: '0' }
+const emptyVariant: VariantDraft = {
+  sku: '',
+  size: '',
+  price: '0',
+  stockQty: '0',
+  skuTouched: false,
+}
 
 function NewProduct() {
   const categories = Route.useLoaderData()
   const navigate = useNavigate()
+  const [nameEn, setNameEn] = useState('')
   const [variants, setVariants] = useState<VariantDraft[]>([{ ...emptyVariant }])
   const [images, setImages] = useState<ImageEntry[]>([])
 
   function patchVariant(index: number, patch: Partial<VariantDraft>) {
     setVariants((rows) =>
       rows.map((row, i) => (i === index ? { ...row, ...patch } : row)),
+    )
+  }
+
+  function handleNameEnChange(value: string) {
+    setNameEn(value)
+    setVariants((rows) =>
+      rows.map((row) =>
+        row.skuTouched ? row : { ...row, sku: generateSku(value, row.size) },
+      ),
+    )
+  }
+
+  function handleSizeChange(index: number, size: string) {
+    setVariants((rows) =>
+      rows.map((row, i) =>
+        i === index
+          ? { ...row, size, sku: row.skuTouched ? row.sku : generateSku(nameEn, size) }
+          : row,
+      ),
     )
   }
 
@@ -55,6 +85,7 @@ function NewProduct() {
         }}
         submitLabel="Бүтээгдэхүүн үүсгэх"
         busyLabel="Хадгалж байна…"
+        onNameEnChange={handleNameEnChange}
         onSubmit={async (values) => {
           const parsed = variants.map((variant) => {
             const price = Number(variant.price)
@@ -101,10 +132,10 @@ function NewProduct() {
           })
         }}
       >
-        <h2 className="adm__cardhead">Зураг</h2>
+        <h2 className="adm__cardhead adm__cardhead--flush">Зураг</h2>
         <ImageUrlEditor images={images} onChange={setImages} />
 
-        <h2 className="adm__cardhead">Хувилбар</h2>
+        <h2 className="adm__cardhead adm__cardhead--flush">Хувилбар</h2>
 
         {variants.map((variant, i) => (
           <div key={i} className="varrow">
@@ -113,8 +144,15 @@ function NewProduct() {
                 <span>SKU</span>
                 <input
                   value={variant.sku}
-                  onChange={(e) => patchVariant(i, { sku: e.target.value })}
+                  placeholder="UD-DP-30"
+                  onChange={(e) =>
+                    patchVariant(i, { sku: e.target.value, skuTouched: true })
+                  }
                 />
+                <small>
+                  Нэр, хэмжээгээр автоматаар бөглөнө — дотоод код тул шаардлагатай бол
+                  засаж болно
+                </small>
               </label>
 
               <label className="field">
@@ -122,7 +160,7 @@ function NewProduct() {
                 <input
                   value={variant.size}
                   placeholder="100g"
-                  onChange={(e) => patchVariant(i, { size: e.target.value })}
+                  onChange={(e) => handleSizeChange(i, e.target.value)}
                 />
               </label>
             </div>
@@ -163,7 +201,7 @@ function NewProduct() {
 
         <button
           type="button"
-          className="btn btn--sm"
+          className="btn btn--sm addvariant-btn"
           onClick={() => setVariants((rows) => [...rows, { ...emptyVariant }])}
         >
           + Хувилбар нэмэх

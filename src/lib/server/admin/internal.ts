@@ -693,12 +693,13 @@ export async function removeVariant(variantId: string) {
       )
     }
 
-    const [{ value: siblingCount }] = await tx
+    const [siblings] = await tx
       .select({ value: count(productVariants.id) })
       .from(productVariants)
       .where(eq(productVariants.productId, variant.productId))
 
-    if (siblingCount <= 1) {
+    // No row at all counts as no siblings, which earns the same refusal.
+    if ((siblings?.value ?? 0) <= 1) {
       throw new Error('Бүтээгдэхүүнд ядаж нэг хувилбар байх ёстой')
     }
 

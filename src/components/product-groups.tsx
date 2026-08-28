@@ -15,7 +15,9 @@ export function ProductGroups({ groups }: { groups: ProductGroup[] }) {
   const [headerHeight, setHeaderHeight] = useState(96)
   const sectionRefs = useRef(new Map<string, HTMLElement>())
   const clickScrolling = useRef(false)
-  const scrollSettleTimer = useRef<number>()
+  // Explicit `undefined` argument: React 19's types dropped the no-argument
+  // useRef overload.
+  const scrollSettleTimer = useRef<number | undefined>(undefined)
 
   // The sticky site header's height varies by breakpoint and by whether the
   // search panel is open, so it's measured rather than hardcoded — both the

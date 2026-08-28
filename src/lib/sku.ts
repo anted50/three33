@@ -10,7 +10,7 @@ function initials(nameEn: string): string {
   if (words.length === 0) return ''
   // A one-word name has no initials to take, so "Featherweight" becomes "FE"
   // rather than a blank middle segment.
-  if (words.length === 1) return words[0].slice(0, 2).toUpperCase()
+  if (words.length === 1) return words[0]!.slice(0, 2).toUpperCase()
   return words.map((w) => w[0]!.toUpperCase()).join('')
 }
 

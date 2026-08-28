@@ -16,7 +16,8 @@ interface ReceiptItem {
 
 interface ReceiptOrder {
   orderNo: string
-  name: string
+  /** Null on every order placed since checkout stopped asking for a name. */
+  name: string | null
   subtotal: Mungu
   shippingFee: Mungu
   total: Mungu
@@ -24,70 +25,100 @@ interface ReceiptOrder {
 }
 
 /**
- * Emails the customer their receipt once an order settles.
+ * What asking for a receipt did. Only `sent` put mail on the wire; the others
+ * are ordinary answers, not failures — a genuine failure throws.
+ */
+export type ReceiptOutcome =
+  /** Handed to ZeptoMail, which accepted it. */
+  | 'sent'
+  /** No address on file: older orders, or the field was left blank. */
+  | 'no_email'
+  | 'not_found'
+  /** MAIL_API_TOKEN is unset, so sending is skipped — see email/zeptomail.ts. */
+  | 'mail_disabled'
+
+/**
+ * Builds and sends the customer's receipt, reporting what happened.
  *
+ * Throws on a real failure, so a caller with a human waiting on the answer —
+ * the admin panel's send button — can show it. The settlement path uses
+ * sendOrderReceipt below instead, which deliberately swallows everything.
+ */
+export async function deliverOrderReceipt(
+  orderNo: string,
+): Promise<ReceiptOutcome> {
+  const [order] = await db
+    .select({
+      id: orders.id,
+      orderNo: orders.orderNo,
+      subtotal: orders.subtotal,
+      shippingFee: orders.shippingFee,
+      total: orders.total,
+      createdAt: orders.createdAt,
+      address: orders.shippingAddressSnapshot,
+    })
+    .from(orders)
+    .where(eq(orders.orderNo, orderNo))
+    .limit(1)
+
+  if (!order) return 'not_found'
+  // No address on file — nothing to send to, and not an error.
+  if (!order.address.email) return 'no_email'
+
+  const items = await db
+    .select({
+      name: orderItems.nameSnapshot,
+      sku: orderItems.skuSnapshot,
+      unitPrice: orderItems.unitPrice,
+      qty: orderItems.qty,
+    })
+    .from(orderItems)
+    .where(eq(orderItems.orderId, order.id))
+    .orderBy(asc(orderItems.id))
+
+  const [payment] = await db
+    .select({ qpayPaymentId: payments.qpayPaymentId })
+    .from(payments)
+    .where(eq(payments.orderId, order.id))
+    .limit(1)
+
+  const ebarimt = payment?.qpayPaymentId
+    ? await getQpayProvider().createEbarimt(
+        payment.qpayPaymentId,
+        env.QPAY_EBARIMT_INVOICE_CODE,
+      )
+    : null
+
+  const { html, text } = renderReceipt(
+    { ...order, name: order.address.name },
+    items,
+    ebarimt,
+  )
+
+  const sent = await sendEmail({
+    to: { email: order.address.email, name: order.address.name ?? undefined },
+    subject: `Захиалгын баримт — ${order.orderNo}`,
+    html,
+    text,
+  })
+
+  return sent ? 'sent' : 'mail_disabled'
+}
+
+/**
  * Fire-and-forget from settleOrder: by the time this runs, the payment is
  * already committed, so nothing in here is allowed to throw back into that
  * path — every failure is caught and logged instead. A receipt that never
  * arrives is a support ticket; a settlement that rolls back over a flaky mail
  * API is a much worse one.
+ *
+ * Which is also why the admin panel has a button that calls
+ * deliverOrderReceipt directly: this log line is otherwise the only trace that
+ * a receipt was owed and never went out.
  */
 export async function sendOrderReceipt(orderNo: string): Promise<void> {
   try {
-    const [order] = await db
-      .select({
-        id: orders.id,
-        orderNo: orders.orderNo,
-        subtotal: orders.subtotal,
-        shippingFee: orders.shippingFee,
-        total: orders.total,
-        createdAt: orders.createdAt,
-        address: orders.shippingAddressSnapshot,
-      })
-      .from(orders)
-      .where(eq(orders.orderNo, orderNo))
-      .limit(1)
-
-    // No email on file (older orders, or the field was left blank) — nothing
-    // to send to, and not an error.
-    if (!order || !order.address.email) return
-
-    const items = await db
-      .select({
-        name: orderItems.nameSnapshot,
-        sku: orderItems.skuSnapshot,
-        unitPrice: orderItems.unitPrice,
-        qty: orderItems.qty,
-      })
-      .from(orderItems)
-      .where(eq(orderItems.orderId, order.id))
-      .orderBy(asc(orderItems.id))
-
-    const [payment] = await db
-      .select({ qpayPaymentId: payments.qpayPaymentId })
-      .from(payments)
-      .where(eq(payments.orderId, order.id))
-      .limit(1)
-
-    const ebarimt = payment?.qpayPaymentId
-      ? await getQpayProvider().createEbarimt(
-          payment.qpayPaymentId,
-          env.QPAY_EBARIMT_INVOICE_CODE,
-        )
-      : null
-
-    const { html, text } = renderReceipt(
-      { ...order, name: order.address.name },
-      items,
-      ebarimt,
-    )
-
-    await sendEmail({
-      to: { email: order.address.email, name: order.address.name },
-      subject: `Захиалгын баримт — ${order.orderNo}`,
-      html,
-      text,
-    })
+    await deliverOrderReceipt(orderNo)
   } catch (error) {
     console.error(`Failed to send receipt for order ${orderNo}:`, error)
   }
@@ -162,10 +193,21 @@ function renderReceipt(
 ): { html: string; text: string } {
   const shippingLine =
     order.shippingFee === 0 ? 'Үнэгүй' : formatMnt(order.shippingFee)
+  /**
+   * Nameless orders are the normal case now — the checkout form only asks for
+   * a phone number — so the greeting drops the name rather than addressing
+   * anyone as "null".
+   */
+  const greeting = order.name
+    ? `Сайн байна уу, ${order.name},`
+    : 'Сайн байна уу,'
+  const greetingHtml = order.name
+    ? `Сайн байна уу, ${escapeHtml(order.name)},`
+    : 'Сайн байна уу,'
   const statusUrl = `${env.APP_URL}/orders/${order.orderNo}/success`
 
   const text = [
-    `Сайн байна уу, ${order.name},`,
+    greeting,
     '',
     'Захиалга баталгаажлаа!',
     '',
@@ -193,7 +235,7 @@ function renderReceipt(
       </div>
 
       <div style="max-width:${MAX_WIDTH}px;margin:28px auto 0;background:#f4f4f2;padding:32px 24px">
-        <p style="margin:0 0 6px;font-size:14px">Сайн байна уу, ${escapeHtml(order.name)},</p>
+        <p style="margin:0 0 6px;font-size:14px">${greetingHtml}</p>
         <h1 style="margin:0 0 22px;font-size:30px;line-height:1.15;font-weight:800;letter-spacing:-0.01em">Захиалга<br/>баталгаажлаа!</h1>
         <p style="margin:0 0 3px;font-size:13px;color:#5c5c58">Захиалгын дугаар: ${escapeHtml(order.orderNo)}</p>
         <p style="margin:0 0 20px;font-size:13px;color:#5c5c58">Огноо: ${formatDate(order.createdAt)}</p>

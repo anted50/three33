@@ -3,7 +3,12 @@ import { createFileRoute, Link, useRouter } from '@tanstack/react-router'
 import type { OrderStatus } from '~/db/schema'
 import { formatAddress } from '~/lib/address'
 import { formatMnt } from '~/lib/money'
-import { getOrderDetail, setOrderStatus } from '~/lib/server/admin/admin'
+import type { ReceiptOutcome } from '~/lib/server/orders/receipt'
+import {
+  getOrderDetail,
+  sendOrderReceiptNow,
+  setOrderStatus,
+} from '~/lib/server/admin/admin'
 import { STATUS_LABEL, StatusBadge } from '~/components/admin-bits'
 
 export const Route = createFileRoute('/admin/orders/$orderNo')({
@@ -50,6 +55,26 @@ function Track({ status }: { status: OrderStatus }) {
   )
 }
 
+/**
+ * Statuses whose money has landed, mirroring isPaid() in orders/state.ts — the
+ * receipt says the order is confirmed, so it is only offered once that is true.
+ * The server checks this too; here it just keeps the button from being armed.
+ */
+const RECEIPT_STATUSES: OrderStatus[] = [
+  'paid',
+  'processing',
+  'shipped',
+  'delivered',
+]
+
+/** Every outcome sendOrderReceiptNow can report, in the admin's language. */
+const RECEIPT_NOTE: Record<ReceiptOutcome, string> = {
+  sent: '✓ Баримт илгээлээ',
+  no_email: 'И-мэйл хаяг бүртгэгдээгүй байна',
+  not_found: 'Захиалга олдсонгүй',
+  mail_disabled: 'И-мэйл тохиргоо дутуу байна (MAIL_API_TOKEN)',
+}
+
 const NEXT: Partial<Record<OrderStatus, OrderStatus[]>> = {
   paid: ['processing', 'cancelled', 'refunded'],
   processing: ['shipped', 'cancelled', 'refunded'],
@@ -64,6 +89,8 @@ function OrderDetail() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const [mailBusy, setMailBusy] = useState(false)
+  const [mailNote, setMailNote] = useState<string | null>(null)
 
   if (!order) {
     return (
@@ -92,6 +119,24 @@ function OrderDetail() {
       setBusy(false)
     }
   }
+
+  async function sendReceipt() {
+    setMailBusy(true)
+    setMailNote(null)
+    try {
+      const { outcome } = await sendOrderReceiptNow({
+        data: { orderNo: order!.orderNo },
+      })
+      setMailNote(RECEIPT_NOTE[outcome])
+    } catch (err) {
+      setMailNote(err instanceof Error ? err.message : 'Алдаа гарлаа')
+    } finally {
+      setMailBusy(false)
+    }
+  }
+
+  const receiptEmail = order.address.email
+  const receiptReady = RECEIPT_STATUSES.includes(order.status)
 
   return (
     <>
@@ -259,6 +304,38 @@ function OrderDetail() {
             </p>
           ) : (
             <p className="adm__muted">Төлбөрийн бичлэг алга.</p>
+          )}
+
+          {/*
+            The receipt goes out automatically when the order settles, but that
+            send is best-effort and silent when it fails — so this is how an
+            order that never got one is put right, without a redeploy or a SQL
+            console.
+          */}
+          <p className="adm__statlabel" style={{ marginTop: 24 }}>
+            Баримт
+          </p>
+          {receiptEmail ? (
+            <>
+              <button
+                type="button"
+                className="btn btn--ghost btn--sm"
+                disabled={mailBusy || !receiptReady}
+                onClick={sendReceipt}
+              >
+                {mailBusy ? 'Илгээж байна…' : 'Баримт и-мэйлээр илгээх'}
+              </button>
+              <p className="adm__muted" style={{ marginTop: 8 }}>
+                {mailNote ??
+                  (receiptReady
+                    ? `${receiptEmail} рүү илгээнэ.`
+                    : 'Төлбөр төлөгдсөний дараа илгээх боломжтой.')}
+              </p>
+            </>
+          ) : (
+            <p className="adm__muted">
+              И-мэйл хаяг бүртгэгдээгүй тул баримт илгээх боломжгүй.
+            </p>
           )}
         </section>
       </div>

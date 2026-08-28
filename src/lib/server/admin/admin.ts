@@ -4,7 +4,8 @@ import { z } from 'zod'
 import { db } from '~/db'
 import { inventoryLedger, orders, productVariants } from '~/db/schema'
 import { expireCheckout } from '../orders/expire'
-import { assertTransition } from '../orders/state'
+import { deliverOrderReceipt } from '../orders/receipt'
+import { assertTransition, isPaid } from '../orders/state'
 import { loadShippingRates, saveShippingRates } from '../settings'
 import {
   assertAdmin,
@@ -114,6 +115,49 @@ export const orderNoInput = z.object({ orderNo: z.string().min(1).max(45) })
 export const getOrderDetail = createServerFn({ method: 'GET' })
   .validator(orderNoInput)
   .handler(({ data }) => orderDetail(data.orderNo))
+
+/**
+ * Sends the receipt e-mail for an order by hand.
+ *
+ * Settlement already tries once, but that attempt is fire-and-forget and
+ * swallows its own failures on purpose (see orders/receipt.ts) — a receipt
+ * that never arrived leaves one log line and no way to retry from inside the
+ * app. This is that way, and unlike the automatic path it reports back: the
+ * admin sees "sent", "no address on file", or the actual mail error, rather
+ * than a button that always claims success.
+ *
+ * Safe to press twice. The worst case is a customer with two copies of their
+ * receipt, which beats a customer with none.
+ */
+export const sendOrderReceiptNow = createServerFn({ method: 'POST' })
+  .validator(orderNoInput)
+  .handler(async ({ data }) => {
+    await assertAdmin()
+
+    const [order] = await db
+      .select({ status: orders.status })
+      .from(orders)
+      .where(eq(orders.orderNo, data.orderNo))
+      .limit(1)
+
+    if (!order) throw new Error('Захиалга олдсонгүй')
+
+    // The mail's headline is "Захиалга баталгаажлаа" — it must not go out for
+    // an order whose money never arrived.
+    if (!isPaid(order.status)) {
+      throw new Error('Төлбөр төлөгдөөгүй захиалгын баримт илгээхгүй')
+    }
+
+    try {
+      return { outcome: await deliverOrderReceipt(data.orderNo) }
+    } catch (error) {
+      // The reason is the point of pressing the button, so it goes to the
+      // admin as well as the log rather than becoming a generic failure.
+      console.error(`Manual receipt send failed for ${data.orderNo}:`, error)
+      const reason = error instanceof Error ? error.message : String(error)
+      throw new Error(`И-мэйл илгээж чадсангүй: ${reason}`)
+    }
+  })
 
 export const getProducts = createServerFn({ method: 'GET' }).handler(() =>
   listProducts(),

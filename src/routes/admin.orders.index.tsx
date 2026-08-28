@@ -26,7 +26,10 @@ export const Route = createFileRoute('/admin/orders/')({
   component: Orders,
 })
 
-/** Ordered by how often a shop actually filters, not by the enum. */
+/**
+ * Ordered by how often a shop actually filters, not by the enum. "all" excludes
+ * cancelled and expired checkouts — these two chips are how you reach them.
+ */
 const FILTERS = [
   'all',
   'pending_payment',
@@ -35,6 +38,7 @@ const FILTERS = [
   'shipped',
   'delivered',
   'cancelled',
+  'expired',
 ] as const
 
 function Orders() {

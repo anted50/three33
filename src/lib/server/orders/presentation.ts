@@ -1,8 +1,9 @@
 import { createServerFn } from '@tanstack/react-start'
 import { eq } from 'drizzle-orm'
 import { db } from '~/db'
-import { orders, payments } from '~/db/schema'
+import { payments } from '~/db/schema'
 import type { PaymentLink } from '../payments/provider'
+import { authorize } from './internal'
 import { orderNoInput } from './queries'
 
 export interface InvoicePresentation {
@@ -23,11 +24,13 @@ export interface InvoicePresentation {
 export const getInvoicePresentation = createServerFn({ method: 'GET' })
   .validator(orderNoInput)
   .handler(async ({ data }): Promise<InvoicePresentation | null> => {
+    const order = await authorize(data.orderNo, data.token)
+    if (!order) return null
+
     const [row] = await db
       .select({ payload: payments.invoicePayload })
       .from(payments)
-      .innerJoin(orders, eq(orders.id, payments.orderId))
-      .where(eq(orders.orderNo, data.orderNo))
+      .where(eq(payments.orderId, order.id))
       .limit(1)
 
     if (!row?.payload) return null

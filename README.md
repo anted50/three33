@@ -231,20 +231,25 @@ Open items with the client, both blocking parts of checkout:
 2. **The merchant name is `THREE33_BARBER`**, not an Uppercut Deluxe entity.
    Confirm this is the intended legal entity for receiving payment before launch.
 
-## The one thing that lives outside the app
+## Scheduled jobs
 
-`npm run reconcile` is a standalone script, not a server function — server
-functions only run when a request arrives, and the whole point of the sweep is
-to catch orders where the QPay callback never did.
+Two, both run by the server process itself on a timer — no host cron, no cron
+service, no `pg_cron`. Deploying the app is enough. Full detail in
+[docs/scheduled-jobs.md](docs/scheduled-jobs.md); the schedule lives in the
+`JOBS` array in `server/index.mjs`.
 
-Runs hourly. Finds `pending_payment` orders older than 10 minutes, calls QPay
-`payment/check` for each, and settles or expires them. Host cron:
+| Job | Every | What it does |
+|---|---|---|
+| `reconcile` | 1 hour | Settles orders whose QPay callback never arrived; cancels lapsed invoices at QPay and expires them |
+| `cleanup` | 24 hours | Deletes expired sessions, OTP codes and guest carts, and prunes `checkout_attempts` |
 
-```
-0 * * * * cd /srv/uppercut && npm run reconcile >> /var/log/uppercut-reconcile.log 2>&1
-```
+Neither is a server function: those only run when a request arrives, and the
+whole point of the sweep is the case where no request ever came. Both are also
+runnable by hand — `npm run reconcile`, `npm run cleanup`.
 
-Do not skip this. Dropped callbacks are a when, not an if.
+Dropped callbacks are a when, not an if, and `reconcile` is the only thing that
+cancels an abandoned invoice at QPay. If you change how this app is deployed,
+check that it is still running.
 
 ## Layout
 

@@ -1,11 +1,18 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
+import { z } from 'zod'
 import { Page } from '~/components/layout'
 import { formatAddress } from '~/lib/address'
 import { formatMnt } from '~/lib/money'
 import { getOrder } from '~/lib/server/orders/queries'
 
+/** Same access token as the payment page — see checkout.payment.$orderNo.tsx. */
+const successSearch = z.object({ t: z.string().max(200).optional() })
+
 export const Route = createFileRoute('/orders/$orderNo/success')({
-  loader: ({ params }) => getOrder({ data: { orderNo: params.orderNo } }),
+  validateSearch: successSearch,
+  loaderDeps: ({ search }) => ({ t: search.t }),
+  loader: ({ params, deps }) =>
+    getOrder({ data: { orderNo: params.orderNo, token: deps.t } }),
   component: Success,
 })
 

@@ -1,8 +1,8 @@
 import { createServerFn } from '@tanstack/react-start'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, gt } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '~/db'
-import { cartItems, productVariants } from '~/db/schema'
+import { cartItems, orders, productVariants } from '~/db/schema'
 import { clampQty } from './pricing'
 import { currentCart, readCart, type CartView } from './internal'
 
@@ -36,6 +36,51 @@ export const getShippingRates = createServerFn({ method: 'GET' }).handler(
   async () => {
     const { loadShippingRates } = await import('../settings')
     return loadShippingRates()
+  },
+)
+
+/**
+ * The unpaid invoice this browser already has, if any.
+ *
+ * This is the way back. A customer who closes the QR has no account, no order
+ * list and no e-mail yet — the order number lived only in their history. Their
+ * cart cookie, however, is still here, and orders.cart_id points from it at
+ * whatever they were in the middle of paying for.
+ *
+ * Returns nothing once the invoice lapses, so the drawer never offers a link to
+ * a QR that would be refused at the bank.
+ */
+export const getLiveCheckout = createServerFn({ method: 'GET' }).handler(
+  async (): Promise<{
+    orderNo: string
+    total: number
+    expiresAt: number
+  } | null> => {
+    const { cartId } = await currentCart()
+
+    const [live] = await db
+      .select({
+        orderNo: orders.orderNo,
+        total: orders.total,
+        expiresAt: orders.expiresAt,
+      })
+      .from(orders)
+      .where(
+        and(
+          eq(orders.cartId, cartId),
+          eq(orders.status, 'pending_payment'),
+          gt(orders.expiresAt, new Date()),
+        ),
+      )
+      .limit(1)
+
+    if (!live) return null
+
+    return {
+      orderNo: live.orderNo,
+      total: live.total,
+      expiresAt: live.expiresAt.getTime(),
+    }
   },
 )
 

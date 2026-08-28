@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '~/db'
 import { inventoryLedger, orders, productVariants } from '~/db/schema'
+import { expireCheckout } from '../orders/expire'
 import { assertTransition } from '../orders/state'
 import { loadShippingRates, saveShippingRates } from '../settings'
 import {
@@ -145,6 +146,28 @@ export const setOrderStatus = createServerFn({ method: 'POST' })
   .validator(setOrderStatusInput)
   .handler(async ({ data }) => {
     await assertAdmin()
+
+    const [existing] = await db
+      .select({ id: orders.id, status: orders.status })
+      .from(orders)
+      .where(eq(orders.orderNo, data.orderNo))
+      .limit(1)
+
+    if (!existing) throw new Error('Захиалга олдсонгүй')
+
+    /**
+     * Killing a checkout by hand has to reach QPay, not just our own row.
+     * Marking an order cancelled while its invoice stays payable is how a
+     * customer pays days later for something nobody will ever ship, so this
+     * goes through the same helper the sweep uses.
+     */
+    if (
+      existing.status === 'pending_payment' &&
+      (data.status === 'cancelled' || data.status === 'expired')
+    ) {
+      await expireCheckout(existing.id, data.status)
+      return { ok: true as const, status: data.status }
+    }
 
     return db.transaction(async (tx) => {
       const [order] = await tx

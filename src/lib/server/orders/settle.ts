@@ -1,6 +1,7 @@
-import { and, eq, sql } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import { db } from '~/db'
 import {
+  cartItems,
   inventoryLedger,
   orderItems,
   orders,
@@ -17,6 +18,19 @@ export type SettleOutcome =
   | 'unpaid'
   | 'underpaid'
   | 'not_found'
+  /** Asked too recently; the answer would not have changed. */
+  | 'throttled'
+
+/**
+ * Floor on how often one invoice may cost a QPay /payment/check.
+ *
+ * The payment page polls, so without this every watching customer turns into a
+ * steady stream of calls to a provider whose own guidance is to be sparing with
+ * their endpoints — and anyone hitting the endpoint deliberately turns into an
+ * unbounded one. Set just under the page's fastest poll so a real customer
+ * never notices it.
+ */
+export const MIN_CHECK_INTERVAL_MS = 2_500
 
 /**
  * Asks QPay whether an order is paid and, if so, settles it: flips the status,
@@ -35,6 +49,7 @@ export async function settleOrder(orderNo: string): Promise<SettleOutcome> {
       id: orders.id,
       status: orders.status,
       total: orders.total,
+      cartId: orders.cartId,
     })
     .from(orders)
     .where(eq(orders.orderNo, orderNo))
@@ -44,12 +59,30 @@ export async function settleOrder(orderNo: string): Promise<SettleOutcome> {
   if (order.status !== 'pending_payment') return 'already_settled'
 
   const [payment] = await db
-    .select({ id: payments.id, invoiceId: payments.qpayInvoiceId })
+    .select({
+      id: payments.id,
+      invoiceId: payments.qpayInvoiceId,
+      lastCheckedAt: payments.lastCheckedAt,
+    })
     .from(payments)
     .where(eq(payments.orderId, order.id))
     .limit(1)
 
   if (!payment?.invoiceId) return 'not_found'
+
+  if (
+    payment.lastCheckedAt &&
+    Date.now() - payment.lastCheckedAt.getTime() < MIN_CHECK_INTERVAL_MS
+  ) {
+    return 'throttled'
+  }
+
+  // Stamped before the call, not after: two concurrent pollers must not both
+  // get past the check above while the first is still waiting on QPay.
+  await db
+    .update(payments)
+    .set({ lastCheckedAt: new Date() })
+    .where(eq(payments.id, payment.id))
 
   const result = await getQpayProvider().checkInvoice(
     payment.invoiceId,
@@ -149,6 +182,35 @@ export async function settleOrder(orderNo: string): Promise<SettleOutcome> {
         .update(orders)
         .set({ status: 'paid' })
         .where(eq(orders.id, order.id))
+
+      /**
+       * NOW the cart is emptied — not at checkout.
+       *
+       * Clearing it when the invoice was created is what made an abandoned
+       * payment unrecoverable: the customer closed the QR and came back to
+       * nothing to retry with. Keeping it until the money lands costs nothing,
+       * because one cart can only ever hold one live invoice (see create.ts),
+       * so an unchanged basket cannot be paid for twice.
+       *
+       * Scoped to the variants actually bought, so anything the customer added
+       * while the invoice was open survives. Reached through orders.cart_id
+       * rather than a cookie, because settlement usually runs from the QPay
+       * callback or the sweep, where there is no request to read one from.
+       */
+      const boughtVariantIds = lines
+        .map((line) => line.variantId)
+        .filter((id): id is string => id !== null)
+
+      if (order.cartId && boughtVariantIds.length > 0) {
+        await tx
+          .delete(cartItems)
+          .where(
+            and(
+              eq(cartItems.cartId, order.cartId),
+              inArray(cartItems.variantId, boughtVariantIds),
+            ),
+          )
+      }
     })
   } catch (error) {
     if (error instanceof AlreadySettled) return 'already_settled'

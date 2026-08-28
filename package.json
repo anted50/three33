@@ -19,6 +19,7 @@
     "db:seed": "tsx scripts/seed.ts",
     "admin:add": "tsx scripts/add-admin.ts",
     "reconcile": "tsx scripts/reconcile.ts",
+    "cleanup": "tsx scripts/cleanup.ts",
     "qpay:ping": "tsx scripts/qpay-ping.ts",
     "qpay:smoke": "tsx scripts/qpay-smoke.ts"
   },

@@ -9,7 +9,13 @@ import {
 import { useNavigate, useRouter } from '@tanstack/react-router'
 import { Link } from '@tanstack/react-router'
 import { formatMnt } from '~/lib/money'
-import { getCart, getShippingRates, setCartQty, type CartView } from '~/lib/server/cart/cart'
+import {
+  getCart,
+  getLiveCheckout,
+  getShippingRates,
+  setCartQty,
+  type CartView,
+} from '~/lib/server/cart/cart'
 import { createOrder } from '~/lib/server/orders/create'
 import { clearValidity, localizeValidity } from '~/lib/form-messages'
 
@@ -69,6 +75,10 @@ function CartDrawer() {
 
   const [orderBusy, setOrderBusy] = useState(false)
   const [orderError, setOrderError] = useState<string | null>(null)
+  /** An invoice this browser started and never finished paying. */
+  const [live, setLive] = useState<{ orderNo: string; total: number } | null>(
+    null,
+  )
 
   // Load on open, and reload each time it reopens — stock or prices may have
   // moved while the drawer was shut.
@@ -83,6 +93,9 @@ function CartDrawer() {
         setShippingFee(rates.fee)
         setFreeThreshold(rates.freeThreshold)
       }
+    })
+    void getLiveCheckout().then((found) => {
+      if (!cancelled) setLive(found)
     })
     return () => {
       cancelled = true
@@ -145,6 +158,9 @@ function CartDrawer() {
       await navigate({
         to: '/checkout/payment/$orderNo',
         params: { orderNo: result.orderNo },
+        // The cookie normally carries this; the query parameter keeps the link
+        // usable if it was dropped or the page is opened elsewhere.
+        search: { t: result.token },
       })
 
       await router.invalidate()
@@ -185,6 +201,30 @@ function CartDrawer() {
         </header>
 
         <div className="drawer__body">
+          {/*
+            The way back to an abandoned QR. Without it a customer who closed
+            the payment page had nothing left pointing at it — no account, no
+            order list, and the receipt e-mail only goes out once the money has
+            actually landed.
+          */}
+          {live && (
+            <div className="drawer__resume">
+              <p>
+                Төлөгдөөгүй захиалга <strong>{live.orderNo}</strong> ·{' '}
+                {formatMnt(live.total)}
+              </p>
+              <Link
+                to="/checkout/payment/$orderNo"
+                params={{ orderNo: live.orderNo }}
+                search={{ t: undefined }}
+                className="btn btn--ghost"
+                onClick={closeCart}
+              >
+                Төлбөрөө үргэлжлүүлэх
+              </Link>
+            </div>
+          )}
+
           {cart === null ? (
             <p className="adm__muted drawer__state">Ачааллаж байна…</p>
           ) : empty ? (

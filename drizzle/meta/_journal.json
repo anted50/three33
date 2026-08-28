@@ -36,6 +36,13 @@
       "when": 1787574841002,
       "tag": "0004_giant_onslaught",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1787902052323,
+      "tag": "0005_wise_mantis",
+      "breakpoints": true
     }
   ]
 }

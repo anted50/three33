@@ -26,15 +26,19 @@ export const Route = createFileRoute('/admin/orders/')({
   component: Orders,
 })
 
-/** Ordered by how often a shop actually filters, not by the enum. */
+/**
+ * Ordered by how often a shop actually filters, not by the enum. "all" excludes
+ * cancelled and expired checkouts — those two rail items are how you reach them.
+ * Unpaid checkouts aren't listed at all, so they get no entry.
+ */
 const FILTERS = [
   'all',
-  'pending_payment',
   'paid',
   'processing',
   'shipped',
   'delivered',
   'cancelled',
+  'expired',
 ] as const
 
 function Orders() {
@@ -78,8 +82,13 @@ function Orders() {
         <h1>Захиалга</h1>
       </header>
 
-      <div className="adm__toolbar">
-        <div className="chips">
+      {/*
+        Status filters in a left rail with the list beside them, the same
+        shape as the storefront's category rail — the statuses are a fixed,
+        vertical list you scan, not a strip that scrolls out of view.
+      */}
+      <div className="adm__withrail">
+        <nav className="adm__rail" aria-label="Төлөв">
           {FILTERS.map((f) => (
             <Link
               key={f}
@@ -89,7 +98,7 @@ function Orders() {
                 status: f === 'all' ? undefined : f,
                 page: undefined,
               })}
-              className="chip"
+              className="adm__railitem"
               data-active={active === f}
             >
               {f === 'all'
@@ -97,160 +106,162 @@ function Orders() {
                 : STATUS_LABEL[f as keyof typeof STATUS_LABEL]}
             </Link>
           ))}
-        </div>
+        </nav>
 
-        <div className="adm__daterange">
-          <label className="field">
-            <span>Эхлэх огноо</span>
-            <input
-              type="date"
-              value={dateFrom ?? ''}
-              max={dateTo}
-              onChange={(e) =>
-                navigate({
-                  search: (prev) => ({
-                    ...prev,
-                    dateFrom: e.target.value || undefined,
-                    page: undefined,
-                  }),
-                })
-              }
-            />
-          </label>
+        <div className="adm__railmain">
+          <div className="adm__toolbar">
+            <div className="adm__daterange">
+              <label className="field">
+                <span>Эхлэх огноо</span>
+                <input
+                  type="date"
+                  value={dateFrom ?? ''}
+                  max={dateTo}
+                  onChange={(e) =>
+                    navigate({
+                      search: (prev) => ({
+                        ...prev,
+                        dateFrom: e.target.value || undefined,
+                        page: undefined,
+                      }),
+                    })
+                  }
+                />
+              </label>
 
-          <label className="field">
-            <span>Дуусах огноо</span>
-            <input
-              type="date"
-              value={dateTo ?? ''}
-              min={dateFrom}
-              onChange={(e) =>
-                navigate({
-                  search: (prev) => ({
-                    ...prev,
-                    dateTo: e.target.value || undefined,
-                    page: undefined,
-                  }),
-                })
-              }
-            />
-          </label>
+              <label className="field">
+                <span>Дуусах огноо</span>
+                <input
+                  type="date"
+                  value={dateTo ?? ''}
+                  min={dateFrom}
+                  onChange={(e) =>
+                    navigate({
+                      search: (prev) => ({
+                        ...prev,
+                        dateTo: e.target.value || undefined,
+                        page: undefined,
+                      }),
+                    })
+                  }
+                />
+              </label>
 
-          {(dateFrom || dateTo) && (
+              {(dateFrom || dateTo) && (
+                <button
+                  type="button"
+                  className="linkish"
+                  onClick={() =>
+                    navigate({
+                      search: (prev) => ({
+                        ...prev,
+                        dateFrom: undefined,
+                        dateTo: undefined,
+                        page: undefined,
+                      }),
+                    })
+                  }
+                >
+                  Огноо цэвэрлэх
+                </button>
+              )}
+            </div>
+
             <button
               type="button"
-              className="linkish"
-              onClick={() =>
-                navigate({
-                  search: (prev) => ({
-                    ...prev,
-                    dateFrom: undefined,
-                    dateTo: undefined,
-                    page: undefined,
-                  }),
-                })
-              }
+              className="btn btn--sm btn--ghost"
+              disabled={exporting}
+              onClick={handleExport}
             >
-              Огноо цэвэрлэх
-            </button>
-          )}
-        </div>
-
-        <button
-          type="button"
-          className="btn btn--sm btn--ghost"
-          disabled={exporting}
-          onClick={handleExport}
-        >
-          {exporting ? 'Бэлтгэж байна…' : 'Excel татах'}
-        </button>
-      </div>
-
-      {exportError && <p className="error">{exportError}</p>}
-
-      <section className="adm__card">
-        {rows.length === 0 ? (
-          <p className="adm__muted adm__pad">Тохирох захиалга алга.</p>
-        ) : (
-          <table className="adm__table">
-            <thead>
-              <tr>
-                <th>Дугаар</th>
-                <th>Огноо</th>
-                <th>Хэрэглэгч</th>
-                <th>Утас</th>
-                <th>Хүргэлт</th>
-                <th>Ширхэг</th>
-                <th>Дүн</th>
-                <th>Төлөв</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((order) => (
-                <tr key={order.orderNo}>
-                  <td>
-                    <Link
-                      to="/admin/orders/$orderNo"
-                      params={{ orderNo: order.orderNo }}
-                    >
-                      {order.orderNo}
-                    </Link>
-                  </td>
-                  <td className="adm__muted">
-                    {new Date(order.createdAt).toLocaleDateString('mn-MN')}
-                  </td>
-                  <td>{order.address?.name ?? '—'}</td>
-                  <td className="adm__muted adm__num">{order.phone}</td>
-                  <td className="adm__muted adm__ellipsis">
-                    {order.address ? formatAddress(order.address) : '—'}
-                  </td>
-                  <td className="adm__num">{order.items}</td>
-                  <td className="adm__num">{formatMnt(order.total)}</td>
-                  <td>
-                    <StatusBadge status={order.status} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-
-        {total > 0 && (
-          <div className="adm__pager">
-            <span className="adm__muted">
-              {page} / {totalPages} ({total})
-            </span>
-            <button
-              type="button"
-              className="adm__iconbtn adm__iconbtn--neutral"
-              title="Өмнөх"
-              aria-label="Өмнөх"
-              disabled={page <= 1}
-              onClick={() =>
-                navigate({
-                  search: (prev) => ({ ...prev, page: page - 1 }),
-                })
-              }
-            >
-              <ChevronLeftIcon />
-            </button>
-            <button
-              type="button"
-              className="adm__iconbtn adm__iconbtn--neutral"
-              title="Дараах"
-              aria-label="Дараах"
-              disabled={page >= totalPages}
-              onClick={() =>
-                navigate({
-                  search: (prev) => ({ ...prev, page: page + 1 }),
-                })
-              }
-            >
-              <ChevronRightIcon />
+              {exporting ? 'Бэлтгэж байна…' : 'Excel татах'}
             </button>
           </div>
-        )}
-      </section>
+
+          {exportError && <p className="error">{exportError}</p>}
+
+          <section className="adm__card">
+            {rows.length === 0 ? (
+              <p className="adm__muted adm__pad">Тохирох захиалга алга.</p>
+            ) : (
+              <table className="adm__table">
+                <thead>
+                  <tr>
+                    <th>Дугаар</th>
+                    <th>Огноо</th>
+                    <th>Утас</th>
+                    <th>Хүргэлт</th>
+                    <th>Ширхэг</th>
+                    <th>Дүн</th>
+                    <th>Төлөв</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((order) => (
+                    <tr key={order.orderNo}>
+                      <td>
+                        <Link
+                          to="/admin/orders/$orderNo"
+                          params={{ orderNo: order.orderNo }}
+                        >
+                          {order.orderNo}
+                        </Link>
+                      </td>
+                      <td className="adm__muted">
+                        {new Date(order.createdAt).toLocaleDateString('mn-MN')}
+                      </td>
+                      <td className="adm__muted adm__num">{order.phone}</td>
+                      <td className="adm__muted adm__ellipsis">
+                        {order.address ? formatAddress(order.address) : '—'}
+                      </td>
+                      <td className="adm__num">{order.items}</td>
+                      <td className="adm__num">{formatMnt(order.total)}</td>
+                      <td>
+                        <StatusBadge status={order.status} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+
+            {total > 0 && (
+              <div className="adm__pager">
+                <span className="adm__muted">
+                  {page} / {totalPages} ({total})
+                </span>
+                <button
+                  type="button"
+                  className="adm__iconbtn adm__iconbtn--neutral"
+                  title="Өмнөх"
+                  aria-label="Өмнөх"
+                  disabled={page <= 1}
+                  onClick={() =>
+                    navigate({
+                      search: (prev) => ({ ...prev, page: page - 1 }),
+                    })
+                  }
+                >
+                  <ChevronLeftIcon />
+                </button>
+                <button
+                  type="button"
+                  className="adm__iconbtn adm__iconbtn--neutral"
+                  title="Дараах"
+                  aria-label="Дараах"
+                  disabled={page >= totalPages}
+                  onClick={() =>
+                    navigate({
+                      search: (prev) => ({ ...prev, page: page + 1 }),
+                    })
+                  }
+                >
+                  <ChevronRightIcon />
+                </button>
+              </div>
+            )}
+          </section>
+        </div>
+      </div>
     </>
   )
 }

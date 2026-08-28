@@ -574,43 +574,137 @@
 
 /* -------------------------------------------------- order list filters */
 
-/* Status chips, date range, and the export button in one row — they're all
-   "what set of orders am I looking at", so they read as one control group
-   rather than three stacked ones. */
+/*
+ * Status rail on the left, the list and its date controls on the right —
+ * the same shape as the storefront's .pgroups category rail, and for the
+ * same reason: a fixed set of named buckets reads better as a vertical list
+ * you scan than as a horizontal strip that scrolls its tail out of sight.
+ *
+ * Stacked until the shell itself goes two-column at 900px — a vertical rail
+ * beside the table on a phone would leave the table nothing to sit in.
+ */
+.adm__withrail {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+}
+
+.adm__rail {
+  flex: 0 0 auto;
+  display: flex;
+  /* Horizontal until there's room for a column — on a phone the rail would
+     otherwise eat a third of a screen the table already needs. */
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  margin-bottom: 12px;
+  padding: 6px;
+  /* A white card on the grey canvas, like every other admin panel — the
+     storefront rail's --surface fill would be invisible here, that page
+     being white behind it. */
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.adm__rail::-webkit-scrollbar {
+  display: none;
+}
+
+.adm__railitem {
+  flex: 0 0 auto;
+  padding: 11px 12px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  line-height: 1.3;
+  text-align: left;
+  white-space: nowrap;
+  color: var(--ink-soft);
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.adm__railitem:hover:not([data-active='true']) {
+  background: #fafafa;
+  color: var(--ink);
+}
+
+/* Same selected state as the shell's sidebar nav — grey fill, red rule. */
+.adm__railitem[data-active='true'] {
+  background: #f4f4f5;
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.adm__railmain {
+  flex: 1;
+  min-width: 0;
+}
+
+/*
+ * The rail costs the table ~186px, which is enough to push this seven-column
+ * table past its card somewhere between 900px and ~1420px of viewport — a
+ * 13" laptop lands right in it. .adm__card clips (it has overflow: hidden to
+ * keep content inside its rounded corners), so the Төлөв column would simply
+ * disappear. Scroll this one instead of hiding the end of the row.
+ */
+.adm__railmain .adm__card {
+  overflow-x: auto;
+}
+
+@media (min-width: 900px) {
+  .adm__withrail {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 16px;
+  }
+
+  .adm__rail {
+    flex-direction: column;
+    margin-bottom: 0;
+    /* Fits "Хугацаа дууссан", the longest label, on one line. */
+    width: 170px;
+    overflow-x: visible;
+    /* Follows the table down a long page, the way the storefront rail does.
+       A plain 16px offset is enough — nothing above it is sticky, so there
+       is no header height to clear. */
+    position: sticky;
+    top: 16px;
+  }
+
+  .adm__railitem {
+    white-space: normal;
+  }
+}
+
+/* Date range and the export button in one row — both are "what set of orders
+   am I looking at", so they read as one control group rather than two
+   stacked ones. */
 .adm__toolbar {
   display: flex;
   flex-wrap: wrap;
   /* Bottom-aligned, not centered — the date fields carry a label above the
      input, so centering left every control's bottom edge at a different
-     height. This lines up the chips, inputs, and button on one edge. */
+     height. This lines up the inputs and button on one edge. */
   align-items: flex-end;
   gap: 8px 20px;
   margin-bottom: 12px;
-}
-
-.adm__toolbar .chips {
-  flex: 1 1 260px;
-  min-width: 0;
-  padding: 0;
-}
-
-/* Chip, date input, and export button all the same height, so the row reads
-   as one aligned control strip instead of three mismatched sizes. */
-.adm__toolbar .chip {
-  display: inline-flex;
-  align-items: center;
-  height: 40px;
-  padding: 0 14px;
-  box-sizing: border-box;
 }
 
 .adm__toolbar .adm__daterange {
   margin-bottom: 0;
 }
 
+/* Pushed to the right edge — the only action in a row that is otherwise all
+   filters. */
 .adm__toolbar > .btn--sm {
   height: 40px;
   min-height: 40px;
+  margin-left: auto;
 }
 
 .adm__daterange {

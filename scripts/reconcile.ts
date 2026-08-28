@@ -10,14 +10,11 @@
 import { and, eq, lt } from 'drizzle-orm'
 import { db } from '~/db'
 import { orders } from '~/db/schema'
+import { expireCheckout } from '~/lib/server/orders/expire'
 import { settleOrder } from '~/lib/server/orders/settle'
-import { assertTransition } from '~/lib/server/orders/state'
 
 /** Grace period: an invoice younger than this may simply still be in progress. */
 const STALE_AFTER_MS = 10 * 60 * 1000
-
-/** After this long unpaid, the invoice is written off. */
-const EXPIRE_AFTER_MS = 24 * 60 * 60 * 1000
 
 async function main() {
   const now = Date.now()
@@ -26,7 +23,7 @@ async function main() {
     .select({
       orderNo: orders.orderNo,
       id: orders.id,
-      createdAt: orders.createdAt,
+      expiresAt: orders.expiresAt,
     })
     .from(orders)
     .where(
@@ -54,19 +51,30 @@ async function main() {
 
       if (outcome === 'settled') {
         console.log(`  ${order.orderNo}: SETTLED (callback never arrived)`)
-      } else if (outcome === 'underpaid') {
+        continue
+      }
+
+      if (outcome === 'underpaid') {
         console.log(`  ${order.orderNo}: UNDERPAID — needs a human`)
-      } else if (
-        outcome === 'unpaid' &&
-        order.createdAt.getTime() < now - EXPIRE_AFTER_MS
-      ) {
-        assertTransition('pending_payment', 'expired')
-        await db
-          .update(orders)
-          .set({ status: 'expired' })
-          .where(eq(orders.id, order.id))
-        console.log(`  ${order.orderNo}: expired`)
-        tally.expired = (tally.expired ?? 0) + 1
+        continue
+      }
+
+      /**
+       * Retire it once the invoice window has passed.
+       *
+       * `not_found` counts. It means a pending order with no usable payment row
+       * — settleOrder can never do anything but repeat that answer, so treating
+       * it as "still in progress" left the order pending forever. Expiring it
+       * is the only outcome that terminates.
+       */
+      const lapsed = order.expiresAt.getTime() < now
+      if (lapsed && (outcome === 'unpaid' || outcome === 'not_found')) {
+        // expireCheckout cancels the invoice at QPay before touching our row.
+        // Skipping that is what left "expired" orders quietly payable for days.
+        if (await expireCheckout(order.id, 'expired')) {
+          console.log(`  ${order.orderNo}: expired, invoice cancelled`)
+          tally.expired = (tally.expired ?? 0) + 1
+        }
       }
     } catch (error) {
       // One bad order must not stop the sweep for the rest.

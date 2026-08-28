@@ -20,12 +20,21 @@ interface CookieOptions {
 
 export const SESSION_COOKIE = 'uc_session'
 export const CART_COOKIE = 'uc_cart'
+/** Holds `orderNo:token` for the invoice currently awaiting payment. */
+export const CHECKOUT_COOKIE = 'uc_checkout'
 
 /** 30 days, matching the session row's TTL. */
 export const SESSION_MAX_AGE = 60 * 60 * 24 * 30
 
 /** Guest carts outlive a browsing session but not forever. */
 export const CART_MAX_AGE = 60 * 60 * 24 * 30
+
+/**
+ * Slightly longer than the two-hour invoice window, so a customer who comes
+ * back just after expiry is told the invoice lapsed rather than being shown
+ * "order not found" — which reads as "you lost your money".
+ */
+export const CHECKOUT_MAX_AGE = 60 * 60 * 3
 
 /**
  * SameSite=Lax rather than Strict: QPay sends the customer to a bank app and
@@ -47,4 +56,9 @@ export const sessionCookieOptions: CookieOptions = {
 export const cartCookieOptions: CookieOptions = {
   ...base,
   maxAge: CART_MAX_AGE,
+}
+
+export const checkoutCookieOptions: CookieOptions = {
+  ...base,
+  maxAge: CHECKOUT_MAX_AGE,
 }

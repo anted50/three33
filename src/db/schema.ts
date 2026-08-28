@@ -322,6 +322,14 @@ export const orders = pgTable(
     id: id(),
     orderNo: text('order_no').notNull(), // human-facing, also QPay sender_invoice_no
     userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+    /**
+     * The cart this order was checked out from. Not decoration: it is how a
+     * browser with only a cart cookie finds its way back to an unpaid invoice,
+     * and how settlement clears the right cart lines from cron or a callback,
+     * where no cookie exists. Nulled rather than cascaded — losing the cart
+     * must never take the order with it.
+     */
+    cartId: uuid('cart_id').references(() => carts.id, { onDelete: 'set null' }),
     status: orderStatus('status').notNull().default('pending_payment'),
     subtotal: money('subtotal').notNull(),
     shippingFee: money('shipping_fee').notNull(),
@@ -332,13 +340,34 @@ export const orders = pgTable(
       .notNull(),
     contactPhone: text('contact_phone').notNull(),
     note: text('note'),
+    /**
+     * When the QPay invoice stops being payable. Explicit rather than a
+     * constant in the sweep script, because two things have to agree on it:
+     * the page counting down in front of the customer, and the job that
+     * cancels the invoice at QPay. A number living in only one of them is how
+     * an "expired" order stays payable for three more days.
+     */
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    /**
+     * SHA-256 of the token that lets a browser see this order — same reasoning
+     * as sessions.id. Order numbers are short and guessable by design (people
+     * read them aloud), so they cannot double as the credential that guards a
+     * customer's phone number and address.
+     */
+    accessTokenHash: text('access_token_hash').notNull(),
     createdAt: createdAt(),
   },
   (t) => [
     uniqueIndex('orders_order_no_key').on(t.orderNo),
     index('orders_user_id_idx').on(t.userId),
+    // Finds "does this browser have an unpaid order?" from the cart cookie.
+    index('orders_cart_id_idx').on(t.cartId),
     // Drives the reconciliation sweep: pending orders older than 10 minutes.
     index('orders_status_created_at_idx').on(t.status, t.createdAt),
+    // Drives the expiry half of the same sweep.
+    index('orders_pending_expires_idx')
+      .on(t.expiresAt)
+      .where(sql`status = 'pending_payment'`),
   ],
 )
 
@@ -385,6 +414,14 @@ export const payments = pgTable(
     invoicePayload: jsonb('invoice_payload').$type<InvoicePayload>(),
     rawCallback: jsonb('raw_callback'),
     paidAt: timestamp('paid_at', { withTimezone: true }),
+    /**
+     * Last time we spent a QPay /payment/check on this invoice. The payment
+     * page polls, and every poll used to be one call to QPay — 20 a minute per
+     * customer sitting on the page, and unbounded for anyone hitting the
+     * endpoint deliberately. settleOrder reads this to refuse to ask again
+     * within a couple of seconds.
+     */
+    lastCheckedAt: timestamp('last_checked_at', { withTimezone: true }),
     createdAt: createdAt(),
   },
   (t) => [
@@ -399,6 +436,38 @@ export const payments = pgTable(
       .where(sql`qpay_payment_id is not null`),
     index('payments_order_id_idx').on(t.orderId),
     index('payments_qpay_invoice_id_idx').on(t.qpayInvoiceId),
+  ],
+)
+
+/**
+ * Every attempt to turn a cart into an invoice, successful or not.
+ *
+ * Two jobs. It is the counter the rate limiter reads — checkout mints real
+ * invoices on a real merchant account, so it cannot be an unmetered endpoint.
+ * And it is the audit trail: when the shop finds junk orders, this is the
+ * record of who made them and how fast, which the orders table alone cannot
+ * show because rejected attempts never become orders.
+ *
+ * Append-only. Never updated, never read on the happy path except to count.
+ */
+export const checkoutAttempts = pgTable(
+  'checkout_attempts',
+  {
+    id: id(),
+    /** Null behind a proxy that strips it; the phone limit still applies. */
+    ip: text('ip'),
+    phone: text('phone').notNull(),
+    cartId: uuid('cart_id').references(() => carts.id, { onDelete: 'set null' }),
+    orderId: uuid('order_id').references(() => orders.id, {
+      onDelete: 'set null',
+    }),
+    /** created | reused | rate_limited | invoice_failed */
+    outcome: text('outcome').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('checkout_attempts_ip_created_at_idx').on(t.ip, t.createdAt),
+    index('checkout_attempts_phone_created_at_idx').on(t.phone, t.createdAt),
   ],
 )
 
@@ -486,6 +555,7 @@ export type CartItem = typeof cartItems.$inferSelect
 export type Order = typeof orders.$inferSelect
 export type OrderItem = typeof orderItems.$inferSelect
 export type Payment = typeof payments.$inferSelect
+export type CheckoutAttempt = typeof checkoutAttempts.$inferSelect
 export type Review = typeof reviews.$inferSelect
 
 export type OrderStatus = (typeof orderStatus.enumValues)[number]

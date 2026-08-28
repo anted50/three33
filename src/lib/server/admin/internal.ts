@@ -1,4 +1,15 @@
-import { and, asc, count, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm'
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  gte,
+  inArray,
+  lte,
+  notInArray,
+  sql,
+} from 'drizzle-orm'
 import { db } from '~/db'
 import {
   inventoryLedger,
@@ -210,10 +221,22 @@ export interface OrdersFilter {
  * with no status falls back to a plain scan, which is fine at the order
  * volumes this shop sees; worth a dedicated index only if that stops holding.
  */
+/**
+ * Checkouts nobody paid for. Kept out of the default view: a rate-limited
+ * public endpoint still mints one of these for every abandoned or junk
+ * attempt, and a list where real orders have to be picked out from among them
+ * is a list the shop stops reading. `pending_payment` is that same junk before
+ * it has timed out, so it's hidden as well and has no chip of its own.
+ */
+const ABANDONED = ['expired', 'cancelled', 'pending_payment'] as const
+
 function ordersWhereClause(filter: OrdersFilter) {
   const clauses = []
   if (filter.status && filter.status !== 'all') {
     clauses.push(eq(orders.status, filter.status as never))
+  } else {
+    // Reachable through their own status chips, just not mixed into "all".
+    clauses.push(notInArray(orders.status, [...ABANDONED]))
   }
   if (filter.dateFrom) {
     clauses.push(gte(orders.createdAt, new Date(`${filter.dateFrom}T00:00:00.000Z`)))

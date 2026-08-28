@@ -3,29 +3,32 @@ import { asc, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '~/db'
 import { orderItems, orders, payments } from '~/db/schema'
+import { authorize } from './internal'
 import { settleOrder } from './settle'
 
 export const orderNoInput = z.object({
   orderNo: z.string().trim().min(1).max(45),
+  /**
+   * Optional because the usual proof is the checkout cookie. Supplied when a
+   * payment link is opened somewhere the cookie never reached — another device,
+   * or a browser that dropped it.
+   */
+  token: z.string().trim().max(200).optional(),
 })
 
 /**
- * Polled by the payment page every few seconds.
+ * Polled by the payment page.
  *
  * While the order is pending it actively asks QPay rather than just reading our
  * own row. That means the customer's page settles even if the callback never
  * arrives — the same reason the reconciliation sweep exists, applied to the one
- * customer who is sitting there watching.
+ * customer who is sitting there watching. settleOrder throttles how often that
+ * question actually reaches QPay.
  */
 export const getOrderStatus = createServerFn({ method: 'GET' })
   .validator(orderNoInput)
   .handler(async ({ data }) => {
-    const [order] = await db
-      .select({ status: orders.status, total: orders.total })
-      .from(orders)
-      .where(eq(orders.orderNo, data.orderNo))
-      .limit(1)
-
+    const order = await authorize(data.orderNo, data.token)
     if (!order) return { status: 'not_found' as const }
 
     if (order.status === 'pending_payment') {
@@ -34,18 +37,29 @@ export const getOrderStatus = createServerFn({ method: 'GET' })
       const [refreshed] = await db
         .select({ status: orders.status })
         .from(orders)
-        .where(eq(orders.orderNo, data.orderNo))
+        .where(eq(orders.id, order.id))
         .limit(1)
 
-      return { status: refreshed?.status ?? order.status, total: order.total }
+      return {
+        status: refreshed?.status ?? order.status,
+        total: order.total,
+        expiresAt: order.expiresAt.getTime(),
+      }
     }
 
-    return { status: order.status, total: order.total }
+    return {
+      status: order.status,
+      total: order.total,
+      expiresAt: order.expiresAt.getTime(),
+    }
   })
 
 export const getOrder = createServerFn({ method: 'GET' })
   .validator(orderNoInput)
   .handler(async ({ data }) => {
+    const authorized = await authorize(data.orderNo, data.token)
+    if (!authorized) return null
+
     const [order] = await db
       .select({
         orderNo: orders.orderNo,
@@ -59,7 +73,7 @@ export const getOrder = createServerFn({ method: 'GET' })
         createdAt: orders.createdAt,
       })
       .from(orders)
-      .where(eq(orders.orderNo, data.orderNo))
+      .where(eq(orders.id, authorized.id))
       .limit(1)
 
     if (!order) return null
@@ -72,8 +86,7 @@ export const getOrder = createServerFn({ method: 'GET' })
         qty: orderItems.qty,
       })
       .from(orderItems)
-      .innerJoin(orders, eq(orders.id, orderItems.orderId))
-      .where(eq(orders.orderNo, data.orderNo))
+      .where(eq(orderItems.orderId, authorized.id))
       .orderBy(asc(orderItems.id))
 
     return { ...order, items }
@@ -83,16 +96,23 @@ export const getOrder = createServerFn({ method: 'GET' })
 export const getPaymentDetails = createServerFn({ method: 'GET' })
   .validator(orderNoInput)
   .handler(async ({ data }) => {
+    const order = await authorize(data.orderNo, data.token)
+    if (!order) return null
+
     const [row] = await db
       .select({
         invoiceId: payments.qpayInvoiceId,
         amount: payments.amount,
-        status: orders.status,
       })
       .from(payments)
-      .innerJoin(orders, eq(orders.id, payments.orderId))
-      .where(eq(orders.orderNo, data.orderNo))
+      .where(eq(payments.orderId, order.id))
       .limit(1)
 
-    return row ?? null
+    if (!row) return null
+
+    return {
+      ...row,
+      status: order.status,
+      expiresAt: order.expiresAt.getTime(),
+    }
   })

@@ -8,7 +8,7 @@
 | Object storage | none — images are static files in `public/` | **still none needed**, see below |
 | QPay callbacks | unreachable (`localhost`) | **finally work** — set `APP_URL` to the Railway domain |
 | Admin login | email OTP | **works as-is** — just needs `MAIL_API_TOKEN` and an admin granted via `npm run admin:add` |
-| Reconciliation sweep | manual | needs a **cron service** |
+| Scheduled jobs | automatic | run by the app process, nothing to set up |
 
 ## Database — solved by deploying
 
@@ -113,15 +113,22 @@ npm run admin:add you@three33barber.com "Your Name"
 Safe to re-run; it promotes an existing user to admin if the email already
 exists, or creates one if it doesn't.
 
-## The reconciliation sweep needs its own service
+## Scheduled jobs need nothing
 
-`npm run reconcile` catches orders whose QPay callback never arrived. It cannot
-live in the app: server functions only run when a request arrives, and the
-whole point is the case where no request ever came.
+The reconciliation sweep and the daily cleanup are run by the app process
+itself, on a timer started once the HTTP listener is up. There is no second
+service to create and no cron to configure — deploying is enough.
 
-Add a second Railway service from the same repo, with a cron schedule of
-`0 * * * *` and start command `npm run reconcile`. Do not skip this — dropped
-callbacks are a when, not an if.
+See [scheduled-jobs.md](./scheduled-jobs.md) for what runs and when.
+
+Two things to keep true, though:
+
+- `tsx` must stay in `dependencies`. The jobs are TypeScript run out of
+  `scripts/`, and moving `tsx` to `devDependencies` would leave them unable to
+  start in a production install.
+- Scaling to more than one replica is safe — every instance runs both jobs, and
+  `settleOrder` is built to be raced. It costs duplicate QPay `payment/check`
+  calls, not duplicate payments.
 
 ## Build and start
 

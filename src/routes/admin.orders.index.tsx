@@ -29,10 +29,10 @@ export const Route = createFileRoute('/admin/orders/')({
 /**
  * Ordered by how often a shop actually filters, not by the enum. "all" excludes
  * cancelled and expired checkouts — these two chips are how you reach them.
+ * Unpaid checkouts aren't listed at all, so they get no chip.
  */
 const FILTERS = [
   'all',
-  'pending_payment',
   'paid',
   'processing',
   'shipped',
@@ -181,7 +181,6 @@ function Orders() {
               <tr>
                 <th>Дугаар</th>
                 <th>Огноо</th>
-                <th>Хэрэглэгч</th>
                 <th>Утас</th>
                 <th>Хүргэлт</th>
                 <th>Ширхэг</th>
@@ -203,7 +202,6 @@ function Orders() {
                   <td className="adm__muted">
                     {new Date(order.createdAt).toLocaleDateString('mn-MN')}
                   </td>
-                  <td>{order.address?.name ?? '—'}</td>
                   <td className="adm__muted adm__num">{order.phone}</td>
                   <td className="adm__muted adm__ellipsis">
                     {order.address ? formatAddress(order.address) : '—'}

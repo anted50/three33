@@ -81,7 +81,6 @@ export const exportOrders = createServerFn({ method: 'POST' })
     sheet.columns = [
       { header: 'Дугаар', key: 'orderNo', width: 20 },
       { header: 'Огноо', key: 'date', width: 12 },
-      { header: 'Хэрэглэгч', key: 'name', width: 22 },
       { header: 'Утас', key: 'phone', width: 14 },
       { header: 'Хаяг', key: 'address', width: 40 },
       { header: 'Ширхэг', key: 'items', width: 10 },
@@ -94,7 +93,6 @@ export const exportOrders = createServerFn({ method: 'POST' })
       sheet.addRow({
         orderNo: row.orderNo,
         date: new Date(row.createdAt).toLocaleDateString('mn-MN'),
-        name: row.address?.name ?? '—',
         phone: row.phone,
         address: row.address ? formatAddress(row.address) : '—',
         items: row.items,

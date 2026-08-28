@@ -225,9 +225,10 @@ export interface OrdersFilter {
  * Checkouts nobody paid for. Kept out of the default view: a rate-limited
  * public endpoint still mints one of these for every abandoned or junk
  * attempt, and a list where real orders have to be picked out from among them
- * is a list the shop stops reading.
+ * is a list the shop stops reading. `pending_payment` is that same junk before
+ * it has timed out, so it's hidden as well and has no chip of its own.
  */
-const ABANDONED = ['expired', 'cancelled'] as const
+const ABANDONED = ['expired', 'cancelled', 'pending_payment'] as const
 
 function ordersWhereClause(filter: OrdersFilter) {
   const clauses = []

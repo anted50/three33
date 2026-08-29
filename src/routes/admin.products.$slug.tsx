@@ -13,6 +13,7 @@ import {
   getProductDetail,
   setProductImages,
   setVariant,
+  splitVariant,
   updateProduct,
 } from '~/lib/server/admin/admin'
 
@@ -33,6 +34,7 @@ function ProductAdmin() {
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const [confirmSplitId, setConfirmSplitId] = useState<string | null>(null)
 
   if (!product) {
     return (
@@ -112,6 +114,8 @@ function ProductAdmin() {
                 key={variant.id}
                 variant={variant}
                 busy={busy === variant.id}
+                canSplit={product.variants.length > 1}
+                onRequestSplit={() => setConfirmSplitId(variant.id)}
                 onSave={async (price, stockQty, isActive) => {
                   setBusy(variant.id)
                   setError(null)
@@ -140,6 +144,37 @@ function ProductAdmin() {
 
         <AddVariantForm slug={product.slug} nameEn={product.nameEn} />
       </section>
+
+      {confirmSplitId && (
+        <ConfirmDialog
+          title="Хувилбарыг салгах"
+          message={`"${
+            product.variants.find((v) => v.id === confirmSplitId)?.sku ?? ''
+          }" хувилбарыг тусдаа бараа болгох уу? Зураг, тайлбар, ангилал, төлөв хуулагдана. SKU, үнэ, нөөц болон захиалгын түүх хэвээрээ үлдэнэ.`}
+          busy={busy === confirmSplitId}
+          confirmLabel="Салгах"
+          onCancel={() => setConfirmSplitId(null)}
+          onConfirm={async () => {
+            const variantId = confirmSplitId
+            setBusy(variantId)
+            setError(null)
+            try {
+              const { slug } = await splitVariant({ data: { variantId } })
+              setConfirmSplitId(null)
+              // Straight to the new listing — it needs its own name and images
+              // reviewed before anyone would call it done.
+              await router.navigate({
+                to: '/admin/products/$slug',
+                params: { slug },
+              })
+            } catch (err) {
+              setError(err instanceof Error ? err.message : 'Салгахад алдаа гарлаа')
+            } finally {
+              setBusy(null)
+            }
+          }}
+        />
+      )}
 
       {confirmDeleteId && (
         <ConfirmDialog
@@ -400,11 +435,21 @@ interface VariantRowProps {
     isActive: boolean
   }
   busy: boolean
+  /** Off for the last variant: splitting it would leave nothing behind. */
+  canSplit: boolean
   onSave: (price: number, stockQty: number, isActive: boolean) => Promise<void>
+  onRequestSplit: () => void
   onRequestDelete: () => void
 }
 
-function VariantRow({ variant, busy, onSave, onRequestDelete }: VariantRowProps) {
+function VariantRow({
+  variant,
+  busy,
+  canSplit,
+  onSave,
+  onRequestSplit,
+  onRequestDelete,
+}: VariantRowProps) {
   // Editing happens in tugrik because that is what a shop owner thinks in;
   // it converts back to mungu on save, in the one place that is allowed to.
   const [price, setPrice] = useState(String(munguToTugrik(variant.price)))
@@ -458,6 +503,17 @@ function VariantRow({ variant, busy, onSave, onRequestDelete }: VariantRowProps)
           >
             {busy ? '…' : 'Хадгалах'}
           </button>
+          {canSplit && (
+            <button
+              type="button"
+              className="btn btn--sm btn--ghost"
+              title="Энэ хувилбарыг тусдаа бараа болгох"
+              disabled={busy}
+              onClick={onRequestSplit}
+            >
+              Салгах
+            </button>
+          )}
           <button
             type="button"
             className="adm__iconbtn"

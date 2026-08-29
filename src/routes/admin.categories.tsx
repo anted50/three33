@@ -8,6 +8,7 @@ import {
   createCategory,
   deleteCategory,
   getCategories,
+  renameCategory,
   setCategorySortOrder,
 } from '~/lib/server/admin/admin'
 
@@ -37,11 +38,22 @@ function Categories() {
     }
   }
 
-  async function handleSaveSortOrder(categoryId: string, sortOrder: number) {
+  /** One save per row: only the parts the admin actually touched are sent. */
+  async function handleSave(
+    categoryId: string,
+    changes: { names?: { nameMn: string; nameEn: string }; sortOrder?: number },
+  ) {
     setBusy(categoryId)
     setError(null)
     try {
-      await setCategorySortOrder({ data: { categoryId, sortOrder } })
+      if (changes.names) {
+        await renameCategory({ data: { categoryId, ...changes.names } })
+      }
+      if (changes.sortOrder !== undefined) {
+        await setCategorySortOrder({
+          data: { categoryId, sortOrder: changes.sortOrder },
+        })
+      }
       await router.invalidate()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Хадгалахад алдаа гарлаа')
@@ -90,9 +102,7 @@ function Categories() {
                 key={category.id}
                 category={category}
                 busy={busy === category.id}
-                onSaveSortOrder={(sortOrder) =>
-                  handleSaveSortOrder(category.id, sortOrder)
-                }
+                onSave={(changes) => handleSave(category.id, changes)}
                 onRequestDelete={() => setConfirmDeleteId(category.id)}
               />
             ))}
@@ -134,26 +144,39 @@ interface CategoryRowProps {
     productCount: number
   }
   busy: boolean
-  onSaveSortOrder: (sortOrder: number) => Promise<void>
+  onSave: (changes: {
+    names?: { nameMn: string; nameEn: string }
+    sortOrder?: number
+  }) => Promise<void>
   onRequestDelete: () => void
 }
 
-/** Only the sort order is editable here — renaming or re-slugging a category
- * changes the storefront nav and any links out there, so that stays a
+/** Names and sort order are editable inline. The slug stays fixed — it is what
+ * storefront links and the nav filter are built on, so changing it stays a
  * deliberate delete-and-recreate rather than a quiet inline edit. */
 function CategoryRow({
   category,
   busy,
-  onSaveSortOrder,
+  onSave,
   onRequestDelete,
 }: CategoryRowProps) {
+  const [nameMn, setNameMn] = useState(category.nameMn)
+  const [nameEn, setNameEn] = useState(category.nameEn)
   const [sortOrder, setSortOrder] = useState(String(category.sortOrder))
-  const dirty = sortOrder !== String(category.sortOrder)
+
+  const namesDirty =
+    nameMn.trim() !== category.nameMn || nameEn.trim() !== category.nameEn
+  const orderDirty = sortOrder !== String(category.sortOrder)
+  const dirty = namesDirty || orderDirty
 
   return (
     <tr>
-      <td>{category.nameMn}</td>
-      <td>{category.nameEn}</td>
+      <td>
+        <input value={nameMn} onChange={(e) => setNameMn(e.target.value)} />
+      </td>
+      <td>
+        <input value={nameEn} onChange={(e) => setNameEn(e.target.value)} />
+      </td>
       <td className="adm__mono">{category.slug}</td>
       <td>
         <input
@@ -172,8 +195,14 @@ function CategoryRow({
             disabled={!dirty || busy}
             onClick={() => {
               const n = Number(sortOrder)
-              if (!Number.isInteger(n) || n < 0) return
-              void onSaveSortOrder(n)
+              if (orderDirty && (!Number.isInteger(n) || n < 0)) return
+              if (namesDirty && (!nameMn.trim() || !nameEn.trim())) return
+              void onSave({
+                names: namesDirty
+                  ? { nameMn: nameMn.trim(), nameEn: nameEn.trim() }
+                  : undefined,
+                sortOrder: orderDirty ? n : undefined,
+              })
             }}
           >
             {busy ? '…' : 'Хадгалах'}

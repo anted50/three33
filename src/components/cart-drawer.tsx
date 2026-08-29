@@ -9,6 +9,7 @@ import {
 import { useNavigate, useRouter } from '@tanstack/react-router'
 import { Link } from '@tanstack/react-router'
 import { formatMnt } from '~/lib/money'
+import { sizeSuffix } from '~/lib/product-name'
 import {
   getCart,
   getLiveCheckout,
@@ -260,7 +261,7 @@ function CartDrawer() {
                         onClick={closeCart}
                       >
                         {line.productName}
-                        {line.size ? ` ${line.size}` : ''}
+                        {sizeSuffix(line.productName, line.size)}
                       </Link>
                       <p className="line__price">{formatMnt(line.unitPrice)}</p>
 

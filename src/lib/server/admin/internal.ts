@@ -22,6 +22,11 @@ import {
   categories,
 } from '~/db/schema'
 import { assertAdminSession } from './auth-internal'
+import { slugify } from '~/lib/slugify'
+import { sizeSuffix } from '~/lib/product-name'
+
+/** The handle drizzle hands a `db.transaction` callback. */
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
 
 /**
  * Server-only admin internals. Never imported from a route — see
@@ -500,6 +505,27 @@ export async function insertCategory(input: NewCategoryInput) {
   return { id: created.id }
 }
 
+/**
+ * Renames a category in both languages. The slug is deliberately left alone —
+ * it is what storefront links and the nav filter are built on, so changing it
+ * stays a delete-and-recreate decision.
+ */
+export async function updateCategoryNames(
+  categoryId: string,
+  names: { nameMn: string; nameEn: string },
+) {
+  await assertAdmin()
+
+  const [updated] = await db
+    .update(categories)
+    .set({ nameMn: names.nameMn, nameEn: names.nameEn })
+    .where(eq(categories.id, categoryId))
+    .returning({ id: categories.id })
+
+  if (!updated) throw new Error('Ангилал олдсонгүй')
+  return { ok: true as const }
+}
+
 export async function updateCategorySortOrder(categoryId: string, sortOrder: number) {
   await assertAdmin()
 
@@ -707,6 +733,145 @@ export async function removeVariant(variantId: string) {
 
     return { ok: true as const }
   })
+}
+
+/**
+ * Promotes one variant to a product of its own.
+ *
+ * The variant row is *moved*, not copied: cart_items, order_items and
+ * inventory_ledger all point at variant ids, so re-creating it under a new id
+ * would strand live carts and detach the stock history from the thing it
+ * describes. Re-parenting keeps the SKU, the stock count and every reference
+ * intact — only which product it hangs off changes.
+ *
+ * Images are copied rather than moved, since the parent still needs its own,
+ * and the description/category/brand line carry over so the new listing starts
+ * as a sibling rather than a blank draft.
+ *
+ * Refuses on the last variant: the parent would be left unbuyable, and a
+ * one-variant product is already its own item.
+ */
+export async function splitVariantIntoProduct(variantId: string) {
+  await assertAdmin()
+
+  return db.transaction(async (tx) => {
+    const [variant] = await tx
+      .select({
+        id: productVariants.id,
+        productId: productVariants.productId,
+        sku: productVariants.sku,
+        size: productVariants.size,
+      })
+      .from(productVariants)
+      .where(eq(productVariants.id, variantId))
+      .limit(1)
+
+    if (!variant) throw new Error('Хувилбар олдсонгүй')
+
+    const [parent] = await tx
+      .select({
+        id: products.id,
+        slug: products.slug,
+        nameMn: products.nameMn,
+        nameEn: products.nameEn,
+        descriptionMn: products.descriptionMn,
+        descriptionEn: products.descriptionEn,
+        categoryId: products.categoryId,
+        brandLine: products.brandLine,
+        status: products.status,
+      })
+      .from(products)
+      .where(eq(products.id, variant.productId))
+      .limit(1)
+
+    if (!parent) throw new Error('Бүтээгдэхүүн олдсонгүй')
+
+    const [siblings] = await tx
+      .select({ value: count(productVariants.id) })
+      .from(productVariants)
+      .where(eq(productVariants.productId, parent.id))
+
+    if ((siblings?.value ?? 0) <= 1) {
+      throw new Error(
+        'Ганц хувилбартай бүтээгдэхүүнийг салгах шаардлагагүй — энэ нь өөрөө тусдаа бараа',
+      )
+    }
+
+    // The size is what tells the two listings apart; SKU is the fallback for
+    // variants that carry no size at all.
+    const suffix = variant.size?.trim() || variant.sku
+
+    const base = slugify(`${parent.slug}-${suffix}`) || slugify(variant.sku)
+    const slug = await uniqueProductSlug(tx, base)
+
+    const [created] = await tx
+      .insert(products)
+      .values({
+        slug,
+        // sizeSuffix keeps a parent already named after the size ("… 30g")
+        // from becoming "… 30g 30g".
+        nameMn: `${parent.nameMn}${sizeSuffix(parent.nameMn, suffix)}`,
+        nameEn: `${parent.nameEn}${sizeSuffix(parent.nameEn, suffix)}`,
+        descriptionMn: parent.descriptionMn,
+        descriptionEn: parent.descriptionEn,
+        categoryId: parent.categoryId,
+        brandLine: parent.brandLine,
+        status: parent.status,
+      })
+      .returning({ id: products.id })
+
+    if (!created) throw new Error('Бүтээгдэхүүн үүсгэж чадсангүй')
+
+    const images = await tx
+      .select({
+        url: productImages.url,
+        alt: productImages.alt,
+        sortOrder: productImages.sortOrder,
+      })
+      .from(productImages)
+      .where(eq(productImages.productId, parent.id))
+      .orderBy(asc(productImages.sortOrder))
+
+    if (images.length > 0) {
+      await tx.insert(productImages).values(
+        images.map((image, i) => ({
+          productId: created.id,
+          url: image.url,
+          alt: image.alt,
+          sortOrder: i,
+        })),
+      )
+    }
+
+    await tx
+      .update(productVariants)
+      .set({ productId: created.id })
+      .where(eq(productVariants.id, variantId))
+
+    return { slug }
+  })
+}
+
+/**
+ * Finds a free slug near `base`, appending -2, -3 … until one is unused. The
+ * split button names the new product itself, so it cannot lean on the admin to
+ * resolve a collision the way the create form does.
+ */
+async function uniqueProductSlug(tx: Tx, base: string): Promise<string> {
+  const seed = base || 'product'
+
+  for (let attempt = 1; attempt <= 50; attempt++) {
+    const candidate = attempt === 1 ? seed : `${seed}-${attempt}`
+    const [taken] = await tx
+      .select({ id: products.id })
+      .from(products)
+      .where(eq(products.slug, candidate))
+      .limit(1)
+
+    if (!taken) return candidate
+  }
+
+  throw new Error('Чөлөөтэй slug олдсонгүй — гараар үүсгэнэ үү')
 }
 
 /**

@@ -45,6 +45,11 @@ function ProductDetail() {
   )
   const [qty, setQty] = useState(1)
 
+  // The gallery is product-wide: every uploaded image is browsable, and picking
+  // a size never swaps the photo out from under you.
+  const [imageIndex, setImageIndex] = useState(0)
+  const activeImage = product.images[imageIndex] ?? product.images[0]
+
   const variant =
     product.variants.find((v) => v.id === variantId) ?? product.variants[0]
 
@@ -79,14 +84,33 @@ function ProductDetail() {
         </p>
 
         <div className="pdp">
-          <div className="pdp__media">
-            {product.images[0] ? (
-              <img
-                src={product.images[0].url}
-                alt={product.images[0].alt ?? product.name}
-              />
-            ) : (
-              <span className="card__ph">{product.name}</span>
+          <div className="pdp__gallery">
+            <div className="pdp__media">
+              {activeImage ? (
+                <img
+                  src={activeImage.url}
+                  alt={activeImage.alt ?? product.name}
+                />
+              ) : (
+                <span className="card__ph">{product.name}</span>
+              )}
+            </div>
+
+            {product.images.length > 1 && (
+              <div className="pdp__thumbs">
+                {product.images.map((image, index) => (
+                  <button
+                    key={`${image.url}-${index}`}
+                    type="button"
+                    className="pdp__thumb"
+                    data-active={index === imageIndex}
+                    aria-label={`Зураг ${index + 1}`}
+                    onClick={() => setImageIndex(index)}
+                  >
+                    <img src={image.url} alt={image.alt ?? ''} loading="lazy" />
+                  </button>
+                ))}
+              </div>
             )}
           </div>
 

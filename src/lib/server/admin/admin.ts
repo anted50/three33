@@ -24,6 +24,8 @@ import {
   removeCategory,
   removeVariant,
   replaceProductImages,
+  splitVariantIntoProduct,
+  updateCategoryNames,
   updateCategorySortOrder,
   updateProductRow,
 } from './internal'
@@ -333,6 +335,22 @@ export const deleteCategory = createServerFn({ method: 'POST' })
     return removeCategory(data.categoryId)
   })
 
+export const renameCategoryInput = z.object({
+  categoryId: z.uuid(),
+  nameMn: z.string().trim().min(1).max(100),
+  nameEn: z.string().trim().min(1).max(100),
+})
+
+export const renameCategory = createServerFn({ method: 'POST' })
+  .validator(renameCategoryInput)
+  .handler(async ({ data }) => {
+    await assertAdmin()
+    return updateCategoryNames(data.categoryId, {
+      nameMn: data.nameMn,
+      nameEn: data.nameEn,
+    })
+  })
+
 export const setCategorySortOrderInput = z.object({
   categoryId: z.uuid(),
   sortOrder: z.number().int().min(0).max(9999),
@@ -475,6 +493,19 @@ export const deleteVariant = createServerFn({ method: 'POST' })
   .handler(async ({ data }) => {
     await assertAdmin()
     return removeVariant(data.variantId)
+  })
+
+export const splitVariantInput = z.object({ variantId: z.uuid() })
+
+/**
+ * Promotes a variant to a standalone product. Returns the new product's slug so
+ * the caller can send the admin straight to it.
+ */
+export const splitVariant = createServerFn({ method: 'POST' })
+  .validator(splitVariantInput)
+  .handler(async ({ data }) => {
+    await assertAdmin()
+    return splitVariantIntoProduct(data.variantId)
   })
 
 export const updateProductInput = z.object({

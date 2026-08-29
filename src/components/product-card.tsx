@@ -1,5 +1,6 @@
 import { Link } from '@tanstack/react-router'
 import { formatMnt } from '~/lib/money'
+import { sizeSuffix } from '~/lib/product-name'
 import type { ProductCard as ProductCardData } from '~/lib/server/products/queries'
 
 /**
@@ -50,7 +51,7 @@ export function ProductCard({ product }: { product: ProductCardData }) {
       <div className="card__body">
         <div className="card__name">
           {product.name}
-          {product.size ? ` ${product.size}` : ''}
+          {sizeSuffix(product.name, product.size)}
         </div>
 
         <div className="card__meta">

@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { formatMnt } from '~/lib/money'
+import { sizeSuffix } from '~/lib/product-name'
 import { getDashboard } from '~/lib/server/admin/admin'
 import { STATUS_LABEL } from '~/components/admin-bits'
 import {
@@ -177,7 +178,7 @@ function Dashboard() {
                     params={{ slug: variant.slug }}
                   >
                     {variant.name}
-                    {variant.size ? ` ${variant.size}` : ''}
+                    {sizeSuffix(variant.name, variant.size)}
                   </Link>
                 </td>
                 <td className="adm__muted adm__mono">{variant.sku}</td>

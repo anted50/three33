@@ -1,10 +1,23 @@
 import { env } from '../env'
 
+/**
+ * An image carried in the message body rather than fetched from a URL. The
+ * html refers to it as `src="cid:<cid>"`. See email/logo.ts for why the
+ * wordmark travels this way.
+ */
+export interface InlineImage {
+  cid: string
+  name: string
+  mimeType: string
+  base64: string
+}
+
 export interface EmailMessage {
   to: { email: string; name?: string }
   subject: string
   html: string
   text: string
+  inlineImages?: InlineImage[]
 }
 
 /** EMAIL_FROM is "Name <email>" everywhere else in this codebase; parsed once
@@ -53,6 +66,21 @@ export async function sendEmail(message: EmailMessage): Promise<boolean> {
       subject: message.subject,
       htmlbody: message.html,
       textbody: message.text,
+      /*
+       * Omitted entirely when there is nothing to attach. ZeptoMail rejects an
+       * empty inline_images array rather than ignoring it, so this cannot be
+       * sent unconditionally.
+       */
+      ...(message.inlineImages?.length
+        ? {
+            inline_images: message.inlineImages.map((image) => ({
+              cid: image.cid,
+              file_name: image.name,
+              mime_type: image.mimeType,
+              content: image.base64,
+            })),
+          }
+        : {}),
     }),
   })
 

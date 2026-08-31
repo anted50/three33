@@ -730,6 +730,12 @@ h3 {
    */
   color: var(--ink-soft);
   max-width: 44ch;
+
+  /* Up from the 14px body size. It is a tagline now rather than a sentence of
+     explanation, and three short hard-broken lines at body size read as a
+     caption someone had left under the name. */
+  font-size: 16px;
+  line-height: 1.5;
 }
 
 /*
@@ -837,6 +843,12 @@ h3 {
     font-size: 64px;
   }
 
+  /* The h1 nearly doubles between the phone and here; the tagline holding at
+     16px alongside it stops reading as the second line of the statement. */
+  .hero__lede {
+    font-size: 18px;
+  }
+
   /* The lede ends at about 34% of the band from here up, so the fade is held
      open until just past it: the words keep a quiet ground, and the picture
      still has two thirds of the width to itself. */
@@ -856,6 +868,151 @@ h3 {
   }
 }
 
+
+/* ------------------------------------------- hero, photograph variant */
+
+/*
+ * The band carrying the shop's own photograph instead of the ASCII scene.
+ *
+ * Everything above stays put: components/hero-ascii and the rules that serve it
+ * are the fallback treatment, and nothing here touches them. What this variant
+ * has to undo is the *paper* — .hero is #eeeeeb with near-black ink, which is
+ * the arrangement the ASCII export was drawn for, and the photograph is a black
+ * board shot in a dim room. So the band flips to dark and the copy flips with
+ * it.
+ */
+.hero--photo {
+  background: #0a0a0a;
+  color: #fff;
+}
+
+.hero__photo {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+}
+
+.hero__photo img {
+  width: 100%;
+  height: 100%;
+
+  /* The band is far wider than the 4:3 frame at every size above a phone, so
+     cover crops top and bottom rather than either side — the whole width of
+     the board is always in shot. Pulled up off centre because the board's
+     lower half is empty vinyl. */
+  object-fit: cover;
+  object-position: 50% 46%;
+  display: block;
+
+  /* The board was shot in a dim room and the file is honest about it: left
+     alone under the scrim below, the whole band reads as flat black and the
+     picture is not there at all. Lifted here rather than baked into the webp so
+     the source stays the photograph as taken. */
+  filter: brightness(1.5) contrast(1.06);
+}
+
+/*
+ * The scrim, and the reason it is this heavy on the left.
+ *
+ * The photograph has its own white lettering running diagonally across the
+ * middle of the frame — right through where the h1 sits. Rather than crop or
+ * zoom the picture to push that text clear of the copy (which cannot hold
+ * across breakpoints without a scale factor per width), the left of the frame
+ * is taken most of the way to black. The board is already near-black there, so
+ * what this actually suppresses is only its lettering, and the picture reads as
+ * emerging from the dark towards the clipper on the right.
+ *
+ * ::after on the wrapper and not a gradient over the whole .hero, because the
+ * band's background has to stay flat behind the section's own edges — a scrim
+ * that extended past the picture would darken the paper below it too.
+ */
+.hero__photo::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(
+      to right,
+      rgba(8, 8, 9, 0.95) 0%,
+      rgba(8, 8, 9, 0.9) 38%,
+      rgba(8, 8, 9, 0.42) 68%,
+      rgba(8, 8, 9, 0.06) 100%
+    ),
+    /* Ends on the page's own white rather than on a hard cut of photograph,
+       the same softening the ASCII band's mask did. */
+      linear-gradient(to bottom, rgba(8, 8, 9, 0.05), rgba(8, 8, 9, 0.5));
+}
+
+/*
+ * Phone: the copy is full-width here, so a left-to-right scrim would leave the
+ * lede sitting on the bright half of the picture. Weighted bottom-up instead —
+ * the words are the lower two thirds of a short band, and the top is where the
+ * picture gets to be a picture.
+ */
+@media (max-width: 699px) {
+  .hero__photo img {
+    /* Cover crops sideways at this aspect, not vertically. Held right of
+       centre because the clipper is the half worth keeping. */
+    object-position: 62% 45%;
+  }
+
+  .hero__photo::after {
+    background: linear-gradient(
+      to bottom,
+      rgba(8, 8, 9, 0.5) 0%,
+      rgba(8, 8, 9, 0.8) 40%,
+      rgba(8, 8, 9, 0.94) 100%
+    );
+  }
+}
+
+/*
+ * --accent is tuned to carry on white; on this ground it lands at about 4.1:1,
+ * just under the 4.5:1 that 12px uppercase needs. Lightened only here, so the
+ * token itself keeps meaning the same red everywhere it sits on paper.
+ */
+.hero--photo .hero__eyebrow {
+  color: #f04148;
+}
+
+.hero--photo .hero__accent {
+  /* --muted is a mid grey chosen against paper; on black it drops under 3:1.
+     Same relationship to the h1 as --muted had, resolved on this ground. */
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.hero--photo .hero__lede {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+/*
+ * The inverse of the note on .btn: black is the primary action everywhere on
+ * the site precisely so red can stay reserved for state, and on a black band
+ * the way to keep that arrangement is to invert the button rather than reach
+ * for the accent. The red in the photograph is the shop's, not a button's.
+ */
+.hero--photo .btn {
+  background: #fff;
+  color: var(--ink);
+}
+
+.hero--photo .btn:hover:not(:disabled) {
+  background: #e4e4e7;
+}
+
+.hero--photo .btn--onDark {
+  background: transparent;
+  color: #fff;
+  /* 3:1 against the scrimmed picture, which is the WCAG floor for the boundary
+     of a control — and opaque, for the same reason the paper variant's is:
+     an alpha border changes weight as the picture behind it does. */
+  border: 1px solid #8a8a90;
+}
+
+.hero--photo .btn--onDark:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+}
 
 /* --------------------------------------------------------------- chips */
 
@@ -1896,6 +2053,56 @@ button:focus-visible {
 
 .footer__links a:hover {
   color: var(--accent);
+}
+
+/*
+ * Address, phone and social. Stacked on a phone and a row from a tablet up —
+ * auto-fit rather than a fixed three columns so the middle one (a single phone
+ * number) does not sit in a third of a wide footer with nothing under it.
+ */
+.footer__cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 28px 32px;
+
+  /*
+   * The rule above the sign-off line lives here rather than on .footer__note,
+   * because .footer p caps every paragraph at 46ch for readability — a
+   * border-top on the note itself stopped dead two thirds of the way across
+   * and read as a broken divider rather than a full-width one.
+   */
+  padding-bottom: 24px;
+  margin-bottom: 24px;
+  border-bottom: 1px solid #262626;
+}
+
+.footer__head {
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: #fafafa;
+  margin-bottom: 10px;
+}
+
+/* 1.7 rather than the body's 1.55: these are three-line blocks of <br />-broken
+   address, where the lines need to read as separate items and not as a wrapped
+   paragraph. */
+.footer__body {
+  line-height: 1.7;
+}
+
+.footer__body a {
+  color: #e4e4e7;
+}
+
+.footer__body a:hover {
+  color: #fff;
+  text-decoration: underline;
+}
+
+.footer__note {
+  color: #71717a;
 }
 
 .empty {

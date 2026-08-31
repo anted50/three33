@@ -87,9 +87,21 @@ QPAY_EBARIMT_INVOICE_CODE=<VAT-enabled invoice code, requested from QPay>
 `APP_URL` matters more than it looks: it builds the QPay callback URL. Point it
 at the wrong host and payments still settle — the payment page polls
 `payment/check` — but the callback never arrives and every order waits on the
-hourly sweep instead. It also builds the receipt email's "view order" link and
-the logo image URL, so a stale `APP_URL` here shows up as a broken image and a
-dead link in the email, not as an error anywhere.
+hourly sweep instead. It also builds the receipt email's "view order" link, so
+a stale `APP_URL` shows up as a dead link in the email rather than as an error
+anywhere. Set it to the live domain — `https://three33barber.com` — not the
+`*.up.railway.app` host, once the domain is attached.
+
+The email's logo no longer depends on it. It used to be
+`<img src="${APP_URL}/email-logo.png">` and did not render in production; the
+wordmark now travels inside the message as a `cid:` attachment, which needs
+neither a reachable host nor a client willing to fetch remote images. See
+`src/lib/server/email/logo.ts`.
+
+`EMAIL_FROM` should be an address on a domain authenticated in ZeptoMail
+(SPF/DKIM). Sending as one that is not is the other common reason a receipt
+appears to vanish — it is delivered to spam rather than rejected, so nothing
+in the logs says so.
 
 `MAIL_API_TOKEN` unset is not an error either — `sendEmail()` returns `false`
 silently, by design, so a receipt just never arrives with nothing in the logs

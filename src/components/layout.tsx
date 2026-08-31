@@ -91,10 +91,64 @@ export function Footer() {
             <div className="wrap">
                 <div className="footer__links">
                     <Link to="/products">Бүтээгдэхүүн</Link>
-                    <a href="tel:+97699051483">Холбоо барих</a>
+                    <a href="tel:+97699141630">Холбоо барих</a>
                 </div>
-                {/* Address omitted until the client confirms the shop location. */}
-                <p>Three33 Barber — мэргэжлийн үс засал, сахал арчилгаа.</p>
+
+                <div className="footer__cols">
+                    <section className="footer__col">
+                        <h2 className="footer__head">Хаяг</h2>
+                        <p className="footer__body">
+                            Сүхбаатар дүүрэг, 3-р хороо
+                            <br />
+                            UB Central Residence, 1 давхар
+                            <br />
+                            Three33 Barber
+                        </p>
+                    </section>
+
+                    <section className="footer__col">
+                        <h2 className="footer__head">Холбоо барих</h2>
+                        <p className="footer__body">
+                            {/* Grouped for reading, but the tel: href is unspaced —
+                                a dialler will not parse the pretty form. */}
+                            <a href="tel:+97699141630">+976 9914 1630</a>
+                            <br />
+                            {/* <a href="mailto:three33barber@three33barber.com">
+                                three33barber@three33barber.com
+                            </a> */}
+                        </p>
+                    </section>
+
+                    <section className="footer__col">
+                        <h2 className="footer__head">Сошиал</h2>
+                        <p className="footer__body">
+                            {/*
+                              rel="noreferrer" and not just noopener: these leave the
+                              site for a social network, and there is no reason to
+                              hand it the page the customer came from.
+                            */}
+                            {/* <a
+                                href="https://www.facebook.com/Three33barber"
+                                target="_blank"
+                                rel="noreferrer"
+                            >
+                                Facebook — Three33barber
+                            </a> */}
+                            {/* <br /> */}
+                            <a
+                                href="https://www.instagram.com/uppercutdeluxemongolia"
+                                target="_blank"
+                                rel="noreferrer"
+                            >
+                                Instagram — uppercutdeluxemongolia
+                            </a>
+                        </p>
+                    </section>
+                </div>
+
+                <p className="footer__note">
+                    Authentic products. Modern grooming. Timeless barber culture.
+                </p>
             </div>
         </footer>
     )

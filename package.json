@@ -21,7 +21,8 @@
     "reconcile": "tsx scripts/reconcile.ts",
     "cleanup": "tsx scripts/cleanup.ts",
     "qpay:ping": "tsx scripts/qpay-ping.ts",
-    "qpay:smoke": "tsx scripts/qpay-smoke.ts"
+    "qpay:smoke": "tsx scripts/qpay-smoke.ts",
+    "mail:preview": "tsx scripts/preview-email.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.4",

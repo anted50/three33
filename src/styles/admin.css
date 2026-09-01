@@ -1019,6 +1019,30 @@
   margin-bottom: 16px;
 }
 
+/* The SKU is generated, so it is shown rather than asked for: a read-only
+   line at the top of the row the admin can quote back to a supplier. */
+.varrow__sku {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.varrow__sku > span {
+  font-size: 13px;
+}
+
+.varrow__sku > code {
+  /* --font-ui is already monospace; inheriting keeps one face on the page. */
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--muted);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px 8px;
+}
+
 /*
  * "+ Хувилбар нэмэх" used to sit flush against the submit button below it —
  * both are full-height .btns with no gap between, so they read as one bar.
@@ -1112,4 +1136,90 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ----------------------------------------------------- rich-text editor */
+
+/* The admin description field. Deliberately looks like the inputs beside it:
+   the toolbar is the only thing that says it is more than a textarea. */
+.rte {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #fff;
+  overflow: hidden;
+}
+
+.rte__bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 6px;
+  border-bottom: 1px solid var(--border);
+  background: var(--paper, #fafafa);
+}
+
+.rte__btn {
+  min-width: 34px;
+  height: 34px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: transparent;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.rte__btn:hover {
+  background: #fff;
+  border-color: var(--border);
+}
+
+.rte__area {
+  position: relative;
+  min-height: 160px;
+  padding: 12px;
+  font-size: 14px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.rte__area:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* contentEditable has no placeholder of its own. */
+/* Out of flow, so the caret sits on the placeholder rather than under it. */
+.rte__area[data-empty='true']::before {
+  content: attr(data-placeholder);
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.rte__area p {
+  margin: 0 0 10px;
+}
+
+.rte__area p:last-child {
+  margin-bottom: 0;
+}
+
+.rte__area h3 {
+  font-size: 15px;
+  margin: 0 0 8px;
+}
+
+.rte__area ul,
+.rte__area ol {
+  margin: 0 0 10px;
+  padding-left: 20px;
+}
+
+.rte__area li {
+  margin-bottom: 4px;
 }

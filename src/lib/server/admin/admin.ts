@@ -31,6 +31,7 @@ import {
 } from './internal'
 import { formatAddress } from '~/lib/address'
 import { munguToTugrik } from '~/lib/money'
+import { sanitizeRichText } from '~/lib/rich-text'
 import { STATUS_LABEL } from '~/lib/order-status'
 
 /**
@@ -390,6 +391,19 @@ export const productVariantInput = z.object({
   stockQty: z.number().int().min(0).max(1_000_000),
 })
 
+/**
+ * The description comes from the admin rich-text editor as HTML. It is
+ * sanitised here rather than on display: the browser's own sanitising is a
+ * courtesy the server can't rely on, and a stored value that has already
+ * passed the allowlist is one the storefront can render without thinking.
+ * The generous length is markup overhead — a few tags per paragraph.
+ */
+const descriptionHtml = z
+  .string()
+  .max(20_000)
+  .transform(sanitizeRichText)
+  .optional()
+
 export const createProductInput = z.object({
   slug: z
     .string()
@@ -398,7 +412,7 @@ export const createProductInput = z.object({
     .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, 'зөвхөн латин жижиг үсэг, тоо, зураас'),
   nameMn: z.string().min(1).max(200),
   nameEn: z.string().min(1).max(200),
-  descriptionMn: z.string().max(4000).optional(),
+  descriptionMn: descriptionHtml,
   categoryId: z.uuid().optional(),
   brandLine: z.string().max(200).optional(),
   status: z.enum(['draft', 'active', 'archived']),
@@ -426,7 +440,7 @@ export const createProduct = createServerFn({ method: 'POST' })
         slug: data.slug,
         nameMn: data.nameMn,
         nameEn: data.nameEn,
-        descriptionMn: data.descriptionMn ?? null,
+        descriptionMn: data.descriptionMn || null,
         categoryId: data.categoryId ?? null,
         brandLine: data.brandLine ?? null,
         status: data.status,
@@ -512,7 +526,7 @@ export const updateProductInput = z.object({
   slug: z.string().min(1).max(128),
   nameMn: z.string().min(1).max(200),
   nameEn: z.string().min(1).max(200),
-  descriptionMn: z.string().max(4000).optional(),
+  descriptionMn: descriptionHtml,
   categoryId: z.uuid().optional(),
   brandLine: z.string().max(200).optional(),
   status: z.enum(['draft', 'active', 'archived']),
@@ -527,7 +541,7 @@ export const updateProduct = createServerFn({ method: 'POST' })
       slug: data.slug,
       nameMn: data.nameMn,
       nameEn: data.nameEn,
-      descriptionMn: data.descriptionMn ?? null,
+      descriptionMn: data.descriptionMn || null,
       categoryId: data.categoryId ?? null,
       brandLine: data.brandLine ?? null,
       status: data.status,

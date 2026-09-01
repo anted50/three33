@@ -136,11 +136,11 @@ export function Footer() {
                             </a> */}
                             {/* <br /> */}
                             <a
-                                href="https://www.instagram.com/uppercutdeluxemongolia"
+                                href="https://www.instagram.com/uppercutdeluxe_mongolia"
                                 target="_blank"
                                 rel="noreferrer"
                             >
-                                Instagram — uppercutdeluxemongolia
+                                Instagram — uppercutdeluxe_mongolia
                             </a>
                         </p>
                     </section>

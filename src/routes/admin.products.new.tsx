@@ -3,7 +3,7 @@ import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { ImageUrlEditor, type ImageEntry } from '~/components/image-url-editor'
 import { ProductForm } from '~/components/product-form'
 import { tugrikToMungu } from '~/lib/money'
-import { generateSku } from '~/lib/sku'
+import { uniqueSku } from '~/lib/sku'
 import { createProduct, getCategoryOptions } from '~/lib/server/admin/admin'
 
 export const Route = createFileRoute('/admin/products/new')({
@@ -16,9 +16,6 @@ interface VariantDraft {
   size: string
   price: string
   stockQty: string
-  /** Off once the admin edits the SKU by hand — after that, typing in the
-   * name or size no longer overwrites what they wrote. */
-  skuTouched: boolean
 }
 
 const emptyVariant: VariantDraft = {
@@ -26,7 +23,22 @@ const emptyVariant: VariantDraft = {
   size: '',
   price: '0',
   stockQty: '0',
-  skuTouched: false,
+}
+
+/**
+ * Re-derives every SKU in the draft, in row order. Codes are internal — they
+ * name a variant for the shop's own picking and reconciliation, never for a
+ * shopper — so they are generated rather than asked for, and re-derived as a
+ * whole because adding or removing a row changes which suffixes are free.
+ */
+function withSkus(rows: VariantDraft[], nameEn: string): VariantDraft[] {
+  const taken: string[] = []
+
+  return rows.map((row) => {
+    const sku = uniqueSku(nameEn, row.size, taken)
+    if (sku) taken.push(sku)
+    return { ...row, sku }
+  })
 }
 
 function NewProduct() {
@@ -44,19 +56,14 @@ function NewProduct() {
 
   function handleNameEnChange(value: string) {
     setNameEn(value)
-    setVariants((rows) =>
-      rows.map((row) =>
-        row.skuTouched ? row : { ...row, sku: generateSku(value, row.size) },
-      ),
-    )
+    setVariants((rows) => withSkus(rows, value))
   }
 
   function handleSizeChange(index: number, size: string) {
     setVariants((rows) =>
-      rows.map((row, i) =>
-        i === index
-          ? { ...row, size, sku: row.skuTouched ? row.sku : generateSku(nameEn, size) }
-          : row,
+      withSkus(
+        rows.map((row, i) => (i === index ? { ...row, size } : row)),
+        nameEn,
       ),
     )
   }
@@ -87,12 +94,14 @@ function NewProduct() {
         busyLabel="Хадгалж байна…"
         onNameEnChange={handleNameEnChange}
         onSubmit={async (values) => {
-          const parsed = variants.map((variant) => {
+          const parsed = withSkus(variants, values.nameEn).map((variant) => {
             const price = Number(variant.price)
             const stockQty = Number(variant.stockQty)
 
+            // Unreachable while "Нэр (EN)" is a required field, but the code
+            // is generated from it and a variant without one cannot be sold.
             if (variant.sku.trim() === '') {
-              throw new Error('Хувилбар бүрд SKU шаардлагатай')
+              throw new Error('Нэр (EN)-ээс SKU үүсгэж чадсангүй')
             }
             if (!Number.isFinite(price) || price < 0) {
               throw new Error(`${variant.sku}: үнэ буруу байна`)
@@ -139,22 +148,12 @@ function NewProduct() {
 
         {variants.map((variant, i) => (
           <div key={i} className="varrow">
-            <div className="adm__cols">
-              <label className="field">
-                <span>SKU</span>
-                <input
-                  value={variant.sku}
-                  placeholder="UD-DP-30"
-                  onChange={(e) =>
-                    patchVariant(i, { sku: e.target.value, skuTouched: true })
-                  }
-                />
-                <small>
-                  Нэр, хэмжээгээр автоматаар бөглөнө — дотоод код тул шаардлагатай бол
-                  засаж болно
-                </small>
-              </label>
+            <p className="varrow__sku">
+              <span>SKU</span>
+              <code>{variant.sku || 'Нэр (EN) бөглөхөд үүснэ'}</code>
+            </p>
 
+            <div className="adm__cols">
               <label className="field">
                 <span>Хэмжээ</span>
                 <input
@@ -163,9 +162,7 @@ function NewProduct() {
                   onChange={(e) => handleSizeChange(i, e.target.value)}
                 />
               </label>
-            </div>
 
-            <div className="adm__cols">
               <label className="field">
                 <span>Үнэ (₮)</span>
                 <input
@@ -174,7 +171,9 @@ function NewProduct() {
                   onChange={(e) => patchVariant(i, { price: e.target.value })}
                 />
               </label>
+            </div>
 
+            <div className="adm__cols">
               <label className="field">
                 <span>Нөөц</span>
                 <input
@@ -190,7 +189,9 @@ function NewProduct() {
                 type="button"
                 className="btn btn--sm btn--ghost"
                 onClick={() =>
-                  setVariants((rows) => rows.filter((_, j) => j !== i))
+                  setVariants((rows) =>
+                    withSkus(rows.filter((_, j) => j !== i), nameEn),
+                  )
                 }
               >
                 Хувилбар хасах
@@ -202,7 +203,9 @@ function NewProduct() {
         <button
           type="button"
           className="btn btn--sm addvariant-btn"
-          onClick={() => setVariants((rows) => [...rows, { ...emptyVariant }])}
+          onClick={() =>
+            setVariants((rows) => withSkus([...rows, { ...emptyVariant }], nameEn))
+          }
         >
           + Хувилбар нэмэх
         </button>

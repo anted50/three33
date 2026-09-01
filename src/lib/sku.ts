@@ -39,3 +39,41 @@ export function generateSku(nameEn: string, size: string): string {
   const token = sizeToken(size)
   return token ? `UD-${base}-${token}` : `UD-${base}`
 }
+
+/**
+ * Same suggestion, stepped past anything in `taken` — "UD-DP-30" becomes
+ * "UD-DP-30-2" and so on.
+ *
+ * Two variants of one product routinely abbreviate to the same code: a colour
+ * and a scent both leave the size blank, and a 30g tin and a 30ml tube both
+ * reduce to "30". SKUs are unique across the whole catalogue, so without this
+ * the form fills in a duplicate and the save fails on a Postgres constraint
+ * the admin never saw coming.
+ */
+export function uniqueSku(
+  nameEn: string,
+  size: string,
+  taken: Iterable<string>,
+): string {
+  const base = generateSku(nameEn, size)
+  if (!base) return ''
+
+  // Compared case-insensitively: "ud-dp-30" and "UD-DP-30" are the same code
+  // to a person, whatever the unique index thinks.
+  const used = new Set<string>()
+  for (const value of taken) {
+    const trimmed = value.trim()
+    if (trimmed) used.add(trimmed.toUpperCase())
+  }
+
+  if (!used.has(base.toUpperCase())) return base
+
+  for (let n = 2; n <= 99; n++) {
+    const candidate = `${base}-${n}`
+    if (!used.has(candidate.toUpperCase())) return candidate
+  }
+
+  // 99 collisions on one code means the suggestion is useless here; hand back
+  // the plain one and let the admin write something better.
+  return base
+}

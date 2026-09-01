@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react'
+import { RichTextEditor } from '~/components/rich-text-editor'
 import { clearValidity, localizeValidity } from '~/lib/form-messages'
 import { SLUG_RE, slugify } from '~/lib/slugify'
 
@@ -162,14 +163,17 @@ export function ProductForm({
           </label>
         </div>
 
-        <label className="field">
+        <div className="field">
           <span>Тайлбар (МН)</span>
-          <textarea
+          <RichTextEditor
             name="descriptionMn"
-            rows={4}
-            defaultValue={initial.descriptionMn}
+            initialValue={initial.descriptionMn}
+            placeholder="Бүтээгдэхүүний тайлбар, найрлага, хэрэглэх заавар…"
           />
-        </label>
+          <small>
+            Догол мөр, цэгтэй жагсаалт, тод бичиглэл хадгалагдана
+          </small>
+        </div>
 
         <label className="field">
           <span>Төлөв</span>

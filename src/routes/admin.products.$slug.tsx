@@ -5,7 +5,7 @@ import { ImageUrlEditor, type ImageEntry } from '~/components/image-url-editor'
 import { ProductForm } from '~/components/product-form'
 import { TrashIcon } from '~/components/admin-icons'
 import { formatMnt, munguToTugrik, tugrikToMungu } from '~/lib/money'
-import { generateSku } from '~/lib/sku'
+import { uniqueSku } from '~/lib/sku'
 import {
   addVariant,
   deleteVariant,
@@ -142,7 +142,11 @@ function ProductAdmin() {
           Нөөц өөрчлөх бүрд inventory_ledger-т бичлэг үүснэ.
         </p>
 
-        <AddVariantForm slug={product.slug} nameEn={product.nameEn} />
+        <AddVariantForm
+          slug={product.slug}
+          nameEn={product.nameEn}
+          takenSkus={product.variants.map((v) => v.sku)}
+        />
       </section>
 
       {confirmSplitId && (
@@ -218,11 +222,19 @@ const emptyDraft: VariantDraft = { sku: '', size: '', price: '0', stockQty: '0' 
  * exists — the create form collects the first variant, this covers the ones
  * that show up later (a supplier adds a size, say).
  */
-function AddVariantForm({ slug, nameEn }: { slug: string; nameEn: string }) {
+function AddVariantForm({
+  slug,
+  nameEn,
+  takenSkus,
+}: {
+  slug: string
+  nameEn: string
+  /** SKUs already on this product, so a suggestion never duplicates one. */
+  takenSkus: string[]
+}) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState<VariantDraft>({ ...emptyDraft })
-  const [skuTouched, setSkuTouched] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -231,11 +243,14 @@ function AddVariantForm({ slug, nameEn }: { slug: string; nameEn: string }) {
   }
 
   function changeSize(size: string) {
-    setDraft((row) => ({
-      ...row,
-      size,
-      sku: skuTouched ? row.sku : generateSku(nameEn, size),
-    }))
+    setDraft((row) => ({ ...row, size, sku: uniqueSku(nameEn, size, takenSkus) }))
+  }
+
+  function openForm() {
+    // Filled in on open, not on the first keystroke in "Хэмжээ": a variant
+    // that differs by something other than size still gets a code.
+    setDraft({ ...emptyDraft, sku: uniqueSku(nameEn, '', takenSkus) })
+    setOpen(true)
   }
 
   async function submit() {
@@ -245,7 +260,7 @@ function AddVariantForm({ slug, nameEn }: { slug: string; nameEn: string }) {
     const stockQty = Number(draft.stockQty)
 
     if (draft.sku.trim() === '') {
-      setError('SKU шаардлагатай')
+      setError('Бүтээгдэхүүний Нэр (EN)-ээс SKU үүсгэж чадсангүй')
       return
     }
     if (!Number.isFinite(price) || price < 0) {
@@ -272,7 +287,6 @@ function AddVariantForm({ slug, nameEn }: { slug: string; nameEn: string }) {
       })
       await router.invalidate()
       setDraft({ ...emptyDraft })
-      setSkuTouched(false)
       setOpen(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Хадгалахад алдаа гарлаа')
@@ -287,7 +301,7 @@ function AddVariantForm({ slug, nameEn }: { slug: string; nameEn: string }) {
         <button
           type="button"
           className="btn btn--sm btn--ghost"
-          onClick={() => setOpen(true)}
+          onClick={openForm}
         >
           + Хувилбар нэмэх
         </button>
@@ -298,23 +312,12 @@ function AddVariantForm({ slug, nameEn }: { slug: string; nameEn: string }) {
   return (
     <div className="adm__pad">
       <div className="varrow">
-        <div className="adm__cols">
-          <label className="field">
-            <span>SKU</span>
-            <input
-              value={draft.sku}
-              placeholder="UD-DP-30"
-              onChange={(e) => {
-                patch({ sku: e.target.value })
-                setSkuTouched(true)
-              }}
-            />
-            <small>
-              Нэр, хэмжээгээр автоматаар бөглөнө — дотоод код тул шаардлагатай бол засаж
-              болно
-            </small>
-          </label>
+        <p className="varrow__sku">
+          <span>SKU</span>
+          <code>{draft.sku || '—'}</code>
+        </p>
 
+        <div className="adm__cols">
           <label className="field">
             <span>Хэмжээ</span>
             <input
@@ -323,9 +326,7 @@ function AddVariantForm({ slug, nameEn }: { slug: string; nameEn: string }) {
               onChange={(e) => changeSize(e.target.value)}
             />
           </label>
-        </div>
 
-        <div className="adm__cols">
           <label className="field">
             <span>Үнэ (₮)</span>
             <input
@@ -334,7 +335,9 @@ function AddVariantForm({ slug, nameEn }: { slug: string; nameEn: string }) {
               onChange={(e) => patch({ price: e.target.value })}
             />
           </label>
+        </div>
 
+        <div className="adm__cols">
           <label className="field">
             <span>Нөөц</span>
             <input
@@ -358,7 +361,6 @@ function AddVariantForm({ slug, nameEn }: { slug: string; nameEn: string }) {
             onClick={() => {
               setOpen(false)
               setDraft({ ...emptyDraft })
-              setSkuTouched(false)
               setError(null)
             }}
           >

@@ -9,6 +9,7 @@ import { Page } from '~/components/layout'
 import { useCartDrawer } from '~/components/cart-drawer'
 import { StockPill } from '~/components/product-card'
 import { formatMnt } from '~/lib/money'
+import { toRichHtml } from '~/lib/rich-text'
 import { addToCart } from '~/lib/server/cart/cart'
 import { getProduct } from '~/lib/server/products/queries'
 
@@ -52,6 +53,8 @@ function ProductDetail() {
 
   const variant =
     product.variants.find((v) => v.id === variantId) ?? product.variants[0]
+
+  const description = toRichHtml(product.description)
 
   if (!variant) {
     return (
@@ -206,10 +209,16 @@ function ProductDetail() {
             </div>
           </div>
 
-          {product.description && (
+          {description && (
             <div className="prose">
               <h2>Дэлгэрэнгүй</h2>
-              <p>{product.description}</p>
+              {/* Sanitised by lib/rich-text on the way in and again here, so
+                  a description written before the editor existed — or saved
+                  by an older build — still can't inject anything. */}
+              <div
+                className="prose__body"
+                dangerouslySetInnerHTML={{ __html: description }}
+              />
               <p className="crumbs">SKU: {variant.sku}</p>
             </div>
           )}

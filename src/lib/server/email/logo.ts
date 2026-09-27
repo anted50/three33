@@ -59,7 +59,7 @@ function loadLogo(): string | null {
 }
 
 /**
- * The `inline_images` entry to hand ZeptoMail, or null when there is nothing
+ * The inline attachment to hand Resend, or null when there is nothing
  * to attach — in which case logoImgTag falls back to the remote URL, so a
  * missing file costs the logo rather than the whole email.
  */

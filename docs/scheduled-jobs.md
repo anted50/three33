@@ -89,7 +89,7 @@ person looking into a burst of junk orders days after the shop noticed them.
 
 It was considered. `pg_cron` runs SQL, and Postgres has no network stack — but
 `reconcile` is three outbound HTTPS calls (QPay `/payment/check`, QPay invoice
-cancellation, and the receipt e-mail through ZeptoMail). Moving it into
+cancellation, and the receipt e-mail through Resend). Moving it into
 PL/pgSQL would mean reimplementing the settlement path, including its OAuth
 token handling and response validation, in the one language in this project
 that has no unit tests.

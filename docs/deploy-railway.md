@@ -7,7 +7,7 @@
 | Database | PGlite in `.pglite/` | **Railway Postgres** — add the plugin, it injects `DATABASE_URL` |
 | Object storage | none — images are static files in `public/` | **still none needed**, see below |
 | QPay callbacks | unreachable (`localhost`) | **finally work** — set `APP_URL` to the Railway domain |
-| Admin login | email OTP | **works as-is** — just needs `MAIL_API_TOKEN` and an admin granted via `npm run admin:add` |
+| Admin login | email OTP | **works as-is** — just needs `RESEND_API_KEY` and an admin granted via `npm run admin:add` |
 | Scheduled jobs | automatic | run by the app process, nothing to set up |
 
 ## Database — solved by deploying
@@ -70,10 +70,10 @@ QPAY_USERNAME=THREE33_BARBER
 QPAY_PASSWORD=<rotate this before launch>
 QPAY_INVOICE_CODE=THREE33_BARBER_INVOICE
 QPAY_CALLBACK_SECRET=<openssl rand -base64 48>
-MAIL_API_TOKEN=<full "Zoho-enczapikey ..." value from ZeptoMail>
+RESEND_API_KEY=<re_... key from the Resend dashboard>
 ```
 
-Admin login (email OTP) needs `MAIL_API_TOKEN` to actually send the code — see
+Admin login (email OTP) needs `RESEND_API_KEY` to actually send the code — see
 below.
 
 **Optional**
@@ -98,12 +98,14 @@ wordmark now travels inside the message as a `cid:` attachment, which needs
 neither a reachable host nor a client willing to fetch remote images. See
 `src/lib/server/email/logo.ts`.
 
-`EMAIL_FROM` should be an address on a domain authenticated in ZeptoMail
-(SPF/DKIM). Sending as one that is not is the other common reason a receipt
+`EMAIL_FROM` must be an address on a domain verified in Resend
+(SPF/DKIM). Resend rejects an unverified sender outright, so that shows up as a
+thrown `Resend send failed (403)`. Once verified, a missing DMARC record or a
+new domain's reputation is the other common reason a receipt
 appears to vanish — it is delivered to spam rather than rejected, so nothing
 in the logs says so.
 
-`MAIL_API_TOKEN` unset is not an error either — `sendEmail()` returns `false`
+`RESEND_API_KEY` unset is not an error either — `sendEmail()` returns `false`
 silently, by design, so a receipt just never arrives with nothing in the logs
 to explain why. `.env` never deploys, so this one is easy to set locally and
 forget to set on the actual host.
@@ -111,7 +113,7 @@ forget to set on the actual host.
 ## Admin login
 
 Real per-user auth, not a shared password: `/admin/login` emails a 6-digit
-code via ZeptoMail to any address that belongs to a `users` row with
+code via Resend to any address that belongs to a `users` row with
 `role = 'admin'`. No signup form exists — an OTP only ever logs someone into
 an account that already exists.
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { dayStatus, freeStarts } from './availability'
 import { allocate, splitPayment } from './ledger-split'
+import { saleSplit } from './reports/revenue-math'
 import { planSchedule } from './schedule-plan'
 import { addDays, atLocal, datesBetween, isoWeekday, localDateOf } from './time'
 import { findPgViolation, apiErrorFromDb } from '../api/db-errors'
@@ -151,6 +152,18 @@ describe('allocate', () => {
     expect(allocate(3_000_000, 6_000_000, 0)).toEqual({ product: 3_000_000, service: 0 })
     expect(allocate(8_000_000, 6_000_000, 3_000_000)).toEqual({ product: 3_000_000, service: 5_000_000 })
     expect(allocate(1_000_000, 0, 0)).toEqual({ product: 0, service: 1_000_000 })
+  })
+})
+
+describe('saleSplit', () => {
+  it('separates products from services and never counts the fee twice', () => {
+    const lines = [
+      { unitAmount: 6_000_000, qty: 2, skuSnapshot: 'PMD-100' },
+      { unitAmount: 5_000_000, qty: 1, skuSnapshot: null },
+    ]
+    // Appointment checkout: 10,000 fee already counted when paid online.
+    expect(saleSplit({ credit: 1_000_000 }, lines)).toEqual({ products: 12_000_000, units: 2, services: 4_000_000 })
+    expect(saleSplit({ credit: 0 }, lines.slice(1))).toEqual({ products: 0, units: 0, services: 5_000_000 })
   })
 })
 

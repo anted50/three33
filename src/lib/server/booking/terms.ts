@@ -2,7 +2,6 @@ import { and, desc, eq, lte } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '~/db'
 import { barberTerms } from '~/db/schema'
-import { conflict } from '../api/errors'
 import { isoDate, mungu } from '../api/input'
 import type { Executor } from './db'
 
@@ -42,11 +41,18 @@ export async function currentTerms(barberId: string, at = new Date(), ex: Execut
   return row ?? null
 }
 
-/** Money can't be split without terms; every barber is created with some. */
-export async function requireTerms(barberId: string, ex: Executor) {
+/**
+ * The rates money is split at. A barber without terms — today, the owner
+ * cutting hair themselves — keeps everything: 0% shop cut, 0% commission.
+ * The ledger is still written at those rates, so the history exists if the
+ * shop ever takes on barbers with a real deal.
+ */
+export async function ratesFor(barberId: string, ex: Executor) {
   const terms = await currentTerms(barberId, new Date(), ex)
-  if (!terms) throw conflict('NO_TERMS', 'The owner has not set terms for this barber yet')
-  return terms
+  return {
+    serviceCutBps: terms?.serviceCutBps ?? 0,
+    productCommissionBps: terms?.productCommissionBps ?? 0,
+  }
 }
 
 export async function addTerms(

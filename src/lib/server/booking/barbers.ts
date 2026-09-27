@@ -30,7 +30,8 @@ export const createBarberInput = z.object({
   slug: z.string().regex(SLUG_RE).max(60).optional(),
   ...profileFields,
   locationIds: z.array(z.uuid()).min(1).max(20),
-  terms: termsInput,
+  /** On hold while the owner is the only barber: none = keeps everything. */
+  terms: termsInput.optional(),
 })
 
 export const updateBarberInput = z
@@ -72,7 +73,7 @@ export async function createBarber(input: z.infer<typeof createBarberInput>, own
       .returning({ id: barbers.id })
 
     await setLocations(barber!.id, locationIds, tx)
-    await addTerms(barber!.id, terms, ownerId, tx)
+    if (terms) await addTerms(barber!.id, terms, ownerId, tx)
     return barber!.id
   })
   return getBarber(id)

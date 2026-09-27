@@ -31,7 +31,7 @@ import { addPayment, paymentInput } from '~/lib/server/booking/sales/payments'
  * 200    Sale — the new payment is last in `payments`
  * 400    QPay needs whole tugrik (amount divisible by 100)
  * 404    NOT_FOUND
- * 409    SALE_CLOSED, AMOUNT_TOO_HIGH (details.remaining), OUT_OF_STOCK, NO_TERMS
+ * 409    SALE_CLOSED, AMOUNT_TOO_HIGH (details.remaining), OUT_OF_STOCK
  * 502    QPAY_UNAVAILABLE
  */
 export const Route = createFileRoute('/api/v1/barber/sales/$saleId/payments')({

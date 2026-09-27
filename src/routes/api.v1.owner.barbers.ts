@@ -19,9 +19,13 @@ import { createBarber, createBarberInput, listBarbers } from '~/lib/server/booki
  *         slug?, bioMn?, bioEn?, photoUrl?,
  *         bookingFee?, bufferMinutes?, sortOrder?,
  *         locationIds: [uuid, …],                   at least one
- *         terms: { serviceCutBps, productCommissionBps?, rentAmount?,
- *                  rentPeriod?, rentStartsOn?, effectiveFrom? }
+ *         terms?: { serviceCutBps, productCommissionBps?, rentAmount?,
+ *                   rentPeriod?, rentStartsOn?, effectiveFrom? }
  *       }
+ *       Terms are optional (on hold while the owner is the only barber):
+ *       without them the barber keeps everything — 0% cut, 0% commission.
+ *       To set yourself up as the barber, use your own email: your user is
+ *       reused and gains a barber profile.
  *       201  Barber
  *       400  VALIDATION / unknown location
  *       409  EMAIL_TAKEN, SLUG_TAKEN, ALREADY_BARBER

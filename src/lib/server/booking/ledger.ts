@@ -2,7 +2,7 @@ import { and, eq, isNotNull, ne } from 'drizzle-orm'
 import { barberLedger, barberSaleLines, barberSalePayments, barberSales, type PaymentMethod } from '~/db/schema'
 import type { Tx } from './db'
 import { allocate, splitPayment } from './ledger-split'
-import { requireTerms } from './terms'
+import { ratesFor } from './terms'
 
 /**
  * Writes the barber_ledger rows for one paid POS payment, inside the same
@@ -45,8 +45,8 @@ export async function creditSalePayment(
     )
   const paidBefore = earlier.reduce((sum, p) => sum + p.amount, 0)
 
-  const terms = await requireTerms(input.barberId, tx)
-  const lines = splitPayment(input.method, allocate(input.amount, productDue, paidBefore), terms)
+  const rates = await ratesFor(input.barberId, tx)
+  const lines = splitPayment(input.method, allocate(input.amount, productDue, paidBefore), rates)
   if (lines.length === 0) return
 
   await tx.insert(barberLedger).values(
@@ -56,5 +56,22 @@ export async function creditSalePayment(
       salePaymentId: input.salePaymentId,
       actorId: input.actorId,
     })),
+  )
+}
+
+/**
+ * The online booking fee, credited when QPay confirms it. The fee pays for
+ * services, so it's a service share at the barber's rate (100% while the
+ * owner is the barber). Unique on (appointment_payment_id, kind).
+ */
+export async function creditFeePayment(
+  tx: Tx,
+  input: { barberId: string; appointmentPaymentId: string; amount: number },
+) {
+  const rates = await ratesFor(input.barberId, tx)
+  const lines = splitPayment('qpay', { service: input.amount, product: 0 }, rates)
+  if (lines.length === 0) return
+  await tx.insert(barberLedger).values(
+    lines.map((line) => ({ ...line, barberId: input.barberId, appointmentPaymentId: input.appointmentPaymentId })),
   )
 }

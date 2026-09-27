@@ -7,6 +7,7 @@ import { badRequest } from '../../api/errors'
 import { email, phone } from '../../api/input'
 import type { Staff } from '../../api/staff'
 import { assertWorksAt } from '../barber-locations'
+import { sendConfirmationInBackground } from '../emails/confirmation'
 import { generateRef } from '../refs'
 import { addMinutes } from '../time'
 import { getAppointment } from './queries'
@@ -93,5 +94,7 @@ export async function createBarberBooking(staff: Staff, barberId: string, input:
     return appointment!.id
   })
 
+  // Entering it is the confirmation, so the email goes now (if there is one).
+  if (input.customerEmail) sendConfirmationInBackground(id)
   return getAppointment(barberId, id)
 }

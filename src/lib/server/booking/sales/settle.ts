@@ -60,8 +60,16 @@ export async function checkSalePayment(paymentId: string, barberId?: string) {
       .where(and(eq(barberSalePayments.id, paymentId), eq(barberSalePayments.status, 'pending')))
       .returning({ id: barberSalePayments.id })
     if (updated.length === 0) return
-    await creditSalePayment(tx, { barberId: owner, salePaymentId: paymentId, method: 'qpay', amount: payment.amount, actorId: null })
-    await finalizeIfCovered(tx, payment.saleId, null)
+    await creditSalePayment(tx, {
+      barberId: owner,
+      saleId: payment.saleId,
+      salePaymentId: paymentId,
+      method: 'qpay',
+      amount: payment.amount,
+      actorId: null,
+    })
+    // The customer has paid: stock can't refuse it now (stock.ts, lenient).
+    await finalizeIfCovered(tx, payment.saleId, null, { strictStock: false })
   })
   return { status: 'paid' as const, checked: true, outcome: result.outcome }
 }

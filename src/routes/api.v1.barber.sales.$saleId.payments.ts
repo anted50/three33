@@ -18,15 +18,20 @@ import { addPayment, paymentInput } from '~/lib/server/booking/sales/payments'
  *                  customer. It becomes paid only when QPay confirms it —
  *                  poll POST …/payments/{paymentId}/check.
  *
- * When paid payments cover the sale it closes, and an appointment checkout
- * completes its appointment. Each paid payment credits your ledger.
+ * Every method works for products and services alike. When paid payments
+ * cover the sale it closes: product stock is deducted, and an appointment
+ * checkout completes its appointment. Each paid payment credits your ledger —
+ * product money first (your commission), then services (your share).
+ *
+ * Stock is re-checked before any money is taken, so a product that sold out
+ * meanwhile is refused here (OUT_OF_STOCK) rather than after payment.
  *
  * Auth   barber (barberOnly)
  * Body   { "method": "cash" | "pos" | "bank_transfer" | "qpay", "amount": mungu }
  * 200    Sale — the new payment is last in `payments`
  * 400    QPay needs whole tugrik (amount divisible by 100)
  * 404    NOT_FOUND
- * 409    SALE_CLOSED, AMOUNT_TOO_HIGH (details.remaining), NO_TERMS
+ * 409    SALE_CLOSED, AMOUNT_TOO_HIGH (details.remaining), OUT_OF_STOCK, NO_TERMS
  * 502    QPAY_UNAVAILABLE
  */
 export const Route = createFileRoute('/api/v1/barber/sales/$saleId/payments')({

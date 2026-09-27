@@ -12,17 +12,21 @@ import { listSales, salesQuery } from '~/lib/server/booking/sales/queries'
  *       Query from?, to? (YYYY-MM-DD), status? (open | paid | void)
  *       200  Sale[]
  *
- * POST  Ring up a sale of free-form lines: any name, description and amount
- *       — a friend's discount, a one-off service. A line may point at one of
- *       your services (serviceId) for reporting; its amount is still yours to
- *       set. Take payment next with POST /sales/{saleId}/payments.
+ * POST  Ring up a sale. Two kinds of line, freely mixed:
+ *         product  { variantId, qty? }  the owner's listed price, name and
+ *                  sku — not yours to change (catalog: GET /barber/products).
+ *                  Stock is checked now and deducted when the sale is paid.
+ *         free     { name, unitAmount, qty?, description?, serviceId? }
+ *                  any name and amount — a friend's discount, a one-off
+ *                  service; serviceId only links one of your services.
+ *       Take payment next with POST /sales/{saleId}/payments.
  *       A sale totalling 0 is closed immediately.
- *       Body { locationId,
- *              lines: [{ serviceId?, name, description?, unitAmount, qty? }],
+ *       Body { locationId, lines: [line, …],
  *              note?, customerName?, customerPhone?, customerEmail? }
  *       201  Sale — { …, lines, payments, due, paid, pending, remaining }
- *       400  a line names a service that isn't yours
+ *       400  a product not for sale, or a service that isn't yours
  *       403  not assigned to that location
+ *       409  OUT_OF_STOCK (details: { sku, inStock })
  *
  * Auth  barber (barberOnly). Money is integer mungu.
  */

@@ -80,6 +80,7 @@ export const inventoryReason = pgEnum('inventory_reason', [
   'order_refunded',
   'restock',
   'manual_adjustment',
+  'pos_sale', // a barber sold it through the POS (0008); see barber_sale_lines
 ])
 
 // ---------------------------------------------------------------------------
@@ -1261,6 +1262,21 @@ export const barberSaleLines = pgTable(
     serviceId: uuid('service_id').references(() => services.id, {
       onDelete: 'set null',
     }),
+    /**
+     * A product line (0008). Unlike service lines, the name and unit amount
+     * are the owner's listed variant — never the barber's — and stock is
+     * deducted when the sale is paid. Set null if the owner later removes
+     * the variant; the sku snapshot keeps the line readable.
+     */
+    variantId: uuid('variant_id').references(() => productVariants.id, {
+      onDelete: 'set null',
+    }),
+    skuSnapshot: text('sku_snapshot'),
+    /** The stock movement this line caused, once the sale is paid. */
+    inventoryLedgerId: uuid('inventory_ledger_id').references(
+      () => inventoryLedger.id,
+      { onDelete: 'set null' },
+    ),
     name: text('name').notNull(),
     description: text('description'),
     unitAmount: money('unit_amount').notNull(),
@@ -1272,6 +1288,10 @@ export const barberSaleLines = pgTable(
     check(
       'barber_sale_lines_values_check',
       sql`${t.unitAmount} >= 0 and ${t.qty} > 0`,
+    ),
+    check(
+      'barber_sale_lines_kind_check',
+      sql`${t.variantId} is null or ${t.serviceId} is null`,
     ),
   ],
 )

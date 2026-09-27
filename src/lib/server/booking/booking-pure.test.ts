@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { dayStatus, freeStarts } from './availability'
-import { splitPayment } from './ledger-split'
+import { allocate, splitPayment } from './ledger-split'
 import { planSchedule } from './schedule-plan'
 import { addDays, atLocal, datesBetween, isoWeekday, localDateOf } from './time'
 import { findPgViolation, apiErrorFromDb } from '../api/db-errors'
@@ -118,18 +118,39 @@ describe('dayStatus', () => {
 })
 
 describe('splitPayment', () => {
-  it('matches the worked example: 30% cut', () => {
-    expect(splitPayment('qpay', 1_000_000, 3000)).toEqual([
+  const rates = { serviceCutBps: 3000, productCommissionBps: 1000 }
+  const svc = (n: number) => ({ service: n, product: 0 })
+
+  it('matches the worked example: 30% cut on services', () => {
+    expect(splitPayment('qpay', svc(1_000_000), rates)).toEqual([
       { kind: 'service_share', grossAmount: 1_000_000, rateBps: 3000, amount: 700_000 },
     ])
-    expect(splitPayment('cash', 4_000_000, 3000)).toEqual([
+    expect(splitPayment('cash', svc(4_000_000), rates)).toEqual([
       { kind: 'service_share', grossAmount: 4_000_000, rateBps: 3000, amount: 2_800_000 },
       { kind: 'cash_collected', grossAmount: 4_000_000, rateBps: null, amount: -4_000_000 },
     ])
   })
 
-  it('rounds the shop cut down', () => {
-    expect(splitPayment('pos', 333, 3000)[0]!.amount).toBe(234) // cut 99.9 -> 99
+  it('gives commission on products, and owes back all cash', () => {
+    expect(splitPayment('cash', { service: 0, product: 6_000_000 }, rates)).toEqual([
+      { kind: 'product_commission', grossAmount: 6_000_000, rateBps: 1000, amount: 600_000 },
+      { kind: 'cash_collected', grossAmount: 6_000_000, rateBps: null, amount: -6_000_000 },
+    ])
+    expect(splitPayment('pos', { service: 0, product: 6_000_000 }, { ...rates, productCommissionBps: 0 })).toEqual([])
+  })
+
+  it('rounds the way of the barber', () => {
+    expect(splitPayment('pos', svc(333), rates)[0]!.amount).toBe(234) // cut 99.9 -> 99
+    expect(splitPayment('pos', { service: 0, product: 333 }, rates)[0]!.amount).toBe(34) // 33.3 -> 34
+  })
+})
+
+describe('allocate', () => {
+  it('covers products first, then services, exactly', () => {
+    // 60,000 pomade + 50,000 haircut, paid 30,000 then 80,000
+    expect(allocate(3_000_000, 6_000_000, 0)).toEqual({ product: 3_000_000, service: 0 })
+    expect(allocate(8_000_000, 6_000_000, 3_000_000)).toEqual({ product: 3_000_000, service: 5_000_000 })
+    expect(allocate(1_000_000, 0, 0)).toEqual({ product: 0, service: 1_000_000 })
   })
 })
 

@@ -57,6 +57,13 @@
       "when": 1790499189711,
       "tag": "0007_booking_pos",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1790500508736,
+      "tag": "0008_booking_pos_products",
+      "breakpoints": true
     }
   ]
 }

@@ -12,6 +12,7 @@ import { creditSalePayment } from '../ledger'
 import { invoiceRef } from '../refs'
 import { finalizeIfCovered } from './finalize'
 import { amounts, getSale } from './queries'
+import { assertStock } from './stock'
 
 /**
  * Taking money for a sale. Any mix of methods, as long as the total never
@@ -47,6 +48,10 @@ export async function addPayment(staff: Staff, barberId: string, saleId: string,
       .select({ amount: barberSalePayments.amount, status: barberSalePayments.status })
       .from(barberSalePayments)
       .where(eq(barberSalePayments.saleId, saleId))
+    // Before any money: a QPay invoice for goods that aren't there would take
+    // money we then can't honour.
+    await assertStock(tx, saleId)
+
     const { remaining } = amounts(sale, existing)
     if (input.amount > remaining) {
       throw conflict('AMOUNT_TOO_HIGH', 'More than what is left to pay', { remaining })
@@ -67,7 +72,14 @@ export async function addPayment(staff: Staff, barberId: string, saleId: string,
       .returning({ id: barberSalePayments.id })
 
     if (manual) {
-      await creditSalePayment(tx, { barberId, salePaymentId: payment!.id, method: input.method, amount: input.amount, actorId: staff.userId })
+      await creditSalePayment(tx, {
+        barberId,
+        saleId,
+        salePaymentId: payment!.id,
+        method: input.method,
+        amount: input.amount,
+        actorId: staff.userId,
+      })
       await finalizeIfCovered(tx, saleId, staff.userId)
     }
     return payment!.id

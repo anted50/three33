@@ -248,6 +248,23 @@ h3 {
   gap: 4px;
 }
 
+/*
+ * Glyphs sit at the right end of their tap targets rather than centred, so
+ * the last one lands exactly on the content edge — the line the product grid
+ * and "Бүгдийг үзэх →" end on. The 44px targets are unchanged; only where the
+ * glyph sits inside them moves. The icons' viewBoxes are trimmed to the drawn
+ * stroke on the right for the same reason (see components/layout.tsx).
+ */
+.header__actions .icon-btn {
+  justify-content: flex-end;
+}
+
+/* The count rides the glyph's top-right corner, as it did when centred. */
+.header__actions .badge {
+  top: 6px;
+  right: -7px;
+}
+
 /* 44px minimum touch target — these are the primary controls on a phone. */
 .icon-btn {
   display: inline-flex;
@@ -255,6 +272,9 @@ h3 {
   justify-content: center;
   width: 44px;
   height: 44px;
+  /* Browsers pad buttons 6px a side by default — invisible while the glyph
+     was centred, but it kept a right-aligned glyph off the content edge. */
+  padding: 0;
   border: 0;
   background: none;
   border-radius: var(--radius);

@@ -20,6 +20,7 @@
     "admin:add": "tsx scripts/add-admin.ts",
     "reconcile": "tsx scripts/reconcile.ts",
     "cleanup": "tsx scripts/cleanup.ts",
+    "booking:sweep": "tsx scripts/booking-sweep.ts",
     "qpay:ping": "tsx scripts/qpay-ping.ts",
     "qpay:smoke": "tsx scripts/qpay-smoke.ts",
     "mail:preview": "tsx scripts/preview-email.ts"

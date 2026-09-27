@@ -6,6 +6,7 @@ is not scheduled.
 | Job | Runs | Every | First run | Entry point |
 |---|---|---|---|---|
 | `reconcile` | in the server process | 1 hour | 5 min after boot | `scripts/reconcile.ts` |
+| `booking-sweep` | in the server process | 5 minutes | 2 min after boot | `scripts/booking-sweep.ts` |
 | `cleanup` | in the server process | 24 hours | 10 min after boot | `scripts/cleanup.ts` |
 
 **There is no external cron, no cron service, and no `pg_cron`.** Deploying this
@@ -64,6 +65,23 @@ ship.
 Most orders never reach this job: the customer's own payment page polls, and
 QPay's callback usually arrives. This catches dropped callbacks, closed tabs,
 and exhausted QPay retries.
+
+## `booking-sweep` — every 5 minutes
+
+Two jobs, both in `src/lib/server/booking/sweep.ts`:
+
+- **Unpaid booking holds are deleted.** An online booking is only a hold
+  until its fee is paid; past `expires_at` the sweep asks QPay one last time
+  (a last-second payment still confirms the booking), cancels the invoice, and
+  only then deletes the hold. If QPay won't cancel, the hold stays for the next
+  run, so a payment can never land with nothing to match it.
+- **Stranded POS QPay payments are checked.** A barber who closes the screen
+  before QPay's callback arrives would leave a paid payment `pending`. After
+  five minutes the sweep asks QPay; after a day unpaid it withdraws the
+  invoice and marks the payment failed.
+
+Frequent because a hold blocks a real slot from other customers. Safe to race
+with callbacks and polls: every confirmation is guarded by `status = 'pending'`.
 
 ## `cleanup` — daily
 

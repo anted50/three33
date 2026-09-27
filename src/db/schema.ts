@@ -9,6 +9,7 @@ import {
   jsonb,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -1092,6 +1093,11 @@ export const barberLedger = pgTable(
     rentChargeId: uuid('rent_charge_id').references(() => rentCharges.id, {
       onDelete: 'restrict',
     }),
+    /** A payment taken through the barber's POS (0007). */
+    salePaymentId: uuid('sale_payment_id').references(
+      () => barberSalePayments.id,
+      { onDelete: 'restrict' },
+    ),
     actorId: uuid('actor_id').references(() => users.id, {
       onDelete: 'set null',
     }),
@@ -1111,6 +1117,9 @@ export const barberLedger = pgTable(
     uniqueIndex('barber_ledger_rent_charge_key')
       .on(t.rentChargeId)
       .where(sql`rent_charge_id is not null`),
+    uniqueIndex('barber_ledger_sale_payment_kind_key')
+      .on(t.salePaymentId, t.kind)
+      .where(sql`sale_payment_id is not null`),
     check(
       'barber_ledger_rate_check',
       sql`${t.rateBps} is null or ${t.rateBps} between 0 and 10000`,
@@ -1122,6 +1131,191 @@ export const barberLedger = pgTable(
     check(
       'barber_ledger_rent_check',
       sql`${t.kind} <> 'rent_deduction' or ${t.rentChargeId} is not null`,
+    ),
+  ],
+)
+
+// ---------------------------------------------------------------------------
+// Booking, part 2 (migration 0007) — also purely additive.
+//
+// Which locations a barber works at (owner-managed), explicit days off, and
+// the barber's POS: a sale of free-form lines paid by any mix of methods.
+// Checking out an appointment is a sale linked to it, so every payment taken
+// at the shop — walk-in or booked — goes through one path. appointment_payments
+// then only ever holds the online booking fee.
+// ---------------------------------------------------------------------------
+
+/** Where a barber may work: owner-managed. Services and shifts can only be
+ * placed at a location in this set. */
+export const barberLocations = pgTable(
+  'barber_locations',
+  {
+    barberId: uuid('barber_id')
+      .notNull()
+      .references(() => barbers.id, { onDelete: 'cascade' }),
+    locationId: uuid('location_id')
+      .notNull()
+      .references(() => locations.id, { onDelete: 'cascade' }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.barberId, t.locationId] }),
+    index('barber_locations_location_idx').on(t.locationId),
+  ],
+)
+
+/**
+ * A day the barber has said they won't work. Together with barber_shifts this
+ * gives every day one of three answers for customers: working (has shifts),
+ * off (a row here), or unknown (neither — the barber hasn't decided).
+ * A day is never both: the schedule API replaces a day as a whole.
+ */
+export const barberDaysOff = pgTable(
+  'barber_days_off',
+  {
+    barberId: uuid('barber_id')
+      .notNull()
+      .references(() => barbers.id, { onDelete: 'cascade' }),
+    /** Local date in Ulaanbaatar time. */
+    day: date('day').notNull(),
+    note: text('note'),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.barberId, t.day] })],
+)
+
+export const barberSaleStatus = pgEnum('barber_sale_status', [
+  'open', // lines set, waiting for payments to add up
+  'paid', // payments cover total − credit
+  'void', // abandoned by the barber before it was paid
+])
+
+/**
+ * One POS sale. Lines are free-form — a barber can charge a friend less, or
+ * sell a one-off service with its own name — because the barber is logged in
+ * and accountable, and every payment lands in their ledger.
+ *
+ * An appointment checkout is a sale with appointment_id set and `credit` = the
+ * booking fee already paid online, so the customer is only asked for the rest.
+ */
+export const barberSales = pgTable(
+  'barber_sales',
+  {
+    id: id(),
+    saleNo: text('sale_no').notNull(),
+    barberId: uuid('barber_id')
+      .notNull()
+      .references(() => barbers.id, { onDelete: 'restrict' }),
+    locationId: uuid('location_id')
+      .notNull()
+      .references(() => locations.id, { onDelete: 'restrict' }),
+    appointmentId: uuid('appointment_id').references(() => appointments.id, {
+      onDelete: 'restrict',
+    }),
+    status: barberSaleStatus('status').notNull().default('open'),
+    /** Sum of lines, frozen when the lines are set. */
+    total: money('total').notNull(),
+    /** Already paid elsewhere (the booking fee). Due = total − credit. */
+    credit: money('credit').notNull().default(0),
+    note: text('note'),
+    customerName: text('customer_name'),
+    customerPhone: text('customer_phone'),
+    customerEmail: text('customer_email'),
+    createdBy: uuid('created_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    paidAt: timestamp('paid_at', { withTimezone: true }),
+    voidedAt: timestamp('voided_at', { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('barber_sales_sale_no_key').on(t.saleNo),
+    index('barber_sales_barber_created_idx').on(t.barberId, t.createdAt),
+    // One live checkout per appointment.
+    uniqueIndex('barber_sales_appointment_key')
+      .on(t.appointmentId)
+      .where(sql`appointment_id is not null and status <> 'void'`),
+    check(
+      'barber_sales_money_check',
+      sql`${t.total} >= 0 and ${t.credit} >= 0 and ${t.credit} <= ${t.total}`,
+    ),
+    check(
+      'barber_sales_credit_check',
+      sql`${t.appointmentId} is not null or ${t.credit} = 0`,
+    ),
+    check(
+      'barber_sales_paid_check',
+      sql`${t.status} <> 'paid' or ${t.paidAt} is not null`,
+    ),
+  ],
+)
+
+export const barberSaleLines = pgTable(
+  'barber_sale_lines',
+  {
+    id: id(),
+    saleId: uuid('sale_id')
+      .notNull()
+      .references(() => barberSales.id, { onDelete: 'cascade' }),
+    /** The barber's service it came from, if any. Name and amount are free. */
+    serviceId: uuid('service_id').references(() => services.id, {
+      onDelete: 'set null',
+    }),
+    name: text('name').notNull(),
+    description: text('description'),
+    unitAmount: money('unit_amount').notNull(),
+    qty: integer('qty').notNull().default(1),
+    sortOrder: integer('sort_order').notNull().default(0),
+  },
+  (t) => [
+    index('barber_sale_lines_sale_id_idx').on(t.saleId),
+    check(
+      'barber_sale_lines_values_check',
+      sql`${t.unitAmount} >= 0 and ${t.qty} > 0`,
+    ),
+  ],
+)
+
+/**
+ * Money taken for a sale. QPay rows are confirmed by asking QPay; cash, pos
+ * and bank_transfer are recorded as paid on entry, on the barber's word —
+ * that money lands where no API can see it.
+ */
+export const barberSalePayments = pgTable(
+  'barber_sale_payments',
+  {
+    id: id(),
+    saleId: uuid('sale_id')
+      .notNull()
+      .references(() => barberSales.id, { onDelete: 'restrict' }),
+    method: paymentMethod('method').notNull(),
+    amount: money('amount').notNull(),
+    status: paymentStatus('status').notNull().default('pending'),
+    qpayInvoiceId: text('qpay_invoice_id'),
+    qpayPaymentId: text('qpay_payment_id'),
+    invoicePayload: jsonb('invoice_payload').$type<InvoicePayload>(),
+    rawCallback: jsonb('raw_callback'),
+    receivedByUserId: uuid('received_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    paidAt: timestamp('paid_at', { withTimezone: true }),
+    lastCheckedAt: timestamp('last_checked_at', { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('barber_sale_payments_qpay_payment_id_key')
+      .on(t.qpayPaymentId)
+      .where(sql`qpay_payment_id is not null`),
+    index('barber_sale_payments_sale_id_idx').on(t.saleId),
+    index('barber_sale_payments_qpay_invoice_id_idx').on(t.qpayInvoiceId),
+    check('barber_sale_payments_amount_check', sql`${t.amount} > 0`),
+    check(
+      'barber_sale_payments_qpay_check',
+      sql`${t.method} = 'qpay' or ${t.qpayInvoiceId} is null`,
+    ),
+    check(
+      'barber_sale_payments_paid_check',
+      sql`${t.status} <> 'paid' or ${t.paidAt} is not null`,
     ),
   ],
 )
@@ -1157,6 +1351,11 @@ export type AppointmentEvent = typeof appointmentEvents.$inferSelect
 export type AppointmentPayment = typeof appointmentPayments.$inferSelect
 export type InStoreSale = typeof inStoreSales.$inferSelect
 export type BarberLedgerEntry = typeof barberLedger.$inferSelect
+export type BarberLocation = typeof barberLocations.$inferSelect
+export type BarberDayOff = typeof barberDaysOff.$inferSelect
+export type BarberSale = typeof barberSales.$inferSelect
+export type BarberSaleLine = typeof barberSaleLines.$inferSelect
+export type BarberSalePayment = typeof barberSalePayments.$inferSelect
 
 export type OrderStatus = (typeof orderStatus.enumValues)[number]
 export type PaymentStatus = (typeof paymentStatus.enumValues)[number]

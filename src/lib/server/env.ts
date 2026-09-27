@@ -37,19 +37,14 @@ const schema = z.object({
   QPAY_INVOICE_CODE: z.string().min(1),
   QPAY_CALLBACK_SECRET: z.string().min(32),
 
+  /**
+   * Transactional email (order receipts, admin login codes) via Resend's HTTP
+   * API — the bare `re_...` key from the Resend dashboard. Unset means sending
+   * is silently skipped — see lib/server/email/resend.ts — so an unfinished
+   * mail setup never blocks checkout or settlement.
+   */
   RESEND_API_KEY: z.string().optional(),
   EMAIL_FROM: z.string().default('Three33 Barbershop <noreply@localhost>'),
-
-  /**
-   * Transactional email for order receipts, via ZeptoMail's HTTP API.
-   * The full `Authorization` header value ZeptoMail issues, e.g.
-   * "Zoho-enczapikey <token>" — sent through as-is, not reassembled from a
-   * bare token, because that is the shape ZeptoMail's dashboard hands out.
-   * Unset means receipt sending is silently skipped — see
-   * lib/server/email/zeptomail.ts — so an unfinished mail setup never blocks
-   * checkout or settlement.
-   */
-  MAIL_API_TOKEN: z.string().optional(),
 
   /**
    * A second, VAT-enabled QPay invoice code, required for POST /ebarimt/create

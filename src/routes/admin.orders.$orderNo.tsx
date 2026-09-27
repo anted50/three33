@@ -72,7 +72,7 @@ const RECEIPT_NOTE: Record<ReceiptOutcome, string> = {
   sent: '✓ Баримт илгээлээ',
   no_email: 'И-мэйл хаяг бүртгэгдээгүй байна',
   not_found: 'Захиалга олдсонгүй',
-  mail_disabled: 'И-мэйл тохиргоо дутуу байна (MAIL_API_TOKEN)',
+  mail_disabled: 'И-мэйл тохиргоо дутуу байна (RESEND_API_KEY)',
 }
 
 const NEXT: Partial<Record<OrderStatus, OrderStatus[]>> = {

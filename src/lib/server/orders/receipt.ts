@@ -12,7 +12,7 @@ import {
   PAPER,
   RULE,
 } from '../email/shell'
-import { sendEmail } from '../email/zeptomail'
+import { sendEmail } from '../email/resend'
 import { env } from '../env'
 import { getQpayProvider } from '../payments/qpay'
 import type { EbarimtReceipt } from '../payments/qpay'
@@ -39,12 +39,12 @@ interface ReceiptOrder {
  * are ordinary answers, not failures — a genuine failure throws.
  */
 export type ReceiptOutcome =
-  /** Handed to ZeptoMail, which accepted it. */
+  /** Handed to Resend, which accepted it. */
   | 'sent'
   /** No address on file: older orders, or the field was left blank. */
   | 'no_email'
   | 'not_found'
-  /** MAIL_API_TOKEN is unset, so sending is skipped — see email/zeptomail.ts. */
+  /** RESEND_API_KEY is unset, so sending is skipped — see email/resend.ts. */
   | 'mail_disabled'
 
 /**

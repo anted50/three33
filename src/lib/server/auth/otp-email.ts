@@ -7,7 +7,7 @@ import {
   PANEL,
   PAPER,
 } from '../email/shell'
-import { sendEmail } from '../email/zeptomail'
+import { sendEmail } from '../email/resend'
 import { OTP_TTL_MS } from './otp'
 
 const SANS =

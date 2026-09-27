@@ -43,6 +43,13 @@
       "when": 1787902052323,
       "tag": "0005_wise_mantis",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790495299633,
+      "tag": "0006_booking",
+      "breakpoints": true
     }
   ]
 }

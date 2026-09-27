@@ -2,6 +2,8 @@ import { sql } from 'drizzle-orm'
 import {
   bigint,
   boolean,
+  check,
+  date,
   index,
   integer,
   jsonb,
@@ -540,6 +542,582 @@ export const inventoryLedger = pgTable(
 )
 
 // ---------------------------------------------------------------------------
+// Booking — locations, barbers, their services, shifts and appointments.
+//
+// Purely additive: nothing above this line is altered. The only references
+// into shop tables are foreign keys FROM these tables TO users, orders and
+// payments, so dropping every table below restores the shop exactly as it was
+// — see drizzle/rollback/0006_booking.down.sql. Full flows and the reasoning
+// behind each rule: docs/booking-flows.xlsx.
+//
+// Two rules shape almost everything here:
+//
+//  1. Nothing a customer submits is kept unless money arrives. An online
+//     booking exists only as a short-lived `pending` hold until its fee is
+//     paid; an unpaid hold is deleted, not archived.
+//  2. A booking is confirmed only by a paid fee (online) or by the barber
+//     entering it themselves. The database refuses a confirmed status without
+//     confirmed_at.
+//
+// Who is a barber is decided by barbers.user_id, not by users.role — so
+// user_role is left untouched and staff access needs no enum migration.
+// ---------------------------------------------------------------------------
+
+export const appointmentSource = pgEnum('appointment_source', [
+  'online', // customer booked on the site and paid the fee
+  'barber', // barber entered it: phone call, walk-in, extra job after hours
+])
+
+/**
+ *   pending ──> booked ──┬─> completed
+ *      │                 ├─> no_show
+ *      │                 └─> cancelled      (barber only; fee kept)
+ *      └─> (deleted)     unpaid hold, removed by the sweep
+ *
+ * Barber-entered bookings start at `booked`.
+ */
+export const appointmentStatus = pgEnum('appointment_status', [
+  'pending',
+  'booked',
+  'completed',
+  'cancelled',
+  'no_show',
+])
+
+export const appointmentEventKind = pgEnum('appointment_event_kind', [
+  'created',
+  'rescheduled',
+  'updated',
+  'flagged', // emergency: needs rescheduling, on the barber's call list
+  'cancelled',
+  'no_show',
+  'completed',
+])
+
+export const appointmentPaymentKind = pgEnum('appointment_payment_kind', [
+  'booking_fee', // online, up front
+  'balance', // at the shop: total - booking_fee, possibly split
+])
+
+/**
+ * Where the money lands decides the barber's ledger: qpay, pos and
+ * bank_transfer arrive in the shop's main account; cash stays in the barber's
+ * hand and is owed back (barber_ledger 'cash_collected').
+ */
+export const paymentMethod = pgEnum('payment_method', [
+  'qpay',
+  'cash',
+  'pos',
+  'bank_transfer',
+])
+
+export const rentPeriod = pgEnum('rent_period', ['weekly', 'biweekly', 'monthly'])
+export const rentStatus = pgEnum('rent_status', ['due', 'paid', 'waived'])
+export const rentPaidVia = pgEnum('rent_paid_via', ['direct', 'payout'])
+
+export const barberLedgerKind = pgEnum('barber_ledger_kind', [
+  'service_share', // + barber's share of an appointment payment
+  'product_commission', // + commission on an in-store sale they rang up
+  'cash_collected', // − cash the barber holds and must hand back
+  'rent_deduction', // − rent taken out of a payout
+  'payout', // − shop pays the barber
+  'settlement', // + barber hands money back; owner confirms
+  'adjustment', // ± owner correction, note required
+])
+
+export const locations = pgTable(
+  'locations',
+  {
+    id: id(),
+    slug: text('slug').notNull(),
+    nameMn: text('name_mn').notNull(),
+    nameEn: text('name_en').notNull(),
+    address: text('address').notNull(),
+    phone: text('phone'),
+    mapLink: text('map_link'),
+    isActive: boolean('is_active').notNull().default(true),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex('locations_slug_key').on(t.slug)],
+)
+
+export const barbers = pgTable(
+  'barbers',
+  {
+    id: id(),
+    slug: text('slug').notNull(),
+    name: text('name').notNull(),
+    /** On every confirmation. Calling the barber is the customer's only way to
+     * reschedule or cancel, so it can't be empty. */
+    phone: text('phone').notNull(),
+    bioMn: text('bio_mn'),
+    bioEn: text('bio_en'),
+    photoUrl: text('photo_url'),
+    /** Cleanup time blocked after each appointment. The barber sets it. */
+    bufferMinutes: integer('buffer_minutes').notNull().default(0),
+    /** Paid online to book, kept on cancel or no-show. 0 = phone booking only:
+     * online booking always needs money in front of it. */
+    bookingFee: money('booking_fee').notNull().default(0),
+    /** The login. Having one makes the user staff for their own barber data,
+     * without touching users.role. */
+    userId: uuid('user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    isActive: boolean('is_active').notNull().default(true),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('barbers_slug_key').on(t.slug),
+    uniqueIndex('barbers_user_id_key').on(t.userId),
+    check('barbers_buffer_minutes_check', sql`${t.bufferMinutes} >= 0`),
+    check('barbers_booking_fee_check', sql`${t.bookingFee} >= 0`),
+  ],
+)
+
+/**
+ * A barber's own service at one location — they name it, price it and time
+ * it. The same haircut at another branch is another row with its own price;
+ * there is no override logic and no owner-defined catalog.
+ */
+export const services = pgTable(
+  'services',
+  {
+    id: id(),
+    barberId: uuid('barber_id')
+      .notNull()
+      .references(() => barbers.id, { onDelete: 'cascade' }),
+    locationId: uuid('location_id')
+      .notNull()
+      .references(() => locations.id, { onDelete: 'cascade' }),
+    nameEn: text('name_en').notNull(),
+    nameMn: text('name_mn'),
+    descriptionEn: text('description_en'),
+    descriptionMn: text('description_mn'),
+    price: money('price').notNull(),
+    durationMinutes: integer('duration_minutes').notNull(),
+    isActive: boolean('is_active').notNull().default(true),
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('services_barber_location_idx').on(t.barberId, t.locationId),
+    index('services_location_idx').on(t.locationId),
+    check('services_price_check', sql`${t.price} >= 0`),
+    check('services_duration_check', sql`${t.durationMinutes} > 0`),
+  ],
+)
+
+/**
+ * Planned availability: the windows customers can book online. Dated, not a
+ * weekly pattern — barbers work whatever days and places they choose.
+ * Appointments never reference shifts; free slots are computed live as shifts
+ * minus appointments, so a booking outside every shift (overtime) takes
+ * nothing from the plan, and editing a shift never touches a booking.
+ *
+ * + EXCLUDE (no overlapping shifts per barber) in the migration's SQL.
+ */
+export const barberShifts = pgTable(
+  'barber_shifts',
+  {
+    id: id(),
+    barberId: uuid('barber_id')
+      .notNull()
+      .references(() => barbers.id, { onDelete: 'cascade' }),
+    locationId: uuid('location_id')
+      .notNull()
+      .references(() => locations.id, { onDelete: 'cascade' }),
+    startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
+    endsAt: timestamp('ends_at', { withTimezone: true }).notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('barber_shifts_location_starts_idx').on(t.locationId, t.startsAt),
+    index('barber_shifts_barber_starts_idx').on(t.barberId, t.startsAt),
+    check('barber_shifts_range_check', sql`${t.endsAt} > ${t.startsAt}`),
+  ],
+)
+
+/**
+ * The owner–barber deal. Owner-only, and a table of its own rather than
+ * columns on barbers so a barber editing their profile can never reach it.
+ * A new row per change, never an edit: the terms in force are the latest
+ * effective_from <= now, and past ledger rows keep the rate they were earned
+ * under.
+ */
+export const barberTerms = pgTable(
+  'barber_terms',
+  {
+    id: id(),
+    barberId: uuid('barber_id')
+      .notNull()
+      .references(() => barbers.id, { onDelete: 'restrict' }),
+    /** Shop's cut of service payments, in basis points: 3000 = 30%. Integer
+     * for the same reason as the MONEY RULE. */
+    serviceCutBps: integer('service_cut_bps').notNull().default(0),
+    /** Barber's commission on in-store product sales they ring up. */
+    productCommissionBps: integer('product_commission_bps')
+      .notNull()
+      .default(0),
+    rentAmount: money('rent_amount').notNull().default(0),
+    rentPeriod: rentPeriod('rent_period'),
+    /** First due date; later ones are this + n × period. */
+    rentStartsOn: date('rent_starts_on'),
+    effectiveFrom: timestamp('effective_from', {
+      withTimezone: true,
+    }).notNull(),
+    createdBy: uuid('created_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('barber_terms_barber_effective_key').on(
+      t.barberId,
+      t.effectiveFrom,
+    ),
+    check(
+      'barber_terms_bps_check',
+      sql`${t.serviceCutBps} between 0 and 10000 and ${t.productCommissionBps} between 0 and 10000`,
+    ),
+    check(
+      'barber_terms_rent_check',
+      sql`${t.rentAmount} = 0 or (${t.rentAmount} > 0 and ${t.rentPeriod} is not null and ${t.rentStartsOn} is not null)`,
+    ),
+  ],
+)
+
+/**
+ * One row per rent due date, created by the sweep from the terms in force.
+ * Paid either directly (owner confirms) or out of a payout (a
+ * 'rent_deduction' ledger row points here).
+ */
+export const rentCharges = pgTable(
+  'rent_charges',
+  {
+    id: id(),
+    barberId: uuid('barber_id')
+      .notNull()
+      .references(() => barbers.id, { onDelete: 'restrict' }),
+    /** Frozen from the terms: changing the rent never rewrites a bill. */
+    amount: money('amount').notNull(),
+    dueOn: date('due_on').notNull(),
+    status: rentStatus('status').notNull().default('due'),
+    paidVia: rentPaidVia('paid_via'),
+    confirmedBy: uuid('confirmed_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    confirmedAt: timestamp('confirmed_at', { withTimezone: true }),
+    note: text('note'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    // The sweep can run twice; a barber is still only billed once per date.
+    uniqueIndex('rent_charges_barber_due_key').on(t.barberId, t.dueOn),
+    index('rent_charges_status_due_idx').on(t.status, t.dueOn),
+    check('rent_charges_amount_check', sql`${t.amount} > 0`),
+    check(
+      'rent_charges_paid_check',
+      sql`${t.status} <> 'paid' or ${t.paidVia} is not null`,
+    ),
+  ],
+)
+
+/**
+ * One visit: one barber, one location, one or more services.
+ *
+ * `blocked_until` = ends_at + the barber's buffer, frozen at booking, and it is
+ * what the no-overlap constraint uses — so a barber changing their buffer
+ * later can't create a clash with bookings that already exist.
+ *
+ * + EXCLUDE (no overlapping appointments per barber, except cancelled) in the
+ *   migration's SQL. Pending holds count, so nobody can take a slot someone
+ *   else is paying for.
+ */
+export const appointments = pgTable(
+  'appointments',
+  {
+    id: id(),
+    bookingNo: text('booking_no').notNull(), // short, read aloud, like order_no
+    locationId: uuid('location_id')
+      .notNull()
+      .references(() => locations.id, { onDelete: 'restrict' }),
+    barberId: uuid('barber_id')
+      .notNull()
+      .references(() => barbers.id, { onDelete: 'restrict' }),
+    source: appointmentSource('source').notNull(),
+    status: appointmentStatus('status').notNull(),
+    startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
+    /** starts_at + the sum of the line durations. */
+    endsAt: timestamp('ends_at', { withTimezone: true }).notNull(),
+    blockedUntil: timestamp('blocked_until', { withTimezone: true }).notNull(),
+    /** The barber's buffer when booked; a reschedule keeps it. */
+    bufferMinutes: integer('buffer_minutes').notNull(),
+    /** Sum of line prices, frozen. */
+    total: money('total').notNull(),
+    /** Paid online, frozen. Due at the shop = total − booking_fee. */
+    bookingFee: money('booking_fee').notNull(),
+    /** How long an unpaid hold lives. Null once confirmed-by-barber. */
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    confirmedAt: timestamp('confirmed_at', { withTimezone: true }),
+    /** The barber who entered it. Null for online bookings, which the fee
+     * confirmed. */
+    confirmedBy: uuid('confirmed_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    /** Set once the confirmation email has gone out, so a QPay callback and
+     * the sweep confirming the same booking can't send it twice. */
+    confirmationSentAt: timestamp('confirmation_sent_at', {
+      withTimezone: true,
+    }),
+    /** Emergency flag: on the barber's call list until rescheduled or
+     * cancelled. */
+    needsRescheduleAt: timestamp('needs_reschedule_at', { withTimezone: true }),
+    customerName: text('customer_name').notNull(),
+    customerPhone: text('customer_phone').notNull(),
+    customerEmail: text('customer_email'),
+    note: text('note'),
+    /** SHA-256 of the status-page token — same reasoning as orders. */
+    accessTokenHash: text('access_token_hash').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex('appointments_booking_no_key').on(t.bookingNo),
+    // The barber's day view, and "everyone I have from today to Friday".
+    index('appointments_barber_starts_idx').on(t.barberId, t.startsAt),
+    index('appointments_location_starts_idx').on(t.locationId, t.startsAt),
+    // Drives the sweep that deletes unpaid holds.
+    index('appointments_pending_expires_idx')
+      .on(t.expiresAt)
+      .where(sql`status = 'pending'`),
+    // The emergency call list.
+    index('appointments_needs_reschedule_idx')
+      .on(t.barberId)
+      .where(sql`needs_reschedule_at is not null`),
+    check(
+      'appointments_times_check',
+      sql`${t.endsAt} > ${t.startsAt} and ${t.blockedUntil} >= ${t.endsAt} and ${t.bufferMinutes} >= 0`,
+    ),
+    check(
+      'appointments_money_check',
+      sql`${t.bookingFee} >= 0 and ${t.bookingFee} <= ${t.total}`,
+    ),
+    // Rule 2: never confirmed without a confirmation.
+    check(
+      'appointments_confirmed_check',
+      sql`${t.status} not in ('booked', 'completed', 'no_show') or ${t.confirmedAt} is not null`,
+    ),
+    check(
+      'appointments_pending_check',
+      sql`${t.status} <> 'pending' or ${t.expiresAt} is not null`,
+    ),
+    // Rule 1: online bookings always have money in front of them, and an
+    // email to send the confirmation to.
+    check(
+      'appointments_online_check',
+      sql`${t.source} <> 'online' or (${t.bookingFee} > 0 and ${t.customerEmail} is not null)`,
+    ),
+    check(
+      'appointments_barber_check',
+      sql`${t.source} <> 'barber' or (${t.bookingFee} = 0 and ${t.expiresAt} is null)`,
+    ),
+  ],
+)
+
+/** Lines of an appointment, frozen — editing a service never changes them. */
+export const appointmentServices = pgTable(
+  'appointment_services',
+  {
+    id: id(),
+    appointmentId: uuid('appointment_id')
+      .notNull()
+      .references(() => appointments.id, { onDelete: 'cascade' }),
+    serviceId: uuid('service_id').references(() => services.id, {
+      onDelete: 'set null',
+    }),
+    nameSnapshot: text('name_snapshot').notNull(),
+    priceSnapshot: money('price_snapshot').notNull(),
+    durationMinutesSnapshot: integer('duration_minutes_snapshot').notNull(),
+    sortOrder: integer('sort_order').notNull().default(0),
+  },
+  (t) => [
+    index('appointment_services_appointment_id_idx').on(t.appointmentId),
+    check(
+      'appointment_services_values_check',
+      sql`${t.priceSnapshot} >= 0 and ${t.durationMinutesSnapshot} > 0`,
+    ),
+  ],
+)
+
+/** Append-only history. The appointment row holds the current state; this
+ * holds how it got there — every move, by whom, from when to when. Holds
+ * write nothing here; 'created' is written when the booking is confirmed. */
+export const appointmentEvents = pgTable(
+  'appointment_events',
+  {
+    id: id(),
+    appointmentId: uuid('appointment_id')
+      .notNull()
+      .references(() => appointments.id, { onDelete: 'cascade' }),
+    kind: appointmentEventKind('kind').notNull(),
+    fromStartsAt: timestamp('from_starts_at', { withTimezone: true }),
+    toStartsAt: timestamp('to_starts_at', { withTimezone: true }),
+    actorId: uuid('actor_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    note: text('note'),
+    createdAt: createdAt(),
+  },
+  (t) => [index('appointment_events_appointment_id_idx').on(t.appointmentId)],
+)
+
+/**
+ * The booking fee (online, QPay) and the balance at the shop (any method,
+ * possibly split). Mirrors `payments`, but for appointments, so the shop's
+ * tables stay untouched.
+ */
+export const appointmentPayments = pgTable(
+  'appointment_payments',
+  {
+    id: id(),
+    appointmentId: uuid('appointment_id')
+      .notNull()
+      .references(() => appointments.id, { onDelete: 'restrict' }),
+    kind: appointmentPaymentKind('kind').notNull(),
+    method: paymentMethod('method').notNull(),
+    amount: money('amount').notNull(),
+    status: paymentStatus('status').notNull().default('pending'),
+    qpayInvoiceId: text('qpay_invoice_id'),
+    qpayPaymentId: text('qpay_payment_id'),
+    invoicePayload: jsonb('invoice_payload').$type<InvoicePayload>(),
+    rawCallback: jsonb('raw_callback'),
+    /** Who took it at the shop. Null for the online fee. */
+    receivedByUserId: uuid('received_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    paidAt: timestamp('paid_at', { withTimezone: true }),
+    lastCheckedAt: timestamp('last_checked_at', { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    // Same idempotency guard as payments: one QPay payment, one row.
+    uniqueIndex('appointment_payments_qpay_payment_id_key')
+      .on(t.qpayPaymentId)
+      .where(sql`qpay_payment_id is not null`),
+    // The fee is paid once; the balance may be split over several rows.
+    uniqueIndex('appointment_payments_fee_once_key')
+      .on(t.appointmentId)
+      .where(sql`kind = 'booking_fee' and status = 'paid'`),
+    index('appointment_payments_appointment_id_idx').on(t.appointmentId),
+    index('appointment_payments_qpay_invoice_id_idx').on(t.qpayInvoiceId),
+    check('appointment_payments_amount_check', sql`${t.amount} > 0`),
+    check(
+      'appointment_payments_qpay_check',
+      sql`${t.method} = 'qpay' or ${t.qpayInvoiceId} is null`,
+    ),
+    check(
+      'appointment_payments_fee_method_check',
+      sql`${t.kind} <> 'booking_fee' or ${t.method} = 'qpay'`,
+    ),
+    check(
+      'appointment_payments_paid_check',
+      sql`${t.status} <> 'paid' or ${t.paidAt} is not null`,
+    ),
+  ],
+)
+
+/**
+ * Marks an order as sold in the shop by a barber. A side table instead of new
+ * columns on orders, so the shop's own tables stay exactly as they are: an
+ * order is an in-store sale iff it has a row here. Written together with the
+ * order's first payment — see the in-store flows.
+ */
+export const inStoreSales = pgTable(
+  'in_store_sales',
+  {
+    orderId: uuid('order_id')
+      .primaryKey()
+      .references(() => orders.id, { onDelete: 'cascade' }),
+    barberId: uuid('barber_id')
+      .notNull()
+      .references(() => barbers.id, { onDelete: 'restrict' }),
+    locationId: uuid('location_id')
+      .notNull()
+      .references(() => locations.id, { onDelete: 'restrict' }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('in_store_sales_barber_created_idx').on(t.barberId, t.createdAt),
+  ],
+)
+
+/**
+ * Append-only. A barber's balance = sum(amount): positive means the shop owes
+ * the barber, negative means the barber owes the shop (usually cash they
+ * hold). Written in the same transaction as the money it records, like
+ * inventory_ledger.
+ */
+export const barberLedger = pgTable(
+  'barber_ledger',
+  {
+    id: id(),
+    barberId: uuid('barber_id')
+      .notNull()
+      .references(() => barbers.id, { onDelete: 'restrict' }),
+    kind: barberLedgerKind('kind').notNull(),
+    /** What the customer paid. 0 for payouts and adjustments. */
+    grossAmount: money('gross_amount').notNull().default(0),
+    /** The percentage used, frozen, so the row explains itself after terms
+     * change. */
+    rateBps: integer('rate_bps'),
+    amount: money('amount').notNull(),
+    appointmentPaymentId: uuid('appointment_payment_id').references(
+      () => appointmentPayments.id,
+      { onDelete: 'restrict' },
+    ),
+    /** A shop payment on an in-store sale (product commission, cash). */
+    paymentId: uuid('payment_id').references(() => payments.id, {
+      onDelete: 'restrict',
+    }),
+    rentChargeId: uuid('rent_charge_id').references(() => rentCharges.id, {
+      onDelete: 'restrict',
+    }),
+    actorId: uuid('actor_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    note: text('note'),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index('barber_ledger_barber_created_idx').on(t.barberId, t.createdAt),
+    // Each payment credits each kind once, even when a QPay callback and the
+    // sweep race each other; each rent charge is deducted once.
+    uniqueIndex('barber_ledger_appointment_payment_kind_key')
+      .on(t.appointmentPaymentId, t.kind)
+      .where(sql`appointment_payment_id is not null`),
+    uniqueIndex('barber_ledger_payment_kind_key')
+      .on(t.paymentId, t.kind)
+      .where(sql`payment_id is not null`),
+    uniqueIndex('barber_ledger_rent_charge_key')
+      .on(t.rentChargeId)
+      .where(sql`rent_charge_id is not null`),
+    check(
+      'barber_ledger_rate_check',
+      sql`${t.rateBps} is null or ${t.rateBps} between 0 and 10000`,
+    ),
+    check(
+      'barber_ledger_adjustment_check',
+      sql`${t.kind} <> 'adjustment' or ${t.note} is not null`,
+    ),
+    check(
+      'barber_ledger_rent_check',
+      sql`${t.kind} <> 'rent_deduction' or ${t.rentChargeId} is not null`,
+    ),
+  ],
+)
+
+// ---------------------------------------------------------------------------
 // Inferred types — import these instead of redeclaring shapes.
 // ---------------------------------------------------------------------------
 
@@ -558,5 +1136,20 @@ export type Payment = typeof payments.$inferSelect
 export type CheckoutAttempt = typeof checkoutAttempts.$inferSelect
 export type Review = typeof reviews.$inferSelect
 
+export type Location = typeof locations.$inferSelect
+export type Barber = typeof barbers.$inferSelect
+export type Service = typeof services.$inferSelect
+export type BarberShift = typeof barberShifts.$inferSelect
+export type BarberTerms = typeof barberTerms.$inferSelect
+export type RentCharge = typeof rentCharges.$inferSelect
+export type Appointment = typeof appointments.$inferSelect
+export type AppointmentService = typeof appointmentServices.$inferSelect
+export type AppointmentEvent = typeof appointmentEvents.$inferSelect
+export type AppointmentPayment = typeof appointmentPayments.$inferSelect
+export type InStoreSale = typeof inStoreSales.$inferSelect
+export type BarberLedgerEntry = typeof barberLedger.$inferSelect
+
 export type OrderStatus = (typeof orderStatus.enumValues)[number]
 export type PaymentStatus = (typeof paymentStatus.enumValues)[number]
+export type AppointmentStatus = (typeof appointmentStatus.enumValues)[number]
+export type PaymentMethod = (typeof paymentMethod.enumValues)[number]

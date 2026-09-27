@@ -559,8 +559,16 @@ export const inventoryLedger = pgTable(
 //     entering it themselves. The database refuses a confirmed status without
 //     confirmed_at.
 //
-// Who is a barber is decided by barbers.user_id, not by users.role — so
-// user_role is left untouched and staff access needs no enum migration.
+// Accounts. Customers never have one: their name, phone and email live only
+// on the appointment or order that carries their payment, and everything
+// reaches them by email. Barbers do: the owner creates the users row and the
+// barbers row together from a form (no signup, no passwords), and the barber
+// signs in to their own /barber area with the same emailed code as /admin —
+// otp_codes and sessions serve both unchanged.
+//
+// Who is a barber is decided by barbers.user_id + is_active, not by
+// users.role: one source of truth, so user_role is left untouched, and access
+// ends the moment the owner deactivates the barber.
 // ---------------------------------------------------------------------------
 
 export const appointmentSource = pgEnum('appointment_source', [
@@ -659,8 +667,9 @@ export const barbers = pgTable(
     /** Paid online to book, kept on cancel or no-show. 0 = phone booking only:
      * online booking always needs money in front of it. */
     bookingFee: money('booking_fee').notNull().default(0),
-    /** The login. Having one makes the user staff for their own barber data,
-     * without touching users.role. */
+    /** The barber's login, created by the owner with this row. Signing in to
+     * /barber (email code only) requires this link and is_active; users.role
+     * plays no part. Null = the owner manages this barber, no login. */
     userId: uuid('user_id').references(() => users.id, {
       onDelete: 'set null',
     }),

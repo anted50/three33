@@ -17,7 +17,14 @@ import {
   setCartQty,
   type CartView,
 } from '~/lib/server/cart/cart'
-import { createOrder } from '~/lib/server/orders/create'
+import { createOrder, getCheckoutMethods } from '~/lib/server/orders/create'
+import type { ProviderName } from '~/lib/server/payments/registry'
+import {
+  meetsMinimum,
+  PAYMENT_METHOD_LABELS,
+  PAYMENT_METHOD_LOGOS,
+  PAYMENT_METHOD_MIN_TOTAL,
+} from '~/lib/payment-methods'
 import { clearValidity, localizeValidity } from '~/lib/form-messages'
 
 /**
@@ -81,6 +88,12 @@ function CartDrawer() {
     null,
   )
 
+  /** Only ever grows past ['qpay'] once StorePay is actually configured — see
+   * getCheckoutMethods. A radio group with one option would just be noise, so
+   * the form only shows a choice once there is one. */
+  const [methods, setMethods] = useState<ProviderName[]>(['qpay'])
+  const [method, setMethod] = useState<ProviderName>('qpay')
+
   // Load on open, and reload each time it reopens — stock or prices may have
   // moved while the drawer was shut.
   useEffect(() => {
@@ -97,6 +110,12 @@ function CartDrawer() {
     })
     void getLiveCheckout().then((found) => {
       if (!cancelled) setLive(found)
+    })
+    void getCheckoutMethods().then((available) => {
+      if (cancelled) return
+      setMethods(available)
+      // Don't fight a choice the customer already made in this drawer session.
+      setMethod((current) => (available.includes(current) ? current : available[0]!))
     })
     return () => {
       cancelled = true
@@ -152,6 +171,7 @@ function CartDrawer() {
           phone: String(form.get('phone') ?? ''),
           email: String(form.get('email') ?? ''),
           address: String(form.get('address') ?? ''),
+          method: chosenMethod,
         },
       })
 
@@ -178,6 +198,11 @@ function CartDrawer() {
         ? 0
         : shippingFee
       : null
+  const total = (cart?.subtotal ?? 0) + (shipping ?? 0)
+
+  /** Falls back to QPay if the cart shrank under the picked method's minimum
+   * after it was chosen, rather than submitting a choice the server rejects. */
+  const chosenMethod: ProviderName = meetsMinimum(method, total) ? method : 'qpay'
 
   return (
     <div className="drawer" role="dialog" aria-modal="true" aria-label="Сагс">
@@ -342,6 +367,50 @@ function CartDrawer() {
                     autoComplete="street-address"
                   />
                 </label>
+
+                {methods.length > 1 && (
+                  <fieldset className="field field--method">
+                    <legend>Төлбөрийн хэлбэр</legend>
+                    <div className="method-options">
+                      {methods.map((option) => {
+                        const allowed = meetsMinimum(option, total)
+                        const selected = chosenMethod === option
+                        return (
+                          <label
+                            key={option}
+                            className={`field__radio${selected ? ' field__radio--selected' : ''}${allowed ? '' : ' field__radio--disabled'}`}
+                          >
+                            <input
+                              type="radio"
+                              name="method-choice"
+                              checked={selected}
+                              disabled={!allowed}
+                              onChange={() => setMethod(option)}
+                            />
+                            <img
+                              src={PAYMENT_METHOD_LOGOS[option]}
+                              alt=""
+                              width={20}
+                              height={20}
+                              className="field__radio-logo"
+                            />
+                            <span>{PAYMENT_METHOD_LABELS[option]}</span>
+                          </label>
+                        )
+                      })}
+                    </div>
+                    {methods.map((option) => {
+                      const min = PAYMENT_METHOD_MIN_TOTAL[option]
+                      if (min === undefined || meetsMinimum(option, total)) return null
+                      return (
+                        <small key={option}>
+                          {PAYMENT_METHOD_LABELS[option]} {formatMnt(min)}-с дээш
+                          захиалгад боломжтой
+                        </small>
+                      )
+                    })}
+                  </fieldset>
+                )}
 
                 {orderError && <p className="error">{orderError}</p>}
               </form>

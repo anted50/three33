@@ -23,6 +23,7 @@
     "booking:sweep": "tsx scripts/booking-sweep.ts",
     "qpay:ping": "tsx scripts/qpay-ping.ts",
     "qpay:smoke": "tsx scripts/qpay-smoke.ts",
+    "storepay:ping": "tsx scripts/storepay-ping.ts",
     "mail:preview": "tsx scripts/preview-email.ts"
   },
   "dependencies": {

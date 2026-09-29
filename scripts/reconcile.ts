@@ -1,11 +1,12 @@
 /**
- * QPay reconciliation sweep. Runs on host cron, hourly — NOT as a server
- * function, because server functions only execute when a request arrives and
- * the entire purpose of this script is to catch orders where no request ever
- * came (dropped callback, customer closed the tab, QPay retry exhausted).
+ * Order payment reconciliation sweep, across every provider (QPay, StorePay).
+ * Runs on host cron, hourly — NOT as a server function, because server
+ * functions only execute when a request arrives and the entire purpose of
+ * this script is to catch orders where no request ever came (dropped
+ * callback, customer closed the tab, provider retry exhausted).
  *
  * Safe to run concurrently with a live callback: both paths go through
- * settleOrder, and payments_qpay_payment_id_key lets exactly one of them win.
+ * settleOrder, and payments_payment_id_key lets exactly one of them win.
  */
 import { and, eq, lt } from 'drizzle-orm'
 import { db } from '~/db'

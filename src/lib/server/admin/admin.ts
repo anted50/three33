@@ -1,4 +1,5 @@
 import { createServerFn } from '@tanstack/react-start'
+import { formatDate } from '~/lib/dates'
 import { eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '~/db'
@@ -7,6 +8,13 @@ import { expireCheckout } from '../orders/expire'
 import { deliverOrderReceipt } from '../orders/receipt'
 import { assertTransition, isPaid } from '../orders/state'
 import { loadShippingRates, saveShippingRates } from '../settings'
+import { availableProviders } from '../payments/registry'
+import { createAdminInvoiceInput } from './invoice-lines'
+import {
+  adminInvoiceDetail,
+  issueAdminInvoice,
+  listAdminInvoices,
+} from './invoices'
 import {
   assertAdmin,
   categoryOptions,
@@ -95,7 +103,7 @@ export const exportOrders = createServerFn({ method: 'POST' })
     for (const row of rows) {
       sheet.addRow({
         orderNo: row.orderNo,
-        date: new Date(row.createdAt).toLocaleDateString('mn-MN'),
+        date: formatDate(row.createdAt),
         phone: row.phone,
         address: row.address ? formatAddress(row.address) : '—',
         items: row.items,
@@ -626,6 +634,39 @@ export const receiveStock = createServerFn({ method: 'POST' })
 
       return { ok: true as const, lines: data.lines.length }
     })
+  })
+
+export const getInvoiceMethods = createServerFn({ method: 'GET' }).handler(
+  async () => {
+    await assertAdmin()
+    return availableProviders()
+  },
+)
+
+export const getAdminInvoices = createServerFn({ method: 'GET' }).handler(
+  async () => {
+    await assertAdmin()
+    return listAdminInvoices()
+  },
+)
+
+export const getAdminInvoice = createServerFn({ method: 'GET' })
+  .validator(orderNoInput)
+  .handler(async ({ data }) => {
+    await assertAdmin()
+    return adminInvoiceDetail(data.orderNo)
+  })
+
+/**
+ * Issues a QPay or StorePay invoice for any mix of catalog items and custom
+ * lines. Cancelling one goes through setOrderStatus('cancelled'), which
+ * already cancels the invoice at the provider.
+ */
+export const createAdminInvoice = createServerFn({ method: 'POST' })
+  .validator(createAdminInvoiceInput)
+  .handler(async ({ data }) => {
+    const admin = await assertAdmin()
+    return issueAdminInvoice(data, admin.id)
   })
 
 export const getShopSettings = createServerFn({ method: 'GET' }).handler(

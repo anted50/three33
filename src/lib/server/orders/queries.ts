@@ -19,11 +19,11 @@ export const orderNoInput = z.object({
 /**
  * Polled by the payment page.
  *
- * While the order is pending it actively asks QPay rather than just reading our
- * own row. That means the customer's page settles even if the callback never
- * arrives — the same reason the reconciliation sweep exists, applied to the one
- * customer who is sitting there watching. settleOrder throttles how often that
- * question actually reaches QPay.
+ * While the order is pending it actively asks the payment provider rather
+ * than just reading our own row. That means the customer's page settles even
+ * if the callback never arrives — the same reason the reconciliation sweep
+ * exists, applied to the one customer who is sitting there watching.
+ * settleOrder throttles how often that question actually reaches the provider.
  */
 export const getOrderStatus = createServerFn({ method: 'GET' })
   .validator(orderNoInput)
@@ -101,7 +101,8 @@ export const getPaymentDetails = createServerFn({ method: 'GET' })
 
     const [row] = await db
       .select({
-        invoiceId: payments.qpayInvoiceId,
+        provider: payments.provider,
+        invoiceId: payments.invoiceId,
         amount: payments.amount,
       })
       .from(payments)

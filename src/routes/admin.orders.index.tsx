@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { formatDate } from '~/lib/dates'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { z } from 'zod'
 import { formatAddress } from '~/lib/address'
@@ -207,7 +208,7 @@ function Orders() {
                         </Link>
                       </td>
                       <td className="adm__muted">
-                        {new Date(order.createdAt).toLocaleDateString('mn-MN')}
+                        {formatDate(order.createdAt)}
                       </td>
                       <td className="adm__muted adm__num">{order.phone}</td>
                       <td className="adm__muted adm__ellipsis">

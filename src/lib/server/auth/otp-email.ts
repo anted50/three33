@@ -8,6 +8,7 @@ import {
   PAPER,
 } from '../email/shell'
 import { sendEmail } from '../email/resend'
+import { env } from '../env'
 import { OTP_TTL_MS } from './otp'
 
 const SANS =
@@ -52,7 +53,7 @@ export async function sendAdminOtpEmail(
 
   const logo = logoAttachment()
 
-  await sendEmail({
+  const sent = await sendEmail({
     to: { email },
     subject: `${code} — ${heading.toLowerCase()}`,
     html: emailDocument({
@@ -65,4 +66,11 @@ export async function sendAdminOtpEmail(
     text,
     inlineImages: logo ? [logo] : undefined,
   })
+
+  // Local dev has no mail key, so the code would otherwise go nowhere and
+  // nobody could log in. Development only: a code in production logs is a
+  // login for anyone who can read them.
+  if (!sent && env.NODE_ENV === 'development') {
+    console.log(`[dev] ${heading} for ${email}: ${code}`)
+  }
 }

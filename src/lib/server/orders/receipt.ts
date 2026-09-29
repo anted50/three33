@@ -87,17 +87,22 @@ export async function deliverOrderReceipt(
     .orderBy(asc(orderItems.id))
 
   const [payment] = await db
-    .select({ qpayPaymentId: payments.qpayPaymentId })
+    .select({ provider: payments.provider, paymentId: payments.paymentId })
     .from(payments)
     .where(eq(payments.orderId, order.id))
     .limit(1)
 
-  const ebarimt = payment?.qpayPaymentId
-    ? await getQpayProvider().createEbarimt(
-        payment.qpayPaymentId,
-        env.QPAY_EBARIMT_INVOICE_CODE,
-      )
-    : null
+  /**
+   * E-barimt is a QPay-specific tax feature (see EbarimtReceipt) with no
+   * equivalent on other providers — the receipt email still sends without it.
+   */
+  const ebarimt =
+    payment?.provider === 'qpay' && payment.paymentId
+      ? await getQpayProvider().createEbarimt(
+          payment.paymentId,
+          env.QPAY_EBARIMT_INVOICE_CODE,
+        )
+      : null
 
   const { html, text } = renderReceipt(
     { ...order, name: order.address.name },

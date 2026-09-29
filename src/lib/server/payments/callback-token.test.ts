@@ -61,7 +61,12 @@ describe('verifyCallbackToken', () => {
 describe('buildCallbackUrl', () => {
   it('produces an absolute URL carrying order and token', () => {
     const url = new URL(
-      buildCallbackUrl('https://shop.example.mn', 'UD-1001', SECRET),
+      buildCallbackUrl(
+        'https://shop.example.mn',
+        '/api/qpay/callback',
+        'UD-1001',
+        SECRET,
+      ),
     )
     expect(url.pathname).toBe('/api/qpay/callback')
     expect(url.searchParams.get('order')).toBe('UD-1001')
@@ -70,8 +75,22 @@ describe('buildCallbackUrl', () => {
     ).toBe(true)
   })
 
+  it('carries the path for another provider', () => {
+    const url = new URL(
+      buildCallbackUrl(
+        'https://shop.example.mn',
+        '/api/storepay/callback',
+        'UD-1001',
+        SECRET,
+      ),
+    )
+    expect(url.pathname).toBe('/api/storepay/callback')
+  })
+
   it('round-trips an order number containing URL-significant characters', () => {
-    const url = new URL(buildCallbackUrl('https://x.mn', 'UD/1001&x', SECRET))
+    const url = new URL(
+      buildCallbackUrl('https://x.mn', '/api/qpay/callback', 'UD/1001&x', SECRET),
+    )
     expect(url.searchParams.get('order')).toBe('UD/1001&x')
   })
 })

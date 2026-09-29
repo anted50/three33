@@ -8,7 +8,7 @@ import {
   payments,
   productVariants,
 } from '~/db/schema'
-import { getQpayProvider } from '../payments/qpay'
+import { getProvider } from '../payments/registry'
 import { sendOrderReceipt } from './receipt'
 import { assertTransition } from './state'
 
@@ -33,15 +33,17 @@ export type SettleOutcome =
 export const MIN_CHECK_INTERVAL_MS = 2_500
 
 /**
- * Asks QPay whether an order is paid and, if so, settles it: flips the status,
- * decrements stock, and writes the inventory ledger — all in one transaction.
+ * Asks the order's payment provider whether it is paid and, if so, settles it:
+ * flips the status, decrements stock, and writes the inventory ledger — all in
+ * one transaction.
  *
- * This is the ONLY function that marks an order paid. The callback route and
- * the reconciliation sweep both come through here, which is what makes them
- * safe to race: they cannot each apply the payment because
- * payments_qpay_payment_id_key lets exactly one of them insert.
+ * This is the ONLY function that marks an order paid. Every provider's
+ * callback route and the reconciliation sweep all come through here, which is
+ * what makes them safe to race: they cannot each apply the payment because
+ * payments_payment_id_key lets exactly one of them insert.
  *
- * Never trusts the callback body. Settlement always comes from payment/check.
+ * Never trusts the callback body. Settlement always comes from asking the
+ * provider directly (checkInvoice).
  */
 export async function settleOrder(orderNo: string): Promise<SettleOutcome> {
   const [order] = await db
@@ -61,7 +63,8 @@ export async function settleOrder(orderNo: string): Promise<SettleOutcome> {
   const [payment] = await db
     .select({
       id: payments.id,
-      invoiceId: payments.qpayInvoiceId,
+      provider: payments.provider,
+      invoiceId: payments.invoiceId,
       lastCheckedAt: payments.lastCheckedAt,
     })
     .from(payments)
@@ -84,7 +87,7 @@ export async function settleOrder(orderNo: string): Promise<SettleOutcome> {
     .set({ lastCheckedAt: new Date() })
     .where(eq(payments.id, payment.id))
 
-  const result = await getQpayProvider().checkInvoice(
+  const result = await getProvider(payment.provider).checkInvoice(
     payment.invoiceId,
     order.total,
   )
@@ -127,7 +130,7 @@ export async function settleOrder(orderNo: string): Promise<SettleOutcome> {
         .update(payments)
         .set({
           status: 'paid',
-          qpayPaymentId: result.providerPaymentId,
+          paymentId: result.providerPaymentId,
           rawCallback: result.raw,
           paidAt: new Date(),
         })

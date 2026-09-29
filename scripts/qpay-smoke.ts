@@ -41,6 +41,7 @@ async function create(amountTugrik: number) {
   // even though QPay cannot reach localhost.
   const callbackUrl = buildCallbackUrl(
     env.APP_URL,
+    '/api/qpay/callback',
     orderNo,
     env.QPAY_CALLBACK_SECRET,
   )

@@ -33,7 +33,8 @@ export async function findAdminByEmail(email: string) {
  * page that called it, so this re-checks independently rather than trusting
  * that the /admin route guard already ran.
  */
-export async function assertAdminSession(): Promise<void> {
+export async function assertAdminSession(): Promise<{ id: string }> {
   const user = await validateSessionToken(getCookie(SESSION_COOKIE))
   if (!user || user.role !== 'admin') throw new Error('UNAUTHORISED')
+  return { id: user.id }
 }

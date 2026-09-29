@@ -64,6 +64,20 @@
       "when": 1790500508736,
       "tag": "0008_booking_pos_products",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790592325113,
+      "tag": "0009_storepay_generalize_payment_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790687951037,
+      "tag": "0010_admin_invoices",
+      "breakpoints": true
     }
   ]
 }

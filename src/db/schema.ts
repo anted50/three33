@@ -113,7 +113,12 @@ export interface ShippingAddress {
   mapLink?: string
 }
 
-/** Shape of payments.invoice_payload — the QPay invoice as first returned. */
+/**
+ * Shape of payments.invoice_payload — the provider's invoice as first
+ * returned. A provider with nothing to scan (StorePay invoices arrive in the
+ * customer's app by phone number) stores empty qrText/qrImage and no links;
+ * the payment page shows its QR and bank panels only when they're non-empty.
+ */
 export interface InvoicePayload {
   qrText: string
   qrImage: string
@@ -406,41 +411,64 @@ export const payments = pgTable(
       .notNull()
       .references(() => orders.id, { onDelete: 'cascade' }),
     provider: text('provider').notNull().default('qpay'),
-    qpayInvoiceId: text('qpay_invoice_id'),
-    qpayPaymentId: text('qpay_payment_id'),
+    invoiceId: text('invoice_id'),
+    paymentId: text('payment_id'),
     amount: money('amount').notNull(),
     status: paymentStatus('status').notNull().default('pending'),
     /**
-     * The QR text, base64 QR image and bank deeplinks as returned at invoice
-     * creation. Stored so reloading the payment page re-renders instantly
-     * instead of calling QPay again on every refresh.
+     * The provider's invoice payload as first returned — QR text/image and bank
+     * deeplinks for QPay, whatever the equivalent is for another provider.
+     * Stored so reloading the payment page re-renders instantly instead of
+     * calling the provider again on every refresh.
      */
     invoicePayload: jsonb('invoice_payload').$type<InvoicePayload>(),
     rawCallback: jsonb('raw_callback'),
     paidAt: timestamp('paid_at', { withTimezone: true }),
     /**
-     * Last time we spent a QPay /payment/check on this invoice. The payment
-     * page polls, and every poll used to be one call to QPay — 20 a minute per
-     * customer sitting on the page, and unbounded for anyone hitting the
-     * endpoint deliberately. settleOrder reads this to refuse to ask again
-     * within a couple of seconds.
+     * Last time we spent a provider settlement check on this invoice. The
+     * payment page polls, and every poll used to be one call to the provider —
+     * 20 a minute per customer sitting on the page, and unbounded for anyone
+     * hitting the endpoint deliberately. settleOrder reads this to refuse to
+     * ask again within a couple of seconds.
      */
     lastCheckedAt: timestamp('last_checked_at', { withTimezone: true }),
     createdAt: createdAt(),
   },
   (t) => [
     /**
-     * THE idempotency guard. QPay may deliver the same callback more than once,
-     * and the reconciliation sweep races with it by design. Both paths insert;
-     * this index makes the second one fail loudly instead of double-crediting.
-     * Partial, because qpay_payment_id is null until payment actually lands.
+     * THE idempotency guard. A provider may deliver the same callback more than
+     * once, and the reconciliation sweep races with it by design. Both paths
+     * insert; this index makes the second one fail loudly instead of
+     * double-crediting. Partial, because payment_id is null until payment
+     * actually lands.
      */
-    uniqueIndex('payments_qpay_payment_id_key')
-      .on(t.qpayPaymentId)
-      .where(sql`qpay_payment_id is not null`),
+    uniqueIndex('payments_payment_id_key')
+      .on(t.paymentId)
+      .where(sql`payment_id is not null`),
     index('payments_order_id_idx').on(t.orderId),
-    index('payments_qpay_invoice_id_idx').on(t.qpayInvoiceId),
+    index('payments_invoice_id_idx').on(t.invoiceId),
   ],
+)
+
+/**
+ * Marks an order as issued by an admin from /admin/invoices rather than
+ * checked out by a customer. A side table, like in_store_sales, so orders
+ * itself stays as it is: an order is an admin invoice iff it has a row here.
+ * Everything else — payment, settlement, stock, expiry — is the ordinary
+ * order pipeline.
+ */
+export const adminInvoices = pgTable(
+  'admin_invoices',
+  {
+    orderId: uuid('order_id')
+      .primaryKey()
+      .references(() => orders.id, { onDelete: 'cascade' }),
+    createdBy: uuid('created_by').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: createdAt(),
+  },
+  (t) => [index('admin_invoices_created_at_idx').on(t.createdAt)],
 )
 
 /**

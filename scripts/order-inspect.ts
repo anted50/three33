@@ -55,8 +55,10 @@ const [payment] = await db
   .limit(1)
 
 if (payment) {
-  console.log(`payment  ${payment.status} invoice=${payment.qpayInvoiceId}`)
-  console.log(`  qpay_payment_id: ${payment.qpayPaymentId ?? '(none)'}`)
+  console.log(
+    `payment  ${payment.provider} ${payment.status} invoice=${payment.invoiceId}`,
+  )
+  console.log(`  payment_id: ${payment.paymentId ?? '(none)'}`)
   const payload = payment.invoicePayload
   console.log(`  stored links: ${payload?.links.length ?? 0}`)
 }

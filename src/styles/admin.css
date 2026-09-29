@@ -31,6 +31,10 @@
   align-items: center;
   gap: 16px;
   flex-wrap: wrap;
+  /* A grid item sizes to its content by default; without this the nav's full
+     width stretched the whole admin to ~1024px below the 900px breakpoint
+     instead of the nav scrolling sideways. */
+  min-width: 0;
 }
 
 .adm__logo {
@@ -50,6 +54,8 @@
   gap: 4px;
   overflow-x: auto;
   scrollbar-width: none;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .adm__nav::-webkit-scrollbar {
@@ -1222,4 +1228,99 @@
 
 .rte__area li {
   margin-bottom: 4px;
+}
+
+/* ---- Invoice maker ---- */
+
+.invoice-pay {
+  text-align: center;
+}
+
+.invoice-pay__method {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.invoice-pay__method img {
+  object-fit: contain;
+}
+
+.invoice-pay__amount {
+  font-size: 28px;
+  font-weight: 700;
+  margin: 4px 0 12px;
+}
+
+.invoice-pay__qr {
+  display: block;
+  margin: 0 auto 12px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #fff;
+}
+
+.invoice-pay__paid {
+  color: var(--ok);
+  font-weight: 600;
+}
+
+/* ---- Numpad (custom invoice amounts) ---- */
+
+.numpad {
+  width: min(380px, 100%);
+}
+
+.numpad__display {
+  display: block;
+  padding: 16px 12px;
+  margin-bottom: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-size: 30px;
+  font-weight: 700;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.numpad__keys {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.numpad__key {
+  min-height: 56px; /* comfortable for a thumb at the counter */
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #fff;
+  font-size: 20px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.numpad__key:hover {
+  background: var(--surface);
+}
+
+.numpad__key:active {
+  transform: scale(0.97);
+}
+
+.numpad__name {
+  margin: 16px 0 0;
+}
+
+.amount-cell {
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #fff;
+  cursor: pointer;
+  min-width: 110px;
+  text-align: right;
 }

@@ -1,14 +1,16 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
 
 /**
- * Our callback URL is public — QPay has to reach it, so anyone can. The `t`
- * query parameter is an HMAC over the order number, proving that a callback
- * naming order X actually came from a URL we generated when we created X's
- * invoice, rather than from someone enumerating order numbers.
+ * Our callback URLs are public — each provider has to reach its own, so
+ * anyone can. The `t` query parameter is an HMAC over the order number,
+ * proving that a callback naming order X actually came from a URL we
+ * generated when we created X's invoice, rather than from someone
+ * enumerating order numbers.
  *
  * This does NOT prove payment. Nothing here does. It only decides whether the
- * request is worth spending a payment/check call on. Settlement always comes
- * from asking QPay directly.
+ * request is worth spending a settlement check on. Settlement always comes
+ * from asking the provider directly. Both QPay and StorePay callback routes
+ * share this scheme, signed with their own secret.
  */
 
 export function signCallbackToken(orderNo: string, secret: string): string {
@@ -35,13 +37,14 @@ export function verifyCallbackToken(
   return timingSafeEqual(a, b)
 }
 
-/** Builds the absolute callback URL handed to QPay at invoice creation. */
+/** Builds the absolute callback URL handed to a provider at invoice creation. */
 export function buildCallbackUrl(
   appUrl: string,
+  path: string,
   orderNo: string,
   secret: string,
 ): string {
-  const url = new URL('/api/qpay/callback', appUrl)
+  const url = new URL(path, appUrl)
   url.searchParams.set('order', orderNo)
   url.searchParams.set('t', signCallbackToken(orderNo, secret))
   return url.toString()

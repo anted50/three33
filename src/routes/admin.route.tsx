@@ -6,6 +6,7 @@ import {
   CartIcon,
   GearIcon,
   GridIcon,
+  ReceiptIcon,
   SignOutIcon,
   TagIcon,
   TruckIcon,
@@ -44,6 +45,7 @@ const NAV: Array<{
   // exact, or "Dashboard" stays highlighted on every /admin/* page.
   { to: '/admin', label: 'Хяналтын самбар', icon: GridIcon, exact: true },
   { to: '/admin/orders', label: 'Захиалга', icon: CartIcon },
+  { to: '/admin/invoices', label: 'Нэхэмжлэх', icon: ReceiptIcon },
   { to: '/admin/products', label: 'Бүтээгдэхүүн', icon: BoxIcon },
   { to: '/admin/categories', label: 'Ангилал', icon: TagIcon },
   { to: '/admin/purchases', label: 'Татан авалт', icon: TruckIcon },
@@ -126,6 +128,7 @@ function Crumb() {
   const path = location.pathname
 
   if (path.startsWith('/admin/orders')) return <>Захиалга</>
+  if (path.startsWith('/admin/invoices')) return <>Нэхэмжлэх</>
   if (path.startsWith('/admin/products')) return <>Бүтээгдэхүүн</>
   if (path.startsWith('/admin/categories')) return <>Ангилал</>
   if (path.startsWith('/admin/purchases')) return <>Татан авалт</>

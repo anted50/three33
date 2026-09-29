@@ -1,13 +1,15 @@
-import { fromQpayAmount, type Mungu } from '~/lib/money'
+import { fromQpayAmount, fromStorepayAmount, type Mungu } from '~/lib/money'
 import type { SettlementResult } from './provider'
 import type { QpayPaymentCheckResponse } from './qpay/types'
+import type { StorepayCheckByLoanResponse } from './storepay/types'
 
 /**
- * Turns a QPay payment/check response into a settlement decision.
+ * Turns each provider's own "is this paid?" response into a settlement
+ * decision.
  *
  * Pure on purpose — no network, no database. This is the single most important
  * piece of logic in the payment flow (it decides whether a customer's order is
- * paid), so it is a plain function that Vitest can hammer directly.
+ * paid), so these are plain functions Vitest can hammer directly.
  */
 export function decideSettlement(
   response: QpayPaymentCheckResponse,
@@ -55,9 +57,43 @@ export function decideSettlement(
   return {
     outcome,
     paidAmount,
-    // The first PAID row is what goes in payments.qpay_payment_id, which
+    // The first PAID row is what goes in payments.payment_id, which
     // carries the unique index that makes callback/reconcile races safe.
     providerPaymentId: paidRows[0]!.payment_id,
     raw: response,
   }
+}
+
+/**
+ * Turns a StorePay loan/check response into a settlement decision.
+ *
+ * Unlike QPay, a StorePay loan has no partial-payment concept — the customer
+ * either confirmed the installment for the full amount or they didn't — so
+ * there is no `refunded`/multi-row summing to do here. `underpaid` is kept
+ * for the theoretical case where StorePay confirms a loan for less than we
+ * asked, so that case still surfaces to a human rather than silently shipping.
+ *
+ * `loanId` is threaded through rather than read off the response because
+ * StorePay has no separate "payment id" the way QPay does — the loan id is
+ * the only reference for payments_payment_id_key's idempotency guard.
+ */
+export function decideStorepaySettlement(
+  response: StorepayCheckByLoanResponse,
+  loanId: string,
+  expected: Mungu,
+): SettlementResult {
+  const data = response.data
+
+  if (!data?.isExist) {
+    return { outcome: 'unpaid', paidAmount: 0, providerPaymentId: null, raw: response }
+  }
+
+  if (!data.isConfirmed) {
+    return { outcome: 'unpaid', paidAmount: 0, providerPaymentId: null, raw: response }
+  }
+
+  const paidAmount = fromStorepayAmount(data.amount)
+  const outcome = paidAmount >= expected ? 'paid' : 'underpaid'
+
+  return { outcome, paidAmount, providerPaymentId: loanId, raw: response }
 }

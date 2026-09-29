@@ -1903,6 +1903,87 @@ button:focus-visible {
   outline-offset: 2px;
 }
 
+.field--method {
+  /* Reset browser fieldset chrome so it reads as one more .field, not a box
+     nested inside the form. */
+  border: 0;
+  padding: 0;
+  min-width: 0;
+}
+
+.field--method legend {
+  padding: 0;
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+
+.method-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.field__radio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px; /* comfortable touch target */
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.field__radio--selected {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* The tile's border is the selection indicator, so the radio itself is
+   visually hidden — still in the tab order and read by screen readers. */
+.field__radio input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.field__radio {
+  position: relative;
+}
+
+.field__radio:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.field--method small {
+  margin-top: 6px;
+}
+
+.field__radio span {
+  min-width: 0;
+}
+
+.field__radio-logo {
+  border-radius: 4px;
+  flex-shrink: 0;
+  /* The QPay mark isn't square (189×200); keep it from stretching. */
+  object-fit: contain;
+}
+
+.field__radio--disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .field small {
   display: block;
   color: var(--muted);
@@ -2037,6 +2118,22 @@ button:focus-visible {
   border-radius: var(--radius);
   padding: 8px;
   background: #fff;
+}
+
+.storepay-steps {
+  max-width: 360px;
+  margin: 12px auto 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.qr__provider-logo {
+  margin: 0 6px -3px 0 !important;
+  border: 0 !important;
+  padding: 0 !important;
+  background: none !important;
+  border-radius: 3px !important;
+  object-fit: contain;
 }
 
 .polling {

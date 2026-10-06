@@ -49,3 +49,35 @@ export function buildCallbackUrl(
   url.searchParams.set('t', signCallbackToken(orderNo, secret))
   return url.toString()
 }
+
+/**
+ * Same signed callback, with the order number and token in the path:
+ * `<base>/<orderNo>/<token>`.
+ *
+ * For StorePay, whose guide shows it appending `?id=<loanId>` to whatever URL
+ * it is given. Glued naively onto a URL that already has a query string, that
+ * turns `t=abc` into `t=abc?id=123` and every genuine callback fails the HMAC.
+ * Nothing it appends can reach the path.
+ */
+/**
+ * The token segment as the route receives it, minus anything StorePay glued
+ * onto the end. A real token is lowercase hex, so the leading hex run is the
+ * token; a trailing `&id=…` (appended without a `?`) is dropped. Anything
+ * that isn't a real token still fails verifyCallbackToken afterwards.
+ */
+export function cleanPathToken(raw: string): string {
+  return /^[0-9a-f]*/.exec(raw)![0]
+}
+
+export function buildPathCallbackUrl(
+  appUrl: string,
+  basePath: string,
+  orderNo: string,
+  secret: string,
+): string {
+  const token = signCallbackToken(orderNo, secret)
+  return new URL(
+    `${basePath.replace(/\/$/, '')}/${encodeURIComponent(orderNo)}/${token}`,
+    appUrl,
+  ).toString()
+}

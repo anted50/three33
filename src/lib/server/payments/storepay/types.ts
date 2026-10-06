@@ -48,10 +48,16 @@ export type StorepayCreateLoanResponse = z.infer<
   typeof storepayCreateLoanResponse
 >
 
+/**
+ * Only the two flags are always present. For a loan StorePay has no record of
+ * the reply is just `{ isExist: false, isConfirmed: false }` (observed
+ * 2026-09-29, with envelope status "Error") — requiring the rest made that
+ * reply throw, and an order whose loan was gone could then never expire.
+ */
 const storepayLoanData = z.object({
-  loanId: z.coerce.string(),
-  status: z.string(),
-  amount: z.coerce.number(),
+  loanId: z.coerce.string().optional(),
+  status: z.string().optional(),
+  amount: z.coerce.number().optional(),
   description: z.string().nullish(),
   storeId: z.coerce.string().nullish(),
   number: z.string().nullish(),

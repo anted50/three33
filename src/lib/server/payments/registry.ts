@@ -1,5 +1,5 @@
 import { env } from '../env'
-import { buildCallbackUrl } from './callback-token'
+import { buildCallbackUrl, buildPathCallbackUrl } from './callback-token'
 import { getQpayProvider } from './qpay'
 import type { PaymentProvider } from './provider'
 import { getStorepayProvider, isStorepayConfigured } from './storepay'
@@ -33,7 +33,13 @@ export function getProvider(name: string): PaymentProvider {
 export function providerCallbackUrl(name: ProviderName, orderNo: string): string {
   return name === 'qpay'
     ? buildCallbackUrl(env.APP_URL, '/api/qpay/callback', orderNo, env.QPAY_CALLBACK_SECRET)
-    : buildCallbackUrl(env.APP_URL, '/api/storepay/callback', orderNo, env.STOREPAY_CALLBACK_SECRET!)
+    : // Path, not query: StorePay appends its own `?id=` — see buildPathCallbackUrl.
+      buildPathCallbackUrl(
+        env.APP_URL,
+        '/api/storepay/callback',
+        orderNo,
+        env.STOREPAY_CALLBACK_SECRET!,
+      )
 }
 
 /** Payment methods checkout may currently offer, in display order. */

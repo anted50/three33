@@ -92,6 +92,12 @@ export function decideStorepaySettlement(
     return { outcome: 'unpaid', paidAmount: 0, providerPaymentId: null, raw: response }
   }
 
+  // Confirmed but no amount to check it against: don't ship on faith. The
+  // underpaid path leaves the order pending for a human instead.
+  if (data.amount === undefined) {
+    return { outcome: 'underpaid', paidAmount: 0, providerPaymentId: null, raw: response }
+  }
+
   const paidAmount = fromStorepayAmount(data.amount)
   const outcome = paidAmount >= expected ? 'paid' : 'underpaid'
 

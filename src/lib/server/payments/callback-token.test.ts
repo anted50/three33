@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildCallbackUrl,
+  buildPathCallbackUrl,
+  cleanPathToken,
   signCallbackToken,
   verifyCallbackToken,
 } from './callback-token'
@@ -92,5 +94,51 @@ describe('buildCallbackUrl', () => {
       buildCallbackUrl('https://x.mn', '/api/qpay/callback', 'UD/1001&x', SECRET),
     )
     expect(url.searchParams.get('order')).toBe('UD/1001&x')
+  })
+})
+
+describe('buildPathCallbackUrl', () => {
+  /** What the /api/storepay/callback/$orderNo/$token route receives. */
+  function routeParams(href: string) {
+    const [orderNo, token] = new URL(href).pathname
+      .replace('/api/storepay/callback/', '')
+      .split('/')
+      .map(decodeURIComponent)
+    return { orderNo, token }
+  }
+
+  const base = () =>
+    buildPathCallbackUrl('https://shop.example.mn', '/api/storepay/callback', 'UD-260929-NTYD', SECRET)
+
+  it('puts the order and a valid token in the path', () => {
+    expect(base()).toBe(
+      `https://shop.example.mn/api/storepay/callback/UD-260929-NTYD/${signCallbackToken('UD-260929-NTYD', SECRET)}`,
+    )
+    const { orderNo, token } = routeParams(base())
+    expect(verifyCallbackToken(orderNo!, token, SECRET)).toBe(true)
+  })
+
+  // StorePay's guide shows it appending `?id=<loanId>` to the URL it is given.
+  // Either way it does that, the token must still verify.
+  it('survives StorePay appending ?id=', () => {
+    const { orderNo, token } = routeParams(`${base()}?id=2248245`)
+    expect(verifyCallbackToken(orderNo!, token, SECRET)).toBe(true)
+  })
+
+  it('survives StorePay appending &id= with no ?', () => {
+    // Lands in the token's path segment; the route trims it off first.
+    const { orderNo, token } = routeParams(`${base()}&id=2248245`)
+    expect(verifyCallbackToken(orderNo!, cleanPathToken(token!), SECRET)).toBe(true)
+  })
+
+  it('still rejects a forged token after trimming', () => {
+    const forged = signCallbackToken('UD-OTHER', SECRET)
+    expect(verifyCallbackToken('UD-260929-NTYD', cleanPathToken(`${forged}&id=1`), SECRET)).toBe(false)
+    expect(verifyCallbackToken('UD-260929-NTYD', cleanPathToken('&id=1'), SECRET)).toBe(false)
+  })
+
+  it('encodes an order number containing URL-significant characters', () => {
+    const href = buildPathCallbackUrl('https://x.mn', '/api/storepay/callback/', 'UD/1 0', SECRET)
+    expect(routeParams(href).orderNo).toBe('UD/1 0')
   })
 })

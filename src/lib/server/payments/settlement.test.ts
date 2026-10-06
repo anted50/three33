@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { tugrikToMungu } from '~/lib/money'
 import { decideSettlement, decideStorepaySettlement } from './settlement'
 import type { QpayPaymentCheckResponse } from './qpay/types'
-import type { StorepayCheckByLoanResponse } from './storepay/types'
+import {
+  storepayCheckByLoanResponse,
+  type StorepayCheckByLoanResponse,
+} from './storepay/types'
 
 const TOTAL = tugrikToMungu(45_000)
 
@@ -139,6 +142,32 @@ function loanCheck(
 }
 
 describe('decideStorepaySettlement', () => {
+  it('parses and settles StorePay’s real reply for an unknown loan', () => {
+    // Verbatim from GET /merchant/loan/check/1 on 2026-09-29: no loanId, no
+    // status, no amount, and an envelope status of "Error". This used to
+    // throw in the parser, so such an order could never expire.
+    const reply = storepayCheckByLoanResponse.parse({
+      value: false,
+      data: { isExist: false, isConfirmed: false },
+      msgList: [],
+      attrs: {},
+      status: 'Error',
+    })
+    expect(decideStorepaySettlement(reply, '1', TOTAL).outcome).toBe('unpaid')
+  })
+
+  it('sends a confirmed loan with no amount to a human, not to "paid"', () => {
+    const reply = storepayCheckByLoanResponse.parse({
+      value: true,
+      data: { isExist: true, isConfirmed: true },
+      msgList: [],
+      status: 'Success',
+    })
+    const result = decideStorepaySettlement(reply, '2248245', TOTAL)
+    expect(result.outcome).toBe('underpaid')
+    expect(result.providerPaymentId).toBeNull()
+  })
+
   it('reports unpaid when the loan does not exist', () => {
     const result = decideStorepaySettlement(loanCheck(null), '2248245', TOTAL)
     expect(result.outcome).toBe('unpaid')

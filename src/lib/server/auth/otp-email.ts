@@ -8,6 +8,7 @@ import {
   PAPER,
 } from '../email/shell'
 import { sendEmail } from '../email/resend'
+import { env } from '../env'
 import { OTP_TTL_MS } from './otp'
 
 const SANS =
@@ -20,11 +21,13 @@ const MAX_WIDTH = 420
 export async function sendAdminOtpEmail(
   email: string,
   code: string,
+  /** Barbers get a plain "login code"; the default keeps the admin wording. */
+  heading = 'Админ нэвтрэх код',
 ): Promise<void> {
   const minutes = Math.round(OTP_TTL_MS / 60_000)
 
   const text = [
-    'Админ нэвтрэх код',
+    heading,
     '',
     code,
     '',
@@ -38,7 +41,7 @@ export async function sendAdminOtpEmail(
         ${logoImgTag()}
       </div>
       <div class="panel" bgcolor="${PANEL}" style="max-width:${MAX_WIDTH}px;margin:28px auto 0;background-color:${PANEL};padding:32px 24px;text-align:center">
-        <p class="keepink" style="margin:0 0 18px;font-size:14px;color:${INK}">Админ нэвтрэх код</p>
+        <p class="keepink" style="margin:0 0 18px;font-size:14px;color:${INK}">${heading}</p>
         <p class="keepink" style="margin:0;font-size:38px;font-weight:800;letter-spacing:0.18em;font-variant-numeric:tabular-nums;color:${INK}">${code}</p>
         <p class="soft" style="margin:18px 0 0;font-size:12.5px;color:${INK_SOFT}">${minutes} минутын дараа хүчингүй болно</p>
       </div>
@@ -50,11 +53,11 @@ export async function sendAdminOtpEmail(
 
   const logo = logoAttachment()
 
-  await sendEmail({
+  const sent = await sendEmail({
     to: { email },
-    subject: `${code} — админ нэвтрэх код`,
+    subject: `${code} — ${heading.toLowerCase()}`,
     html: emailDocument({
-      title: 'Админ нэвтрэх код',
+      title: heading,
       // The code is already in the subject; repeating it in the preview line
       // puts it twice in the inbox list and nowhere useful.
       preheader: `${minutes} минутын дараа хүчингүй болно.`,
@@ -63,4 +66,11 @@ export async function sendAdminOtpEmail(
     text,
     inlineImages: logo ? [logo] : undefined,
   })
+
+  // Local dev has no mail key, so the code would otherwise go nowhere and
+  // nobody could log in. Development only: a code in production logs is a
+  // login for anyone who can read them.
+  if (!sent && env.NODE_ENV === 'development') {
+    console.log(`[dev] ${heading} for ${email}: ${code}`)
+  }
 }

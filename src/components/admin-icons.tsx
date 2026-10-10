@@ -77,6 +77,15 @@ export function TruckIcon() {
   )
 }
 
+export function ReceiptIcon() {
+  return (
+    <svg {...base}>
+      <path d="M6 3h12v18l-3-2-3 2-3-2-3 2z" />
+      <path d="M9 8h6M9 12h6" />
+    </svg>
+  )
+}
+
 export function TagIcon() {
   return (
     <svg {...base}>

@@ -91,6 +91,15 @@ const JOBS = [
     firstRunDelayMs: 5 * 60 * 1000,
   },
   {
+    name: 'booking-sweep',
+    script: '../scripts/booking-sweep.ts',
+    // Every 5 minutes: an unpaid booking hold blocks a real slot for other
+    // customers, so it should disappear soon after its 15-minute deadline.
+    // Cheap when idle — two indexed selects and no QPay call.
+    intervalMs: 5 * 60 * 1000,
+    firstRunDelayMs: 2 * 60 * 1000,
+  },
+  {
     name: 'cleanup',
     script: '../scripts/cleanup.ts',
     // Daily is plenty — nothing here is load-bearing, expiry is enforced at

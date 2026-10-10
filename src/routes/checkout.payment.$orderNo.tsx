@@ -2,9 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { z } from 'zod'
 import { Page } from '~/components/layout'
+import { formatCountdown } from '~/lib/countdown'
 import { formatMnt } from '~/lib/money'
 import { getOrderStatus, getPaymentDetails } from '~/lib/server/orders/queries'
 import { getInvoicePresentation } from '~/lib/server/orders/presentation'
+import { PAYMENT_METHOD_LOGOS } from '~/lib/payment-methods'
 
 /**
  * `?t=` carries the order's access token for the case where the checkout cookie
@@ -198,9 +200,41 @@ function Payment() {
           </section>
         )}
 
+        {/*
+          StorePay has nothing to scan or tap: the invoice was sent to the
+          phone number from checkout and waits in the customer's StorePay app.
+        */}
+        {data.provider === 'storepay' && (
+          <section className="qr">
+            <p className="label">
+              <img
+                src={PAYMENT_METHOD_LOGOS.storepay}
+                alt=""
+                width={18}
+                height={18}
+                className="qr__provider-logo"
+              />
+              StorePay аппаар баталгаажуулах
+            </p>
+            <p className="storepay-steps">
+              Таны утасны дугаарт StorePay нэхэмжлэх илгээгдлээ. StorePay апп-аа
+              нээж, «Хүлээгдэж буй» нэхэмжлэхээ баталгаажуулна уу.
+            </p>
+          </section>
+        )}
+
         {invoice?.qrImage && (
           <section className="qr">
-            <p className="label">Эсвэл QR уншуулах</p>
+            <p className="label">
+              <img
+                src={PAYMENT_METHOD_LOGOS.qpay}
+                alt=""
+                width={18}
+                height={18}
+                className="qr__provider-logo"
+              />
+              Эсвэл QR уншуулах
+            </p>
             <img
               src={`data:image/png;base64,${invoice.qrImage}`}
               alt={`QPay QR — ${orderNo}`}
@@ -228,13 +262,5 @@ function Payment() {
 }
 
 function Countdown({ msLeft }: { msLeft: number }) {
-  const total = Math.max(0, Math.floor(msLeft / 1000))
-  const minutes = Math.floor(total / 60)
-  const seconds = total % 60
-
-  return (
-    <strong>
-      {minutes}:{String(seconds).padStart(2, '0')}
-    </strong>
-  )
+  return <strong>{formatCountdown(msLeft)}</strong>
 }

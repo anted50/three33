@@ -5,8 +5,9 @@
  * Rules:
  *   - Every amount in the DB, in server functions, and on the wire is mungu.
  *   - Never a float. Never `parseFloat` on a price.
- *   - Conversion happens at exactly two boundaries: display (formatMnt) and
- *     the QPay API (toQpayAmount / fromQpayAmount).
+ *   - Conversion happens at exactly the boundaries named below: display
+ *     (formatMnt) and each payment provider's own API (toQpayAmount /
+ *     fromQpayAmount, toStorepayAmount / fromStorepayAmount).
  */
 
 /** Branded so a raw number can't be passed where mungu is expected by mistake. */
@@ -67,6 +68,25 @@ export function toQpayAmount(mungu: Mungu): number {
 export function fromQpayAmount(tugrik: number): Mungu {
   if (typeof tugrik !== 'number' || !Number.isFinite(tugrik)) {
     throw new TypeError(`QPay returned a non-numeric amount: ${String(tugrik)}`)
+  }
+  return tugrikToMungu(tugrik)
+}
+
+/** StorePay's `amount` field is likewise tugrik, not mungu. */
+export function toStorepayAmount(mungu: Mungu): number {
+  assertMungu(mungu)
+  if (mungu % MUNGU_PER_TUGRIK !== 0) {
+    throw new RangeError(
+      `Cannot invoice a sub-tugrik amount via StorePay: ${mungu} mungu`,
+    )
+  }
+  return munguToTugrik(mungu)
+}
+
+/** And the only place it happens on the way back in. */
+export function fromStorepayAmount(tugrik: number): Mungu {
+  if (typeof tugrik !== 'number' || !Number.isFinite(tugrik)) {
+    throw new TypeError(`StorePay returned a non-numeric amount: ${String(tugrik)}`)
   }
   return tugrikToMungu(tugrik)
 }

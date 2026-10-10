@@ -14,14 +14,25 @@ import {
 import { currentCart } from '../cart/internal'
 import { computeTotals } from '../cart/pricing'
 import { loadShippingRates } from '../settings'
-import { buildCallbackUrl } from '../payments/callback-token'
-import { getQpayProvider } from '../payments/qpay'
-import { env } from '../env'
+import {
+  availableProviders,
+  getProvider,
+  providerCallbackUrl,
+  type ProviderName,
+} from '../payments/registry'
+import { formatMnt } from '~/lib/money'
+import { meetsMinimum, PAYMENT_METHOD_MIN_TOTAL } from '~/lib/payment-methods'
 import { mintOrderToken, setCheckoutCookie } from './access'
 import { basketFingerprint, sameBasket } from './basket'
 import { expireCheckout } from './expire'
 import { generateOrderNo } from './order-no'
 import { decideRateLimit, RATE_WINDOW_MS } from './rate-limit'
+
+/** Which payment methods checkout may currently offer — read by the drawer
+ * to decide whether to show a choice at all. */
+export const getCheckoutMethods = createServerFn({ method: 'GET' }).handler(
+  async () => availableProviders(),
+)
 
 export const checkoutInput = z.object({
   phone: z
@@ -36,10 +47,15 @@ export const checkoutInput = z.object({
    * customer lives; the courier reads the address either way.
    */
   address: z.string().trim().min(5).max(500),
+  /** Which payment provider to invoice through. Defaults to the original,
+   * always-available option so existing integrations (and tests) that don't
+   * send this keep working unchanged. */
+  method: z.enum(['qpay', 'storepay']).default('qpay'),
 })
 
 export interface CheckoutResult {
   orderNo: string
+  provider: ProviderName
   invoiceId: string
   qrText: string
   qrImage: string
@@ -53,17 +69,19 @@ export interface CheckoutResult {
 }
 
 /**
- * How long a QPay invoice stays payable.
+ * How long an invoice stays payable, whichever provider issued it.
  *
- * These are QR payments people finish in minutes, not bank transfers people
- * sleep on. A short window keeps the gap in which a stale invoice could still
- * take money small, and lets an abandoned checkout be retired while the
- * customer is still plausibly around to be told about it.
+ * These are payments people finish in minutes — scan a QR, confirm a loan in
+ * an app — not bank transfers people sleep on. A short window keeps the gap
+ * in which a stale invoice could still take money small, and lets an
+ * abandoned checkout be retired while the customer is still plausibly around
+ * to be told about it.
  */
 export const INVOICE_TTL_MS = 2 * 60 * 60 * 1000
 
 /**
- * Turns a cart into a pending_payment order and a QPay invoice.
+ * Turns a cart into a pending_payment order and an invoice with the chosen
+ * payment provider.
  *
  * The total is recomputed here from product_variants — nothing the browser
  * sent contributes to it. That discipline used to be enforced by a second
@@ -82,11 +100,12 @@ export const INVOICE_TTL_MS = 2 * 60 * 60 * 1000
  * safe to leave the cart intact (see below): an unchanged basket can only ever
  * reach the invoice it already has, so there is nothing to pay for twice.
  *
- * NOTHING IS WRITTEN UNTIL QPAY ANSWERS. The order rows are inserted after the
- * invoice exists, not before. Written the other way round — as this function
- * used to be — a QPay timeout left an order with no payment row, which
- * settleOrder can only ever report as `not_found` and the sweep can never
- * expire: a permanently unpayable order, and an emptied cart to go with it.
+ * NOTHING IS WRITTEN UNTIL THE PROVIDER ANSWERS. The order rows are inserted
+ * after the invoice exists, not before. Written the other way round — as this
+ * function used to be — a provider timeout left an order with no payment row,
+ * which settleOrder can only ever report as `not_found` and the sweep can
+ * never expire: a permanently unpayable order, and an emptied cart to go
+ * with it.
  */
 export const createOrder = createServerFn({ method: 'POST' })
   .validator(checkoutInput)
@@ -167,9 +186,22 @@ export const createOrder = createServerFn({ method: 'POST' })
       return { pricedLines: priced, totals: computeTotals(priced, rates) }
     })
 
+    if (!availableProviders().includes(data.method)) {
+      throw new Error('Энэ төлбөрийн сонголт одоогоор боломжгүй байна')
+    }
+
+    // The drawer greys this out already; this is the check that counts, since
+    // it runs against the total recomputed above rather than the browser's.
+    if (!meetsMinimum(data.method, totals.total)) {
+      const min = PAYMENT_METHOD_MIN_TOTAL[data.method]!
+      throw new Error(
+        `Энэ төлбөрийн хэлбэрээр ${formatMnt(min)}-с дээш дүнтэй захиалга төлөх боломжтой`,
+      )
+    }
+
     const fingerprint = basketFingerprint(pricedLines, totals.total)
 
-    const reused = await reuseLiveCheckout(cartId, fingerprint)
+    const reused = await reuseLiveCheckout(cartId, fingerprint, data.method)
     if (reused) {
       await record('reused', reused.orderId)
       return reused.result
@@ -181,27 +213,23 @@ export const createOrder = createServerFn({ method: 'POST' })
     const expiresAt = new Date(Date.now() + INVOICE_TTL_MS)
 
     /**
-     * The invoice comes first. If QPay refuses or times out, the customer sees
-     * an error and still has their cart — no order row exists to reconcile,
-     * chase or explain.
+     * The invoice comes first. If the provider refuses or times out, the
+     * customer sees an error and still has their cart — no order row exists
+     * to reconcile, chase or explain.
      */
-    const provider = getQpayProvider()
+    const provider = getProvider(data.method)
     let invoice
     try {
       invoice = await provider.createInvoice({
         orderNo,
         amount: total,
-        // Shows on the payer's bank statement, so it names the shop, not a
-        // label the shop happens to stock.
+        // Shows on the payer's bank statement / StorePay app, so it names
+        // the shop, not a label the shop happens to stock.
         description: `Three33 ${orderNo}`,
-        callbackUrl: buildCallbackUrl(
-          env.APP_URL,
-          orderNo,
-          env.QPAY_CALLBACK_SECRET,
-        ),
+        callbackUrl: providerCallbackUrl(data.method, orderNo),
         customer: {
           // No name is collected at checkout; QPay still requires a payer
-          // name, so the phone number stands in for it.
+          // name, so the phone number stands in for it. StorePay ignores it.
           name: data.phone,
           phone: data.phone,
           email: data.email || undefined,
@@ -259,14 +287,14 @@ export const createOrder = createServerFn({ method: 'POST' })
 
         await tx.insert(payments).values({
           orderId: created.id,
-          provider: 'qpay',
-          qpayInvoiceId: invoice.invoiceId,
+          provider: data.method,
+          invoiceId: invoice.invoiceId,
           amount: total,
           status: 'pending',
           /**
            * The QR text, base64 QR image and bank deeplinks as returned at
            * invoice creation. Stored so reloading the payment page re-renders
-           * instantly instead of calling QPay again on every refresh.
+           * instantly instead of calling the provider again on every refresh.
            */
           invoicePayload,
         })
@@ -275,16 +303,17 @@ export const createOrder = createServerFn({ method: 'POST' })
       })
     } catch (error) {
       /**
-       * An invoice now exists at QPay for an order that does not exist here —
-       * the mirror image of the old failure, and the easier one: cancel it and
-       * nothing is left behind on either side. The likeliest cause is an
-       * order_no collision, which the unique index catches.
+       * An invoice now exists at the provider for an order that does not
+       * exist here — the mirror image of the old failure, and the easier
+       * one: cancel it and nothing is left behind on either side. The
+       * likeliest cause is an order_no collision, which the unique index
+       * catches.
        */
       try {
         await provider.cancelInvoice(invoice.invoiceId)
       } catch (cancelError) {
         console.error(
-          `Orphaned QPay invoice ${invoice.invoiceId} for ${orderNo}`,
+          `Orphaned ${data.method} invoice ${invoice.invoiceId} for ${orderNo}`,
           cancelError,
         )
       }
@@ -302,6 +331,7 @@ export const createOrder = createServerFn({ method: 'POST' })
 
     return {
       orderNo,
+      provider: data.method,
       invoiceId: invoice.invoiceId,
       ...invoicePayload,
       total,
@@ -355,23 +385,27 @@ async function enforceRateLimit(
 
 /**
  * The live invoice for this cart, if the basket has not changed since it was
- * issued.
+ * issued and it was issued against the same payment method being requested
+ * now.
  *
- * A changed basket retires the old invoice rather than leaving it payable
- * alongside the new one — two live invoices for one cart is how a customer
- * pays the wrong amount.
+ * A changed basket — or a changed payment method — retires the old invoice
+ * rather than leaving it payable alongside the new one: two live invoices for
+ * one cart is how a customer pays the wrong amount, or pays the right amount
+ * twice through two different providers.
  */
 async function reuseLiveCheckout(
   cartId: string,
   fingerprint: string,
+  method: ProviderName,
 ): Promise<{ orderId: string; result: CheckoutResult } | null> {
   const [live] = await db
     .select({
       id: orders.id,
       orderNo: orders.orderNo,
+      provider: payments.provider,
       total: orders.total,
       expiresAt: orders.expiresAt,
-      invoiceId: payments.qpayInvoiceId,
+      invoiceId: payments.invoiceId,
       payload: payments.invoicePayload,
     })
     .from(orders)
@@ -386,6 +420,11 @@ async function reuseLiveCheckout(
     .limit(1)
 
   if (!live?.invoiceId || !live.payload) return null
+
+  if (live.provider !== method) {
+    await expireCheckout(live.id, 'cancelled')
+    return null
+  }
 
   const lines = await db
     .select({ variantId: orderItems.variantId, qty: orderItems.qty })
@@ -419,6 +458,7 @@ async function reuseLiveCheckout(
     orderId: live.id,
     result: {
       orderNo: live.orderNo,
+      provider: live.provider as ProviderName,
       invoiceId: live.invoiceId,
       ...live.payload,
       total: live.total,

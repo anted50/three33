@@ -4,6 +4,17 @@ import { loadDotEnv } from '~/lib/load-dot-env'
 loadDotEnv()
 
 /**
+ * An unset .env value is read back as `""`, not `undefined` — process.env
+ * only ever holds strings. `.optional()` alone lets an unset var through
+ * (undefined skips validation) but does nothing for one written as an empty
+ * line in .env, which still has to clear whatever the inner schema requires
+ * (`.min(1)`, `.url()`...) and fails boot on a block nobody has filled in
+ * yet. This treats blank the same as absent for a genuinely optional group.
+ */
+const optional = <T extends z.ZodType>(schema: T) =>
+  z.preprocess((value) => (value === '' ? undefined : value), schema.optional())
+
+/**
  * Fail at boot, not at checkout. A missing QPAY_CALLBACK_SECRET should stop the
  * container from starting, not surface as an unverifiable callback at 2am.
  *
@@ -36,6 +47,26 @@ const schema = z.object({
   QPAY_PASSWORD: z.string().min(1),
   QPAY_INVOICE_CODE: z.string().min(1),
   QPAY_CALLBACK_SECRET: z.string().min(32),
+
+  /**
+   * StorePay — a merchant installment ("хойшлуулсан төлбөр") loan, offered as
+   * a second checkout option alongside the QPay QR transfer above. Optional as
+   * a group: unset means the option is hidden from checkout rather than
+   * failing the build, since onboarding with StorePay lands independently of
+   * a deploy. getStorepayProvider() throws a clear error if it is ever called
+   * without every one of these set — see storepay/index.ts.
+   */
+  STOREPAY_BASE_URL: optional(z.url()),
+  /** Client credentials, sent as HTTP Basic on /oauth/token. */
+  STOREPAY_APP_USERNAME: optional(z.string().min(1)),
+  STOREPAY_APP_PASSWORD: optional(z.string().min(1)),
+  /** Resource-owner credentials StorePay issued this merchant, sent as the
+   * password-grant username/password. Distinct from the app credentials above. */
+  STOREPAY_USERNAME: optional(z.string().min(1)),
+  STOREPAY_PASSWORD: optional(z.string().min(1)),
+  /** This shop's StorePay store number — their `storeId`. */
+  STOREPAY_STORE_ID: optional(z.string().min(1)),
+  STOREPAY_CALLBACK_SECRET: optional(z.string().min(32)),
 
   /**
    * Transactional email (order receipts, admin login codes) via Resend's HTTP

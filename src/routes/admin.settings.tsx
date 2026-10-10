@@ -24,7 +24,6 @@ function Settings() {
       <header className="adm__head">
         <div>
           <h1>Тохиргоо</h1>
-          <p className="adm__muted">Хүргэлтийн төлбөр</p>
         </div>
       </header>
 
@@ -89,12 +88,6 @@ function Settings() {
             <small>Одоо: {formatMnt(rates.freeThreshold)}</small>
           </label>
         </div>
-
-        <p className="adm__muted adm__hint">
-          Энэ дүнгээс дээш захиалгын хүргэлт үнэгүй болно. Өөрчлөлт шинэ
-          захиалгад шууд үйлчилнэ.
-        </p>
-
         <button type="submit" className="btn" disabled={busy}>
           {busy ? 'Хадгалж байна…' : saved ? '✓ Хадгалсан' : 'Хадгалах'}
         </button>

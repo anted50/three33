@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
+import { formatDate } from '~/lib/dates'
 import { formatMnt } from '~/lib/money'
 import { sizeSuffix } from '~/lib/product-name'
 import { getDashboard } from '~/lib/server/admin/admin'
@@ -134,11 +135,7 @@ function Dashboard() {
                       )}
                     </td>
                     <td className="adm__muted">
-                      {new Date(order.createdAt).toLocaleDateString('mn-MN', {
-                        day: 'numeric',
-                        month: 'short',
-                        year: 'numeric',
-                      })}
+                      {formatDate(order.createdAt)}
                     </td>
                     <td className="adm__num">{formatMnt(order.total)}</td>
                     <td className="adm__muted">{STATUS_LABEL[order.status]}</td>

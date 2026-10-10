@@ -40,8 +40,8 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
  * HTTP endpoint: anyone can call it directly with the right payload, layout or
  * no layout. Route guards decide what renders; this decides what is allowed.
  */
-export async function assertAdmin(): Promise<void> {
-  await assertAdminSession()
+export async function assertAdmin(): Promise<{ id: string }> {
+  return assertAdminSession()
 }
 
 /** Statuses whose revenue counts as real. */
@@ -337,8 +337,9 @@ export async function orderDetail(orderNo: string) {
   const [payment] = await db
     .select({
       status: payments.status,
-      qpayInvoiceId: payments.qpayInvoiceId,
-      qpayPaymentId: payments.qpayPaymentId,
+      provider: payments.provider,
+      invoiceId: payments.invoiceId,
+      paymentId: payments.paymentId,
       amount: payments.amount,
       paidAt: payments.paidAt,
     })

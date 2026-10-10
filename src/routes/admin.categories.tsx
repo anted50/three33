@@ -69,9 +69,6 @@ function Categories() {
       <header className="adm__head">
         <div>
           <h1>Ангилал</h1>
-          <p className="adm__muted">
-            Бүтээгдэхүүний каталогийг ангилах бүлгүүд — дэлгүүрийн цэсэнд ашиглагдана
-          </p>
         </div>
       </header>
 
@@ -336,7 +333,6 @@ function AddCategoryForm() {
               inputMode="numeric"
               onChange={(e) => setSortOrder(e.target.value)}
             />
-            <small>Жижиг тоо эхэнд харагдана</small>
           </label>
         </div>
 

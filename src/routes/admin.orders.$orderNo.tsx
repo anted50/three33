@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { formatDateTime } from '~/lib/dates'
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router'
 import type { OrderStatus } from '~/db/schema'
 import { formatAddress } from '~/lib/address'
@@ -292,14 +293,14 @@ function OrderDetail() {
           </p>
           {order.payment ? (
             <p className="adm__muted adm__mono">
-              {order.payment.status}
+              {order.payment.status} · {order.payment.provider}
               <br />
-              invoice: {order.payment.qpayInvoiceId ?? '—'}
+              invoice: {order.payment.invoiceId ?? '—'}
               <br />
-              payment: {order.payment.qpayPaymentId ?? '—'}
+              payment: {order.payment.paymentId ?? '—'}
               <br />
               {order.payment.paidAt
-                ? new Date(order.payment.paidAt).toLocaleString('mn-MN')
+                ? formatDateTime(order.payment.paidAt)
                 : 'төлөгдөөгүй'}
             </p>
           ) : (

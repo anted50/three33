@@ -1,4 +1,5 @@
 import { PGlite } from '@electric-sql/pglite'
+import { btree_gist } from '@electric-sql/pglite/contrib/btree_gist'
 import { drizzle as drizzlePglite } from 'drizzle-orm/pglite'
 import {
   drizzle as drizzlePostgres,
@@ -69,7 +70,10 @@ export type Db = PostgresJsDatabase<typeof schema>
 
 function createDb(): Db {
   if (driver === 'pglite') {
-    return drizzlePglite(new PGlite(PGLITE_DIR), {
+    // btree_gist backs the booking no-overlap constraints (migration 0006).
+    // Real Postgres ships it; PGlite only has it when loaded here.
+    const client = new PGlite(PGLITE_DIR, { extensions: { btree_gist } })
+    return drizzlePglite(client, {
       schema,
       casing: 'snake_case',
     }) as unknown as Db

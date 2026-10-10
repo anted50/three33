@@ -164,10 +164,17 @@ export function Page({ children }: { children: ReactNode }) {
     )
 }
 
-/** Inline SVGs — no external icon font, so nothing to block under a strict CSP. */
+/**
+ * Inline SVGs — no external icon font, so nothing to block under a strict CSP.
+ *
+ * The header icons' viewBoxes end at x=21, where the right-most stroke ends,
+ * instead of the usual 24: that is what lets the cart sit flush with the page
+ * content edge (see .header__actions .icon-btn). Width shrinks in proportion
+ * (17.5 = 20 × 21/24), so the glyphs render at exactly the same size.
+ */
 function SearchIcon() {
     return (
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
+        <svg width="17.5" height="20" viewBox="0 0 21 24" fill="none" aria-hidden>
             <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.8" />
             <path
                 d="m20 20-3.5-3.5"
@@ -181,7 +188,7 @@ function SearchIcon() {
 
 function CloseIcon() {
     return (
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
+        <svg width="17.5" height="20" viewBox="0 0 21 24" fill="none" aria-hidden>
             <path
                 d="M6 6l12 12M18 6L6 18"
                 stroke="currentColor"
@@ -194,7 +201,7 @@ function CloseIcon() {
 
 function CartIcon() {
     return (
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
+        <svg width="17.5" height="20" viewBox="0 0 21 24" fill="none" aria-hidden>
             <path
                 d="M3 4h2l2.4 11.2a1 1 0 0 0 1 .8h8.5a1 1 0 0 0 1-.78L20 8H6"
                 stroke="currentColor"

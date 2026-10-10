@@ -45,7 +45,8 @@ export type InvoiceLineInput = z.infer<typeof invoiceLineInput>
 
 export const createAdminInvoiceInput = z
   .object({
-    method: z.enum(['qpay', 'storepay']),
+    /** `manual`: taken on the shop's own card reader or in cash, recorded as paid. */
+    method: z.enum(['qpay', 'storepay', 'manual']),
     /** Required for StorePay (the invoice is sent to it), optional for QPay. */
     phone: z
       .string()

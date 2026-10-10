@@ -9,25 +9,25 @@ const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '000', '0', 'back'] a
 
 /**
  * Amount entry for a custom invoice line, laid out for a tablet at the
- * counter. A physical keyboard works too: digits, Backspace, Enter, Escape.
+ * counter. Sits inline on the page rather than in a dialog, and resets after
+ * each add so several lines can be keyed in a row.
+ *
+ * With `captureKeys` a physical keyboard works too — digits, Backspace,
+ * Enter — as long as focus isn't in some other field on the page.
  */
-export function NumpadDialog({
-  initialTugrik = 0,
-  initialName = '',
+export function Numpad({
   namePlaceholder,
   submitLabel,
+  captureKeys = false,
   onSubmit,
-  onClose,
 }: {
-  initialTugrik?: number
-  initialName?: string
   namePlaceholder: string
   submitLabel: string
+  captureKeys?: boolean
   onSubmit: (value: { tugrik: number; name: string }) => void
-  onClose: () => void
 }) {
-  const [digits, setDigits] = useState(initialTugrik > 0 ? String(initialTugrik) : '')
-  const [name, setName] = useState(initialName)
+  const [digits, setDigits] = useState('')
+  const [name, setName] = useState('')
 
   const tugrik = digits === '' ? 0 : Number(digits)
 
@@ -40,17 +40,19 @@ export function NumpadDialog({
   }
 
   function submit() {
-    if (tugrik > 0) onSubmit({ tugrik, name: name.trim() })
+    if (tugrik <= 0) return
+    onSubmit({ tugrik, name: name.trim() })
+    setDigits('')
+    setName('')
   }
 
   useEffect(() => {
+    if (!captureKeys) return
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') return onClose()
-      // Typing a name must not also type into the amount.
-      if (event.target instanceof HTMLInputElement) {
-        if (event.key === 'Enter') submit()
-        return
-      }
+      // Typing a phone number or a qty elsewhere must not also type here.
+      const target = event.target as HTMLElement | null
+      if (target?.closest('input, textarea, select, [contenteditable]')) return
+      if (event.ctrlKey || event.metaKey || event.altKey) return
       if (/^\d$/.test(event.key)) press(event.key as (typeof KEYS)[number])
       else if (event.key === 'Backspace') press('back')
       else if (event.key === 'Enter') submit()
@@ -62,63 +64,50 @@ export function NumpadDialog({
   })
 
   return (
-    <div className="modal" role="dialog" aria-modal="true" aria-label="Дүн оруулах">
-      <div className="modal__card numpad">
-        <div className="modal__head">
-          <h2>Дурын дүн</h2>
-          <button type="button" className="modal__close" onClick={onClose}>
-            ✕
-          </button>
-        </div>
+    <div className="numpad">
+      <label className="field numpad__name">
+        <span>Нэр</span>
+        <input
+          value={name}
+          maxLength={200}
+          placeholder={namePlaceholder}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') submit()
+          }}
+        />
+      </label>
 
-        <div className="modal__body">
-          <output className="numpad__display" aria-live="polite">
-            {formatMnt(tugrikToMungu(tugrik))}
-          </output>
+      <output className="numpad__display" aria-live="polite" data-empty={digits === ''}>
+        {formatMnt(tugrikToMungu(tugrik))}
+      </output>
 
-          <div className="numpad__keys">
-            {KEYS.map((key) => (
-              <button
-                key={key}
-                type="button"
-                className="numpad__key"
-                aria-label={key === 'back' ? 'Устгах' : undefined}
-                onClick={() => press(key)}
-              >
-                {key === 'back' ? '⌫' : key}
-              </button>
-            ))}
-          </div>
-
-          <label className="field numpad__name">
-            <span>Нэр</span>
-            <input
-              value={name}
-              maxLength={200}
-              placeholder={namePlaceholder}
-              onChange={(e) => setName(e.target.value)}
-            />
-          </label>
-        </div>
-
-        <div className="modal__foot">
+      <div className="numpad__keys">
+        {KEYS.map((key) => (
           <button
+            key={key}
             type="button"
-            className="btn btn--sm btn--ghost"
-            disabled={digits === ''}
-            onClick={() => setDigits('')}
+            className="numpad__key"
+            aria-label={key === 'back' ? 'Устгах' : undefined}
+            onClick={() => press(key)}
           >
-            Цэвэрлэх
+            {key === 'back' ? '⌫' : key}
           </button>
-          <button
-            type="button"
-            className="btn btn--sm"
-            disabled={tugrik <= 0}
-            onClick={submit}
-          >
-            {submitLabel}
-          </button>
-        </div>
+        ))}
+      </div>
+
+      <div className="numpad__foot">
+        <button
+          type="button"
+          className="btn btn--ghost"
+          disabled={digits === ''}
+          onClick={() => setDigits('')}
+        >
+          Цэвэрлэх
+        </button>
+        <button type="button" className="btn" disabled={tugrik <= 0} onClick={submit}>
+          {submitLabel}
+        </button>
       </div>
     </div>
   )

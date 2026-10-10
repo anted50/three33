@@ -14,7 +14,8 @@ import { meetsMinimum, PAYMENT_METHOD_MIN_TOTAL } from '~/lib/payment-methods'
 import { mintOrderToken } from '../orders/access'
 import { expireCheckout } from '../orders/expire'
 import { generateOrderNo } from '../orders/order-no'
-import { settleOrder } from '../orders/settle'
+import { sendOrderReceipt } from '../orders/receipt'
+import { markPaid, settleOrder } from '../orders/settle'
 import {
   availableProviders,
   getProvider,
@@ -31,6 +32,9 @@ import { invoiceTotal, type CreateAdminInvoiceInput } from './invoice-lines'
  * most — stock deduction on payment all come from the existing order pipeline
  * (settle.ts) rather than a second copy of it. Custom lines are order items
  * with no variant, which settlement already skips for stock.
+ *
+ * A `manual` invoice (card reader, cash) skips the provider entirely and is
+ * written already paid, through the same markPaid that settleOrder uses.
  */
 
 /** Only what the ledger needs; the provider side knows nothing of this. */
@@ -46,7 +50,10 @@ export async function issueAdminInvoice(
   input: CreateAdminInvoiceInput,
   adminId: string,
 ): Promise<{ orderNo: string }> {
-  if (!availableProviders().includes(input.method)) {
+  /** Null for a manual sale: there's no provider to invoice or ask. */
+  const providerName = input.method === 'manual' ? null : input.method
+
+  if (providerName && !availableProviders().includes(providerName)) {
     throw new Error('Энэ төлбөрийн хэлбэр одоогоор боломжгүй байна')
   }
 
@@ -112,22 +119,25 @@ export async function issueAdminInvoice(
   const expiresAt = new Date(Date.now() + ADMIN_INVOICE_TTL_MS)
 
   // Provider first, rows second — same ordering and reasoning as createOrder.
-  const provider = getProvider(input.method)
-  const invoice = await provider.createInvoice({
-    orderNo,
-    amount: total,
-    description: `Three33 ${orderNo}`,
-    callbackUrl: providerCallbackUrl(input.method, orderNo),
-    customer:
-      phone || email || name
-        ? {
-            // QPay wants a payer name whenever receiver data is sent.
-            name: name ?? phone ?? 'Three33',
-            phone: phone ?? undefined,
-            email: email ?? undefined,
-          }
-        : undefined,
-  })
+  const provider = providerName ? getProvider(providerName) : null
+  const invoice =
+    provider && providerName
+      ? await provider.createInvoice({
+          orderNo,
+          amount: total,
+          description: `Three33 ${orderNo}`,
+          callbackUrl: providerCallbackUrl(providerName, orderNo),
+          customer:
+            phone || email || name
+              ? {
+                  // QPay wants a payer name whenever receiver data is sent.
+                  name: name ?? phone ?? 'Three33',
+                  phone: phone ?? undefined,
+                  email: email ?? undefined,
+                }
+              : undefined,
+        })
+      : null
 
   try {
     await db.transaction(async (tx) => {
@@ -174,37 +184,61 @@ export async function issueAdminInvoice(
         }),
       )
 
-      await tx.insert(payments).values({
-        orderId: created.id,
-        provider: input.method,
-        invoiceId: invoice.invoiceId,
-        amount: total,
-        status: 'pending',
-        invoicePayload: {
-          qrText: invoice.qrText,
-          qrImage: invoice.qrImage,
-          shortUrl: invoice.shortUrl,
-          links: invoice.links,
-        },
-      })
+      const [payment] = await tx
+        .insert(payments)
+        .values({
+          orderId: created.id,
+          provider: input.method,
+          invoiceId: invoice?.invoiceId ?? null,
+          amount: total,
+          status: 'pending',
+          invoicePayload: invoice
+            ? {
+                qrText: invoice.qrText,
+                qrImage: invoice.qrImage,
+                shortUrl: invoice.shortUrl,
+                links: invoice.links,
+              }
+            : null,
+        })
+        .returning({ id: payments.id })
 
       await tx.insert(adminInvoices).values({
         orderId: created.id,
         createdBy: adminId,
       })
+
+      /**
+       * A manual sale was paid at the counter before it was entered, so it
+       * settles here, in the same transaction that wrote it — stock and the
+       * ledger move exactly as they would for a QPay payment. The order number
+       * stands in for a provider payment id, keeping payments_payment_id_key
+       * meaningful.
+       */
+      if (!invoice) {
+        await markPaid(tx, { id: created.id, cartId: null }, payment!.id, {
+          paymentId: `manual:${orderNo}`,
+          rawCallback: null,
+        })
+      }
     })
   } catch (error) {
     // A live invoice with no order behind it: cancel it so nobody can pay it.
-    try {
-      await provider.cancelInvoice(invoice.invoiceId)
-    } catch (cancelError) {
-      console.error(
-        `Orphaned ${input.method} admin invoice ${invoice.invoiceId} for ${orderNo}`,
-        cancelError,
-      )
+    if (provider && invoice) {
+      try {
+        await provider.cancelInvoice(invoice.invoiceId)
+      } catch (cancelError) {
+        console.error(
+          `Orphaned ${input.method} admin invoice ${invoice.invoiceId} for ${orderNo}`,
+          cancelError,
+        )
+      }
     }
     throw error
   }
+
+  // Same background receipt settleOrder sends once a provider confirms.
+  if (!invoice) void sendOrderReceipt(orderNo)
 
   return { orderNo }
 }

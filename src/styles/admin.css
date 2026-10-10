@@ -1,6 +1,6 @@
 /*
  * Admin shell, following the Figma frame: fixed white sidebar with icon nav,
- * grey canvas, white cards, breadcrumb bar with a sign-out control top right.
+ * white canvas, bordered cards, breadcrumb bar with a sign-out control top right.
  *
  * Loaded only on /admin, so none of it ships to the storefront.
  *
@@ -17,7 +17,7 @@
   display: grid;
   grid-template-columns: 1fr;
   min-height: 100vh;
-  background: #f5f5f6;
+  background: #fff;
   color: var(--ink);
 }
 
@@ -119,7 +119,7 @@
   gap: 16px;
   padding: 14px var(--gutter);
   border-bottom: 1px solid var(--border);
-  background: #f5f5f6;
+  background: #fff;
 }
 
 .adm__crumbs {
@@ -153,7 +153,7 @@
 
 .adm__signout:hover {
   color: var(--accent);
-  background: #fff;
+  background: var(--surface);
 }
 
 .adm__main {
@@ -934,7 +934,7 @@
   display: grid;
   place-items: center;
   padding: 24px;
-  background: #f5f5f6;
+  background: #fff;
 }
 
 .adm__unlockcard {
@@ -1266,10 +1266,413 @@
   font-weight: 600;
 }
 
+/* ---- New invoice: till layout ---- */
+
+/*
+ * Catalog + numpad on the left, the invoice being built on the right — the
+ * shape of a till, so adding a line is one tap instead of open-dialog,
+ * tick, confirm. Stacked below 1200px — the sidebar takes 236px of that,
+ * and two columns any narrower crush the rows. Picker first: on a phone or
+ * tablet you add lines, then scroll down to send.
+ */
+.inv {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+.inv > .adm__card {
+  margin-bottom: 0;
+}
+
+/* Buttons carry no base reset in app.css; these are all bare. */
+.inv__tab,
+.inv__item,
+.inv__clear,
+.inv__stepper button {
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+@media (min-width: 1200px) {
+  .inv {
+    grid-template-columns: minmax(0, 1.15fr) minmax(360px, 1fr);
+  }
+
+  /* Both panels follow the page down, so the list and the total stay in view
+     while the other side scrolls. */
+  .inv__add,
+  .inv__sheet {
+    position: sticky;
+    top: 16px;
+  }
+
+  .inv__list {
+    max-height: calc(100vh - 210px);
+  }
+}
+
+.inv__tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+}
+
+.inv__tab {
+  flex: 1;
+  padding: 14px var(--gutter);
+  font-size: 14px;
+  color: var(--muted);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.inv__tab:hover {
+  color: var(--ink);
+}
+
+.inv__tab[aria-selected='true'] {
+  color: var(--ink);
+  font-weight: 600;
+  border-bottom-color: var(--accent);
+}
+
+.inv__search {
+  padding: 14px var(--gutter);
+  border-bottom: 1px solid var(--border);
+}
+
+.inv__search input {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.inv__search input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.inv__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+/* A whole row is the tap target: name/meta on the left, price and the
+   add badge on the right. */
+.inv__item {
+  display: grid;
+  grid-template-columns: 1fr auto 40px;
+  grid-template-areas:
+    'name price count'
+    'meta price count';
+  align-items: center;
+  gap: 2px 14px;
+  width: 100%;
+  min-height: 58px;
+  padding: 10px var(--gutter);
+  border-bottom: 1px solid #f0f0f1;
+  text-align: left;
+  transition: background 0.12s ease;
+}
+
+.inv__item:hover:not(:disabled) {
+  background: #fafafa;
+}
+
+.inv__item:active:not(:disabled) {
+  background: var(--surface);
+}
+
+.inv__item[data-picked='true'] {
+  background: var(--accent-tint);
+}
+
+.inv__item:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.inv__item[data-picked='true']:disabled {
+  /* Every unit in stock is already on the invoice — still picked, not dead. */
+  opacity: 0.7;
+}
+
+.inv__itemname {
+  grid-area: name;
+  font-size: 14px;
+  font-weight: 600;
+  min-width: 0;
+}
+
+.inv__itemname em {
+  font-style: normal;
+  font-weight: 400;
+  color: var(--ink-soft);
+  margin-left: 8px;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 12px;
+}
+
+.inv__itemmeta {
+  grid-area: meta;
+  color: var(--muted);
+  word-break: normal;
+  overflow-wrap: anywhere;
+}
+
+.inv__itemprice {
+  grid-area: price;
+  font-size: 14px;
+}
+
+.inv__itemcount {
+  grid-area: count;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  justify-self: end;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.inv__item[data-picked='true'] .inv__itemcount {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+/* ---- the invoice side ---- */
+
+.inv__clear {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.inv__clear:hover {
+  color: var(--danger);
+}
+
+.inv__empty {
+  padding: 36px var(--gutter);
+  text-align: center;
+  border-bottom: 1px solid var(--border);
+}
+
+.inv__empty p:first-child {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.inv__lines {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.inv__line {
+  padding: 12px var(--gutter);
+  border-bottom: 1px solid #f0f0f1;
+  animation: inv-in 0.18s ease-out;
+}
+
+.inv__line:last-child {
+  border-bottom: 0;
+}
+
+@keyframes inv-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .inv__line {
+    animation: none;
+  }
+}
+
+.inv__linehead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.inv__linename {
+  font-size: 14px;
+  font-weight: 600;
+  min-width: 0;
+}
+
+.inv__linename .adm__mono {
+  display: block;
+  font-weight: 400;
+  margin-top: 2px;
+}
+
+.inv__nameinput {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.inv__linebody {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.inv__stepper {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.inv__stepper button {
+  width: 32px;
+  height: 32px;
+  font-size: 16px;
+  color: var(--ink-soft);
+}
+
+.inv__stepper button:hover:not(:disabled) {
+  background: var(--surface);
+}
+
+.inv__stepper button:disabled {
+  color: #d4d4d8;
+  cursor: not-allowed;
+}
+
+.inv__stepper input {
+  width: 40px;
+  height: 32px;
+  border: 0;
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.inv__price {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.inv__price input {
+  width: 100px;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.inv__stepper input:focus-visible,
+.inv__price input:focus-visible,
+.inv__nameinput:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.inv__line input[aria-invalid='true'] {
+  background: #fef2f2;
+  color: var(--danger);
+}
+
+.inv__linetotal {
+  margin-left: auto;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.inv__details .field {
+  margin-bottom: 12px;
+}
+
+.inv__details .field input {
+  min-height: 42px;
+  padding: 10px 12px;
+}
+
+.inv__details .field--method {
+  margin-bottom: 16px;
+}
+
+/* QPay, StorePay and Бусад on one row where they fit. */
+.inv__details .method-options {
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+}
+
+.inv__fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 12px;
+}
+
+@media (max-width: 480px) {
+  .inv__fields {
+    grid-template-columns: 1fr;
+  }
+}
+
+.inv__foot {
+  padding: 16px var(--gutter) var(--gutter);
+  border-top: 1px solid var(--border);
+  background: #fcfcfc;
+}
+
+.inv__total {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  font-size: 15px;
+}
+
+.inv__total strong {
+  font-size: 26px;
+  letter-spacing: -0.01em;
+}
+
+.inv__foot .adm__hint,
+.inv__foot .error {
+  margin: -4px 0 12px;
+}
+
 /* ---- Numpad (custom invoice amounts) ---- */
 
 .numpad {
-  width: min(380px, 100%);
+  max-width: 420px;
+  margin: 0 auto;
 }
 
 .numpad__display {
@@ -1283,6 +1686,10 @@
   font-weight: 700;
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+.numpad__display[data-empty='true'] {
+  color: var(--muted);
 }
 
 .numpad__keys {
@@ -1310,17 +1717,12 @@
 }
 
 .numpad__name {
-  margin: 16px 0 0;
+  margin: 0 0 12px;
 }
 
-.amount-cell {
-  font: inherit;
-  font-variant-numeric: tabular-nums;
-  padding: 6px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: #fff;
-  cursor: pointer;
-  min-width: 110px;
-  text-align: right;
+.numpad__foot {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: 8px;
+  margin-top: 12px;
 }

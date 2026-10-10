@@ -137,11 +137,6 @@ function ProductAdmin() {
             ))}
           </tbody>
         </table>
-
-        <p className="adm__muted adm__pad">
-          Нөөц өөрчлөх бүрд inventory_ledger-т бичлэг үүснэ.
-        </p>
-
         <AddVariantForm
           slug={product.slug}
           nameEn={product.nameEn}

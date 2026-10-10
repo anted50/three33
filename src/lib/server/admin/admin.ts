@@ -39,6 +39,7 @@ import {
 } from './internal'
 import { formatAddress } from '~/lib/address'
 import { munguToTugrik } from '~/lib/money'
+import type { InvoiceMethod } from '~/lib/payment-methods'
 import { sanitizeRichText } from '~/lib/rich-text'
 import { STATUS_LABEL } from '~/lib/order-status'
 
@@ -639,7 +640,9 @@ export const receiveStock = createServerFn({ method: 'POST' })
 export const getInvoiceMethods = createServerFn({ method: 'GET' }).handler(
   async () => {
     await assertAdmin()
-    return availableProviders()
+    // Manual is always on offer: it needs nothing configured.
+    const methods: InvoiceMethod[] = [...availableProviders(), 'manual']
+    return methods
   },
 )
 
@@ -659,7 +662,8 @@ export const getAdminInvoice = createServerFn({ method: 'GET' })
 
 /**
  * Issues a QPay or StorePay invoice for any mix of catalog items and custom
- * lines. Cancelling one goes through setOrderStatus('cancelled'), which
+ * lines, or records a sale already paid outside them (method `manual`).
+ * Cancelling a pending one goes through setOrderStatus('cancelled'), which
  * already cancels the invoice at the provider.
  */
 export const createAdminInvoice = createServerFn({ method: 'POST' })

@@ -69,9 +69,6 @@ function Purchases() {
       <header className="adm__head">
         <div>
           <h1>Татан авалт</h1>
-          <p className="adm__muted">
-            Ирсэн барааны тоо, шинэ үнийг нэг дор бүртгэнэ
-          </p>
         </div>
         <button
           type="button"
@@ -171,9 +168,6 @@ function Purchases() {
             <span>Нийт {lines.length} нэр төрөл</span>
             <strong>{formatMnt(total)}</strong>
           </div>
-          <p className="adm__muted adm__hint">
-            Дүн нь зарах үнээр тооцсон урьдчилсан тооцоо.
-          </p>
 
           <button
             type="button"

@@ -2,9 +2,8 @@ import { createFileRoute, Link } from '@tanstack/react-router'
 import { formatDateTime } from '~/lib/dates'
 import { StatusBadge } from '~/components/admin-bits'
 import { formatMnt } from '~/lib/money'
-import { PAYMENT_METHOD_LABELS } from '~/lib/payment-methods'
+import { type InvoiceMethod, PAYMENT_METHOD_LABELS } from '~/lib/payment-methods'
 import { getAdminInvoices } from '~/lib/server/admin/admin'
-import type { ProviderName } from '~/lib/server/payments/registry'
 
 export const Route = createFileRoute('/admin/invoices/')({
   loader: () => getAdminInvoices(),
@@ -23,9 +22,6 @@ function Invoices() {
       <header className="adm__head">
         <div>
           <h1>Нэхэмжлэх</h1>
-          <p className="adm__muted">
-            QPay эсвэл StorePay-ээр дурын дүн, бараатай нэхэмжлэх үүсгэнэ
-          </p>
         </div>
         <Link to="/admin/invoices/new" className="btn btn--sm">
           + Шинэ нэхэмжлэх
@@ -66,7 +62,7 @@ function Invoices() {
                   </td>
                   <td>
                     {invoice.provider
-                      ? PAYMENT_METHOD_LABELS[invoice.provider as ProviderName]
+                      ? PAYMENT_METHOD_LABELS[invoice.provider as InvoiceMethod]
                       : '—'}
                   </td>
                   <td className="adm__muted adm__num">{invoice.phone || '—'}</td>

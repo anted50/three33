@@ -37,6 +37,18 @@ describe('createAdminInvoiceInput', () => {
     expect(result.success).toBe(false)
   })
 
+  it('accepts a manual (card reader) sale with no phone', () => {
+    expect(
+      createAdminInvoiceInput.safeParse({ method: 'manual', lines: [custom] }).success,
+    ).toBe(true)
+  })
+
+  it('rejects a method that does not exist', () => {
+    expect(
+      createAdminInvoiceInput.safeParse({ method: 'cash', lines: [custom] }).success,
+    ).toBe(false)
+  })
+
   it('rejects the same variant on two rows', () => {
     const line = { kind: 'variant' as const, variantId: VARIANT, qty: 1, unitPrice: 0 }
     const result = createAdminInvoiceInput.safeParse({

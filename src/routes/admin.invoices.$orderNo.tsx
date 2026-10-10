@@ -4,9 +4,12 @@ import { createFileRoute, Link, useRouter } from '@tanstack/react-router'
 import { StatusBadge } from '~/components/admin-bits'
 import { formatCountdown } from '~/lib/countdown'
 import { formatMnt } from '~/lib/money'
-import { PAYMENT_METHOD_LABELS, PAYMENT_METHOD_LOGOS } from '~/lib/payment-methods'
+import {
+  type InvoiceMethod,
+  PAYMENT_METHOD_LABELS,
+  PAYMENT_METHOD_LOGOS,
+} from '~/lib/payment-methods'
 import { getAdminInvoice, setOrderStatus } from '~/lib/server/admin/admin'
-import type { ProviderName } from '~/lib/server/payments/registry'
 
 export const Route = createFileRoute('/admin/invoices/$orderNo')({
   loader: ({ params }) => getAdminInvoice({ data: { orderNo: params.orderNo } }),
@@ -54,7 +57,7 @@ function InvoiceDetail() {
     )
   }
 
-  const provider = (invoice.payment?.provider ?? 'qpay') as ProviderName
+  const provider = (invoice.payment?.provider ?? 'qpay') as InvoiceMethod
   const payload = invoice.payment?.payload
 
   async function cancel() {

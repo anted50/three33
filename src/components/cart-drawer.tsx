@@ -8,6 +8,7 @@ import {
 } from 'react'
 import { useNavigate, useRouter } from '@tanstack/react-router'
 import { Link } from '@tanstack/react-router'
+import { usePostHog } from '@posthog/react'
 import { formatMnt } from '~/lib/money'
 import { sizeSuffix } from '~/lib/product-name'
 import {
@@ -73,6 +74,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
 function CartDrawer() {
   const { open, closeCart } = useCartDrawer()
+  const posthog = usePostHog()
   const router = useRouter()
   const navigate = useNavigate()
 
@@ -151,6 +153,10 @@ function CartDrawer() {
     try {
       const next = await setCartQty({ data: { variantId, qty } })
       setCart(next)
+      posthog?.capture('cart_quantity_changed', {
+        quantity: qty,
+        variant_id: variantId,
+      })
       // Keeps the header count and any listing stock in step.
       await router.invalidate()
     } finally {
@@ -175,6 +181,10 @@ function CartDrawer() {
         },
       })
 
+      posthog?.capture('checkout_started', {
+        payment_method: result.provider,
+        total: result.total,
+      })
       closeCart()
       await navigate({
         to: '/checkout/payment/$orderNo',
@@ -385,7 +395,12 @@ function CartDrawer() {
                               name="method-choice"
                               checked={selected}
                               disabled={!allowed}
-                              onChange={() => setMethod(option)}
+                              onChange={() => {
+                                setMethod(option)
+                                posthog?.capture('payment_method_selected', {
+                                  payment_method: option,
+                                })
+                              }}
                             />
                             <img
                               src={PAYMENT_METHOD_LOGOS[option]}

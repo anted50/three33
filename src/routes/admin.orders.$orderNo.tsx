@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { usePostHog } from '@posthog/react'
 import { formatDateTime } from '~/lib/dates'
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router'
 import type { OrderStatus } from '~/db/schema'
@@ -86,6 +87,7 @@ const NEXT: Partial<Record<OrderStatus, OrderStatus[]>> = {
 
 function OrderDetail() {
   const order = Route.useLoaderData()
+  const posthog = usePostHog()
   const router = useRouter()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -112,6 +114,10 @@ function OrderDetail() {
     try {
       await setOrderStatus({
         data: { orderNo: order!.orderNo, status: status as never },
+      })
+      posthog?.capture('order_status_updated', {
+        next_status: status,
+        previous_status: order!.status,
       })
       await router.invalidate()
     } catch (err) {

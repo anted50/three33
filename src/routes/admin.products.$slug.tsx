@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { usePostHog } from '@posthog/react'
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router'
 import { ConfirmDialog } from '~/components/confirm-dialog'
 import { ImageUrlEditor, type ImageEntry } from '~/components/image-url-editor'
@@ -30,6 +31,7 @@ export const Route = createFileRoute('/admin/products/$slug')({
 
 function ProductAdmin() {
   const { product, categories } = Route.useLoaderData()
+  const posthog = usePostHog()
   const router = useRouter()
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -84,6 +86,10 @@ function ProductAdmin() {
               status: values.status,
             },
           })
+          posthog?.capture('product_updated', {
+            product_slug: product.slug,
+            status: values.status,
+          })
           await router.invalidate()
         }}
       />
@@ -122,6 +128,12 @@ function ProductAdmin() {
                   try {
                     await setVariant({
                       data: { variantId: variant.id, price, stockQty, isActive },
+                    })
+                    posthog?.capture('product_variant_updated', {
+                      is_active: isActive,
+                      stock_quantity: stockQty,
+                      unit_price: price,
+                      variant_id: variant.id,
                     })
                     await router.invalidate()
                   } catch (err) {

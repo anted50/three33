@@ -94,10 +94,15 @@ export const verifyAdminLogin = createServerFn({ method: 'POST' })
   })
 
 export const checkAdminSession = createServerFn({ method: 'GET' }).handler(
-  async (): Promise<{ ok: boolean; name?: string }> => {
+  async (): Promise<{
+    ok: boolean
+    userId?: string
+    email?: string
+    name?: string
+  }> => {
     const user = await validateSessionToken(getCookie(SESSION_COOKIE))
     if (!user || user.role !== 'admin') return { ok: false }
-    return { ok: true, name: user.name }
+    return { ok: true, userId: user.id, email: user.email, name: user.name }
   },
 )
 

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { usePostHog } from '@posthog/react'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { ImageUrlEditor, type ImageEntry } from '~/components/image-url-editor'
 import { ProductForm } from '~/components/product-form'
@@ -43,6 +44,7 @@ function withSkus(rows: VariantDraft[], nameEn: string): VariantDraft[] {
 
 function NewProduct() {
   const categories = Route.useLoaderData()
+  const posthog = usePostHog()
   const navigate = useNavigate()
   const [nameEn, setNameEn] = useState('')
   const [variants, setVariants] = useState<VariantDraft[]>([{ ...emptyVariant }])
@@ -133,6 +135,13 @@ function NewProduct() {
                 alt: image.alt || undefined,
               })),
             },
+          })
+
+          posthog?.capture('product_created', {
+            image_count: images.length,
+            product_slug: result.slug,
+            status: values.status,
+            variant_count: parsed.length,
           })
 
           await navigate({

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { usePostHog } from '@posthog/react'
 import {
   createFileRoute,
   Link,
@@ -33,6 +34,7 @@ export const Route = createFileRoute('/products/$slug')({
 
 function ProductDetail() {
   const product = Route.useLoaderData()
+  const posthog = usePostHog()
   const router = useRouter()
   const { openCart } = useCartDrawer()
   const [adding, setAdding] = useState(false)
@@ -186,6 +188,12 @@ function ProductDetail() {
                   setAdding(true)
                   try {
                     await addToCart({ data: { variantId: variant.id, qty } })
+                    posthog?.capture('product_added_to_cart', {
+                      product_slug: product.slug,
+                      quantity: qty,
+                      unit_price: variant.price,
+                      variant_id: variant.id,
+                    })
                     // Invalidate so the header badge picks up the new count.
                     await router.invalidate()
                     // Drawer instead of navigating away — you stay on the

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { usePostHog } from '@posthog/react'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { Numpad } from '~/components/admin-numpad'
 import { DEFAULT_CUSTOM_LINE_NAME } from '~/lib/server/admin/invoice-lines'
@@ -54,6 +55,7 @@ function parseQty(value: string): number | null {
  */
 function NewInvoice() {
   const { variants, methods } = Route.useLoaderData()
+  const posthog = usePostHog()
   const navigate = useNavigate()
 
   const [lines, setLines] = useState<Line[]>([])
@@ -188,6 +190,12 @@ function NewInvoice() {
           note: note.trim() || undefined,
           lines: payload,
         },
+      })
+      posthog?.capture('admin_invoice_created', {
+        line_count: payload.length,
+        payment_method: method,
+        total,
+        unit_count: units,
       })
       await navigate({ to: '/admin/invoices/$orderNo', params: { orderNo } })
     } catch (err) {

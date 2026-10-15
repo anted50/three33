@@ -1,3 +1,5 @@
+import { useEffect, useRef } from 'react'
+import { usePostHog } from '@posthog/react'
 import { createFileRoute, Link, Outlet, redirect, useRouter } from '@tanstack/react-router'
 import adminCss from '~/styles/admin.css?url'
 import { adminLogout, checkAdminSession } from '~/lib/server/admin/auth'
@@ -27,11 +29,11 @@ export const Route = createFileRoute('/admin')({
     meta: [{ title: 'Admin — Three33' }],
   }),
   beforeLoad: async ({ location }) => {
-    const { ok, name } = await checkAdminSession()
+    const { ok, userId, email, name } = await checkAdminSession()
     if (!ok && !location.pathname.startsWith('/admin/login')) {
       throw redirect({ to: '/admin/login' })
     }
-    return { isAdmin: ok, adminName: name }
+    return { isAdmin: ok, adminId: userId, adminEmail: email, adminName: name }
   },
   component: AdminShell,
 })
@@ -53,8 +55,25 @@ const NAV: Array<{
 ]
 
 function AdminShell() {
-  const { isAdmin, adminName } = Route.useRouteContext()
+  const { isAdmin, adminId, adminEmail, adminName } = Route.useRouteContext()
+  const posthog = usePostHog()
+  const identifiedAdminId = useRef<string | undefined>(undefined)
   const router = useRouter()
+
+  useEffect(() => {
+    if (!isAdmin || !adminId || !posthog) return
+
+    if (identifiedAdminId.current && identifiedAdminId.current !== adminId) {
+      posthog.reset()
+    }
+
+    posthog.identify(adminId, {
+      email: adminEmail,
+      name: adminName,
+      role: 'admin',
+    })
+    identifiedAdminId.current = adminId
+  }, [adminEmail, adminId, adminName, isAdmin, posthog])
 
   // The login page is nested in this layout but must not show the nav —
   // advertising the sections to someone who has not got in yet is pointless.
@@ -106,6 +125,7 @@ function AdminShell() {
             aria-label="Гарах"
             onClick={async () => {
               await adminLogout()
+              posthog?.reset()
               await router.invalidate()
               await router.navigate({ to: '/admin/login' })
             }}

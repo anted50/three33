@@ -6,8 +6,12 @@ import {
     Scripts,
 } from '@tanstack/react-router'
 import appCss from '~/styles/app.css?url'
+import { PostHogErrorBoundary, PostHogProvider } from '@posthog/react'
 import { CartProvider } from '~/components/cart-drawer'
 import { getCart } from '~/lib/server/cart/cart'
+
+const posthogProjectToken = import.meta.env.VITE_PUBLIC_POSTHOG_PROJECT_TOKEN
+const posthogHost = import.meta.env.VITE_PUBLIC_POSTHOG_HOST
 
 export const Route = createRootRoute({
     head: () => ({
@@ -64,13 +68,47 @@ export const Route = createRootRoute({
 })
 
 function RootComponent() {
+    const content = (
+        /* Provider at the root so the header and any product page share one
+          drawer, and it survives navigation between them. */
+        <CartProvider>
+            <Outlet />
+        </CartProvider>
+    )
+
+    if (!posthogProjectToken || !posthogHost) {
+        if (import.meta.env.DEV) {
+            const missingVariable = !posthogProjectToken
+                ? 'VITE_PUBLIC_POSTHOG_PROJECT_TOKEN'
+                : 'VITE_PUBLIC_POSTHOG_HOST'
+
+            throw new Error(
+                `${missingVariable} variable required by PostHog is missing or un-configured, this causes events to be silently missed. This error stops appearing once ${missingVariable} is configured`,
+            )
+        }
+
+        return <RootDocument>{content}</RootDocument>
+    }
+
     return (
         <RootDocument>
-            {/* Provider at the root so the header and any product page share one
-          drawer, and it survives navigation between them. */}
-            <CartProvider>
-                <Outlet />
-            </CartProvider>
+            <PostHogProvider
+                apiKey={posthogProjectToken}
+                options={{
+                    api_host: posthogHost,
+                    capture_exceptions: true,
+                    debug: import.meta.env.DEV,
+                    defaults: '2025-05-24',
+                    tracing_headers:
+                        typeof window !== 'undefined' ? [window.location.hostname] : [],
+                }}
+            >
+                <PostHogErrorBoundary
+                    fallback={<p>Something went wrong. Please refresh the page.</p>}
+                >
+                    {content}
+                </PostHogErrorBoundary>
+            </PostHogProvider>
         </RootDocument>
     )
 }

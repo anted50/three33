@@ -19,6 +19,9 @@ import { serve } from '@hono/node-server'
 import { serveStatic } from '@hono/node-server/serve-static'
 import { Hono } from 'hono'
 import handler from '../dist/server/server.js'
+import { initializePostHogLogs, logPostHogInfo } from './posthog-logs.mjs'
+
+initializePostHogLogs()
 
 const app = new Hono()
 
@@ -51,6 +54,7 @@ const port = Number(process.env.PORT ?? 3000)
 
 serve({ fetch: app.fetch, port, hostname: '0.0.0.0' }, (info) => {
   console.log(`uppercut listening on http://0.0.0.0:${info.port}`)
+  logPostHogInfo('server_started', { port: info.port })
   startScheduledJobs()
 })
 
@@ -143,17 +147,28 @@ function runJob(job) {
     { stdio: 'inherit', env: process.env, cwd: ROOT_DIR },
   )
 
-  const finish = (message) => {
+  const finish = (message, outcome) => {
     if (!running.has(job.name)) return
     running.delete(job.name)
-    console.log(`[jobs] ${job.name}: ${message} (${Date.now() - startedAt}ms)`)
+    const durationMs = Date.now() - startedAt
+    console.log(`[jobs] ${job.name}: ${message} (${durationMs}ms)`)
+    logPostHogInfo('scheduled_job_finished', {
+      job_name: job.name,
+      outcome,
+      duration_ms: durationMs,
+    })
   }
 
   child.on('exit', (code) =>
-    finish(code === 0 ? 'ok' : `exited with code ${code}`),
+    finish(
+      code === 0 ? 'ok' : `exited with code ${code}`,
+      code === 0 ? 'succeeded' : 'failed',
+    ),
   )
   // Distinct from a non-zero exit: the process never started at all.
-  child.on('error', (error) => finish(`could not start — ${error.message}`))
+  child.on('error', (error) =>
+    finish(`could not start — ${error.message}`, 'failed'),
+  )
 }
 
 function startScheduledJobs() {

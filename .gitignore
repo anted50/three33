@@ -29,3 +29,6 @@ receipt-preview.html
 
 # Secrets files for `wrangler deploy --secrets-file` (see docs/deploy-cloudflare.md)
 *.secrets.env
+
+# Database dumps — contain customer data, never commit
+backups/

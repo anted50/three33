@@ -8,7 +8,7 @@
 | Object storage | none — images are static files in `public/` | **still none needed**, see below |
 | QPay callbacks | unreachable (`localhost`) | **finally work** — set `APP_URL` to the Railway domain |
 | Admin login | email OTP | **works as-is** — just needs `RESEND_API_KEY` and an admin granted via `npm run admin:add` |
-| Scheduled jobs | automatic | run by the app process, nothing to set up |
+| Scheduled jobs | automatic | run by the app process, nothing to set up; optionally triggered by an external scheduler instead |
 
 ## Database — solved by deploying
 
@@ -82,6 +82,8 @@ below.
 MONTHLY_ORDER_GOAL=100
 SENTRY_DSN=
 QPAY_EBARIMT_INVOICE_CODE=<VAT-enabled invoice code, requested from QPay>
+JOBS_API_TOKEN=<openssl rand -hex 32 — enables POST /api/v1/jobs/*>
+SCHEDULED_JOBS=off   # only once an external scheduler calls those endpoints
 ```
 
 `APP_URL` matters more than it looks: it builds the QPay callback URL. Point it
@@ -127,22 +129,29 @@ npm run admin:add you@three33barber.com "Your Name"
 Safe to re-run; it promotes an existing user to admin if the email already
 exists, or creates one if it doesn't.
 
-## Scheduled jobs need nothing
+## Scheduled jobs need nothing by default
 
-The reconciliation sweep and the daily cleanup are run by the app process
-itself, on a timer started once the HTTP listener is up. There is no second
-service to create and no cron to configure — deploying is enough.
+The three jobs — `reconcile`, `booking-sweep` and `cleanup` — are run by the
+app process itself, on timers started once the HTTP listener is up. There is
+no second service to create and no cron to configure — deploying is enough.
 
-See [scheduled-jobs.md](./scheduled-jobs.md) for what runs and when.
+To drive them from outside instead (a Railway cron service, GitHub Actions,
+an uptime pinger), set `JOBS_API_TOKEN` and have the scheduler call
+`POST /api/v1/jobs/<name>` with `Authorization: Bearer <token>`. Once that is
+live, set `SCHEDULED_JOBS=off` so the app's own timers stand down.
+
+See [scheduled-jobs.md](./scheduled-jobs.md) for what runs, when, and the
+endpoint details.
 
 Two things to keep true, though:
 
-- `tsx` must stay in `dependencies`. The jobs are TypeScript run out of
-  `scripts/`, and moving `tsx` to `devDependencies` would leave them unable to
-  start in a production install.
-- Scaling to more than one replica is safe — every instance runs both jobs, and
-  `settleOrder` is built to be raced. It costs duplicate QPay `payment/check`
-  calls, not duplicate payments.
+- `tsx` must stay in `dependencies`. The timers run the jobs as TypeScript out
+  of `scripts/`, and moving `tsx` to `devDependencies` would leave them unable
+  to start in a production install.
+- Scaling to more than one replica is safe — every instance runs every job,
+  and `settleOrder` is built to be raced. It costs duplicate provider checks,
+  not duplicate payments. With several replicas the external trigger plus
+  `SCHEDULED_JOBS=off` avoids that duplication.
 
 ## Build and start
 

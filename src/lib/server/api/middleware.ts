@@ -1,6 +1,8 @@
 import { createMiddleware } from '@tanstack/react-start'
+import { env } from '../env'
 import { readSessionToken } from './cookie'
-import { forbidden, unauthorized } from './errors'
+import { ApiError, forbidden, unauthorized } from './errors'
+import { verifyJobToken } from './job-token'
 import { errorResponse } from './respond'
 import { resolveStaff } from './staff'
 
@@ -11,6 +13,7 @@ import { resolveStaff } from './staff'
  *   staffAuth   any signed-in owner or active barber      -> context.staff
  *   ownerOnly   staffAuth + must be an owner
  *   barberOnly  staffAuth + must have an active barber row -> context.barberId
+ *   jobToken    bearer JOBS_API_TOKEN, for schedulers — no staff at all
  *
  * ownerOnly and barberOnly include staffAuth themselves, so a route never
  * lists two. Handlers read identity from `context`, never from the request
@@ -49,6 +52,25 @@ export const ownerOnly = createMiddleware({ type: 'request' })
     if (!context.staff.isOwner) return errorResponse(forbidden('Owner only'))
     return next()
   })
+
+/**
+ * Machine auth for /api/v1/jobs/*: `Authorization: Bearer <JOBS_API_TOKEN>`.
+ * No session and no CSRF guard — there is no cookie to ride on, and an
+ * external scheduler should not have to send a body just to set its type.
+ */
+export const jobToken = createMiddleware({ type: 'request' }).server(
+  async ({ request, next }) => {
+    if (!env.JOBS_API_TOKEN) {
+      return errorResponse(
+        new ApiError(503, 'JOBS_API_DISABLED', 'JOBS_API_TOKEN is not set on this server'),
+      )
+    }
+    if (!verifyJobToken(request.headers.get('authorization'), env.JOBS_API_TOKEN)) {
+      return errorResponse(unauthorized('Missing or invalid bearer token'))
+    }
+    return next()
+  },
+)
 
 export const barberOnly = createMiddleware({ type: 'request' })
   .middleware([staffAuth])

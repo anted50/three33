@@ -2,9 +2,10 @@
  * Row housekeeping: expired sessions, expired OTP codes, expired guest carts,
  * and checkout attempts past their retention window.
  *
- * Normally invoked on a timer by the running server (see server/index.mjs);
- * this entry point exists so it can also be run by hand, which is what you
- * want the first time after a long stretch with no cleanup at all.
+ * Normally invoked on a timer by the running server (see server/index.mjs) or
+ * from outside through POST /api/v1/jobs/cleanup; this entry point exists so
+ * it can also be run by hand, which is what you want the first time after a
+ * long stretch with no cleanup at all.
  *
  * The work itself lives in src/lib/server/maintenance.ts — this file is only
  * the command-line wrapper around it.

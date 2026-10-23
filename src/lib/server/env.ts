@@ -86,6 +86,13 @@ const schema = z.object({
   QPAY_EBARIMT_INVOICE_CODE: z.string().optional(),
 
   SENTRY_DSN: z.string().optional(),
+
+  /**
+   * Bearer token for POST /api/v1/jobs/* — lets an external scheduler trigger
+   * reconcile, booking-sweep and cleanup. Unset means those endpoints answer
+   * 503 and only the in-process timers run them; see docs/scheduled-jobs.md.
+   */
+  JOBS_API_TOKEN: optional(z.string().min(32)),
 })
 
 const parsed = schema.safeParse(process.env)

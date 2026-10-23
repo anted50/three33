@@ -162,7 +162,7 @@ export async function markPaid(
 ) {
   /**
    * The idempotency guard. If a callback and the reconcile sweep both get
-   * here, the second insert violates payments_qpay_payment_id_key and this
+   * here, the second insert violates payments_payment_id_key and this
    * transaction rolls back — leaving exactly one settlement.
    */
   await tx

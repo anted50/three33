@@ -2,9 +2,10 @@
  * Booking sweep: deletes unpaid online-booking holds past their deadline, and
  * checks POS QPay payments whose callback never arrived.
  *
- * Normally run on a timer by the server (see server/index.mjs); runnable by
- * hand with `npm run booking:sweep`. The work lives in
- * src/lib/server/booking/sweep.ts — this is only the command-line wrapper.
+ * Normally run on a timer by the server (see server/index.mjs) or from outside
+ * through POST /api/v1/jobs/booking-sweep; runnable by hand with
+ * `npm run booking:sweep`. The work lives in src/lib/server/booking/sweep.ts —
+ * this is only the command-line wrapper.
  */
 import { sweepBooking } from '~/lib/server/booking/sweep'
 

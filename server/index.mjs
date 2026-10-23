@@ -9,7 +9,8 @@
  * Three jobs:
  *   1. Serve the hashed client assets from dist/client.
  *   2. Hand everything else to the Start handler for SSR and server functions.
- *   3. Run the scheduled jobs — see "Scheduled jobs" below.
+ *   3. Run the scheduled jobs, unless SCHEDULED_JOBS=off — see "Scheduled
+ *      jobs" below.
  *
  * Not used in development — `vite dev` has its own server.
  */
@@ -63,14 +64,16 @@ serve({ fetch: app.fetch, port, hostname: '0.0.0.0' }, (info) => {
 // ---------------------------------------------------------------------------
 
 /**
- * Everything that has to happen on a clock happens here, because this process
- * is the only thing in the deployment that is reliably always running.
+ * By default everything that has to happen on a clock happens here, because
+ * this process is the only thing in the deployment that is reliably always
+ * running. The same jobs can instead be driven from outside through
+ * POST /api/v1/jobs/<name> (bearer JOBS_API_TOKEN); once an external scheduler
+ * does that, set SCHEDULED_JOBS=off and these timers stand down.
  *
- * Not a server function: those only execute when a request arrives, and the
- * whole point of the reconciliation sweep is the case where no request ever
- * came. Not pg_cron either — the sweep is three outbound HTTPS calls (QPay
- * /payment/check, QPay invoice cancellation, the receipt e-mail), and Postgres
- * has no network stack. That leaves this file.
+ * Not triggered by a request on their own: the whole point of the
+ * reconciliation sweep is the case where no request ever came. Not pg_cron
+ * either — the sweeps make outbound HTTPS calls (payment checks, invoice
+ * cancellation, the receipt e-mail), and Postgres has no network stack.
  *
  * Each job runs as a short-lived child process rather than inline. A sweep
  * that throws, hangs or leaks then cannot take the web server down with it,
@@ -78,8 +81,10 @@ serve({ fetch: app.fetch, port, hostname: '0.0.0.0' }, (info) => {
  * instead of borrowing the server's pool for an hour.
  *
  * Safe with more than one replica. Both would sweep the same orders, and
- * settleOrder is built for exactly that race — payments_qpay_payment_id_key
- * lets exactly one settlement land. Cleanup is idempotent DELETEs.
+ * settleOrder is built for exactly that race — payments_payment_id_key lets
+ * exactly one settlement land. Cleanup is idempotent DELETEs. The cost is
+ * duplicate provider calls, which is a reason to prefer the external trigger
+ * once there are several replicas.
  *
  * The authoritative list of what runs, and when, is docs/scheduled-jobs.md.
  */
@@ -172,6 +177,12 @@ function runJob(job) {
 }
 
 function startScheduledJobs() {
+  if (process.env.SCHEDULED_JOBS === 'off') {
+    console.log('[jobs] SCHEDULED_JOBS=off — timers disabled, expecting POST /api/v1/jobs/* from outside')
+    logPostHogInfo('scheduled_jobs_disabled', {})
+    return
+  }
+
   for (const job of JOBS) {
     setTimeout(() => {
       runJob(job)

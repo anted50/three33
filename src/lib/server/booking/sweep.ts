@@ -6,7 +6,8 @@ import { checkBookingFee } from './online/settle'
 import { checkSalePayment } from './sales/settle'
 
 /**
- * The booking side of the scheduled sweep (scripts/booking-sweep.ts).
+ * The booking side of the scheduled sweep (scripts/booking-sweep.ts, and
+ * POST /api/v1/jobs/booking-sweep).
  *
  * 1. Unpaid holds past expires_at are DELETED — "nothing a customer submits
  *    is kept unless money arrives". QPay is asked one last time first; the

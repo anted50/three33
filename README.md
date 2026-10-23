@@ -93,7 +93,9 @@ gets fixed or the client supplies plain product shots.
 | `npm run db:generate` | Generate a migration from `src/db/schema.ts` |
 | `npm run db:migrate` | Apply pending migrations |
 | `npm run db:studio` | Drizzle Studio |
-| `npm run reconcile` | The QPay reconciliation sweep (see below) |
+| `npm run reconcile` | The payment reconciliation sweep (see Scheduled jobs) |
+| `npm run booking:sweep` | The booking hold / POS payment sweep |
+| `npm run cleanup` | Delete expired sessions, OTP codes, carts |
 | `npm run qpay:ping` | Fetch one QPay token to check credentials. Read-only |
 
 ## Cart and checkout
@@ -112,7 +114,7 @@ Browse → cart → checkout → QPay → success is wired end to end.
   a size off sale for every abandoned cart. Stock moves when payment settles.
 - **`settleOrder` is the only thing that marks an order paid.** The callback
   route and the reconciliation sweep both call it, which is what makes them safe
-  to race — `payments_qpay_payment_id_key` lets exactly one win.
+  to race — `payments_payment_id_key` lets exactly one win.
 
 ### The bundling rule this exposed
 
@@ -233,23 +235,27 @@ Open items with the client, both blocking parts of checkout:
 
 ## Scheduled jobs
 
-Two, both run by the server process itself on a timer — no host cron, no cron
-service, no `pg_cron`. Deploying the app is enough. Full detail in
-[docs/scheduled-jobs.md](docs/scheduled-jobs.md); the schedule lives in the
-`JOBS` array in `server/index.mjs`.
+Three, run by the server process itself on timers by default — no host cron,
+no cron service, no `pg_cron`. Deploying the app is enough. Each can also be
+triggered from outside over HTTP with a bearer token, and run by hand. Full
+detail in [docs/scheduled-jobs.md](docs/scheduled-jobs.md); the in-process
+schedule lives in the `JOBS` array in `server/index.mjs`.
 
 | Job | Every | What it does |
 |---|---|---|
-| `reconcile` | 1 hour | Settles orders whose QPay callback never arrived; cancels lapsed invoices at QPay and expires them |
+| `reconcile` | 1 hour | Settles orders whose payment callback never arrived (QPay and StorePay); cancels lapsed invoices with the provider and expires them |
+| `booking-sweep` | 5 minutes | Deletes unpaid booking holds past their deadline; checks POS QPay payments whose callback never came |
 | `cleanup` | 24 hours | Deletes expired sessions, OTP codes and guest carts, and prunes `checkout_attempts` |
 
-Neither is a server function: those only run when a request arrives, and the
-whole point of the sweep is the case where no request ever came. Both are also
-runnable by hand — `npm run reconcile`, `npm run cleanup`.
+| Way in | How |
+|---|---|
+| In-process timers | default; set `SCHEDULED_JOBS=off` to disable |
+| External scheduler | `POST /api/v1/jobs/<job>` with `Authorization: Bearer $JOBS_API_TOKEN` |
+| By hand | `npm run reconcile`, `npm run booking:sweep`, `npm run cleanup` |
 
 Dropped callbacks are a when, not an if, and `reconcile` is the only thing that
-cancels an abandoned invoice at QPay. If you change how this app is deployed,
-check that it is still running.
+cancels an abandoned invoice with the provider. If you change how this app is
+deployed — or turn the timers off — check that something is still running it.
 
 ## Layout
 
@@ -261,7 +267,7 @@ src/
     server/      server-only code, organised by domain; see its README
   routes/        file-based routes; storefront + /admin
   styles/
-scripts/         seed + reconcile — run outside the request cycle
+scripts/         seed, job wrappers, provider checks — run outside the request cycle
 drizzle/         generated migrations, committed
 ```
 

@@ -39,7 +39,7 @@ conventions only work if they are written down.
 
 6. **Anything that must not run twice gets a uniqueness guard in the database,**
    not a check-then-write in application code. See
-   `payments_qpay_payment_id_key`.
+   `payments_payment_id_key`.
 
 7. **Admin authorisation is re-checked server-side on every request.** The
    `/admin` layout `beforeLoad` is now the only gate — there is no second

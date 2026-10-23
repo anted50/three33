@@ -18,6 +18,7 @@ Additive changes (a new optional field, a new endpoint) stay in v1.
 /api/v1/owner/*     locations, barbers, terms       ownerOnly
 /api/v1/barber/*    own profile, services, schedule,
                     appointments, POS sales         barberOnly
+/api/v1/jobs/*      trigger scheduled jobs          jobToken
 ```
 
 ## Auth: one middleware per route
@@ -30,6 +31,11 @@ Every authenticated route lists exactly one of these in `server.middleware`
 | `staffAuth`  | a signed-in owner or active barber     | `staff`             |
 | `ownerOnly`  | staffAuth + `users.role = 'admin'`     | `staff`             |
 | `barberOnly` | staffAuth + an active `barbers` row    | `staff`, `barberId` |
+| `jobToken`   | `Authorization: Bearer $JOBS_API_TOKEN` | nothing             |
+
+`jobToken` is the one exception to the cookie session: it is for machines
+(an external scheduler), carries no staff identity, and skips the CSRF guard
+since there is no cookie to ride on. See `docs/scheduled-jobs.md`.
 
 Identity always comes from `context`, never from the request body — a barber
 can only act as themselves. Writes must send `Content-Type: application/json`

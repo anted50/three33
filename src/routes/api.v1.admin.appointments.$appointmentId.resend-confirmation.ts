@@ -7,12 +7,12 @@ import { resendConfirmation } from '~/lib/server/booking/appointments'
 /**
  * POST /api/v1/admin/appointments/{appointmentId}/resend-confirmation
  *
- * Emails the confirmation again, with the booking's current time — after a
- * reschedule, or when the customer says it never arrived.
+ * Emails the confirmation again, with the booking's current time — when the
+ * customer says it never arrived.
  *
  * Auth   admin (adminOnly)
  * Body   {}
- * 200    { outcome: sent | mail_disabled }
+ * 200    { outcome: sent | mail_disabled | no_email }
  * 404    unknown booking
  * 409    NOT_BOOKED
  */

@@ -8,7 +8,7 @@ import { reschedule, rescheduleInput } from '~/lib/server/booking/appointments'
  * POST /api/v1/admin/appointments/{appointmentId}/reschedule — move a booking
  *
  * Any time — the admin is not held to the schedule. The length stays as
- * booked. The customer is not emailed automatically; use resend-confirmation.
+ * booked. The customer is emailed the new time (if the booking has an email).
  *
  * Auth   admin (adminOnly)
  * Body   { startsAt }   ISO

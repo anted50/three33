@@ -20,6 +20,9 @@ const qpay = {
 vi.mock('../payments/qpay', () => ({ getQpayProvider: () => qpay }))
 const sendConfirmation = vi.fn(async () => 'sent' as const)
 vi.mock('./emails/confirmation', () => ({ sendConfirmation }))
+const sendRescheduled = vi.fn(async () => 'sent' as const)
+const sendCancelled = vi.fn(async () => 'sent' as const)
+vi.mock('./emails/changes', () => ({ sendRescheduled, sendCancelled }))
 
 const { saveBookingFee } = await import('../settings')
 const { createService, updateService } = await import('./services')
@@ -28,7 +31,7 @@ const { bookingOptions, availableSlots } = await import('./public')
 const { createBooking } = await import('./book')
 const { checkBookingFee } = await import('./fee')
 const { bookingStatus } = await import('./status')
-const { listAppointments, reschedule, cancel, resendConfirmation } = await import('./appointments')
+const { listAppointments, reschedule, cancel, resendConfirmation, createAdminBooking } = await import('./appointments')
 const { sweepBooking } = await import('./sweep')
 
 const rejection = (p: Promise<unknown>) =>
@@ -63,6 +66,8 @@ beforeEach(() => {
   qpay.checkInvoice.mockReset()
   qpay.cancelInvoice.mockClear()
   sendConfirmation.mockClear()
+  sendRescheduled.mockClear()
+  sendCancelled.mockClear()
 })
 
 describe('setup by the barber', () => {
@@ -196,14 +201,68 @@ describe('the admin', () => {
     expect(moved.endsAt.toISOString()).toBe(at(10, '19:45'))
     expect(apiErrorFromDb(await rejection(reschedule(a.id, { startsAt: at(10, '14:30') })))).toMatchObject({ code: 'TIME_TAKEN' })
 
+    // The customer is told the new time, with the old one for reference.
+    expect(sendRescheduled).toHaveBeenCalledTimes(1)
+    expect(sendRescheduled).toHaveBeenCalledWith(a.id, { startsAt: new Date(at(10, '10:00')) })
     expect(await resendConfirmation(a.id)).toEqual({ outcome: 'sent' })
   })
 
   it('cancels, which frees the time for someone else', async () => {
     const a = await confirmedBooking(haircut.id, at(11, '10:00'))
-    expect((await cancel(a.id)).status).toBe('cancelled')
+    const cancelled = await cancel(a.id)
+    expect(cancelled.status).toBe('cancelled')
+    expect(cancelled.paidAt).not.toBeNull() // the fee is kept
+    expect(sendCancelled).toHaveBeenCalledWith(a.id)
     expect(await rejection(cancel(a.id))).toMatchObject({ code: 'NOT_BOOKED' })
     await confirmedBooking(haircut.id, at(11, '10:00'))
+  })
+
+  it('enters a phone booking: booked at once, no fee, any time, and it blocks the slot', async () => {
+    const phoneBooking = await createAdminBooking({
+      serviceId: haircut.id,
+      startsAt: at(13, '19:00'), // outside the window — the admin may
+      customerName: 'Phone customer',
+      customerPhone: '99001122',
+    })
+    expect(phoneBooking).toMatchObject({ source: 'admin', status: 'booked', bookingFee: 0, customerEmail: null, paidAt: null })
+    expect(sendConfirmation).not.toHaveBeenCalled() // no email to send to
+
+    const walkIn = await createAdminBooking({
+      serviceId: haircut.id,
+      startsAt: at(13, '10:00'),
+      customerName: 'Walk-in',
+      customerPhone: '99001133',
+      customerEmail: 'walkin@example.com',
+    })
+    expect(sendConfirmation).toHaveBeenCalledWith(walkIn.id)
+
+    // It takes the time from online booking like any other booking.
+    expect(await rejection(createBooking({ serviceId: haircut.id, startsAt: at(13, '10:15'), ...customer() }))).toSatisfy(
+      (e: unknown) => apiErrorFromDb(e)?.code === 'TIME_TAKEN',
+    )
+    expect(apiErrorFromDb(await rejection(createAdminBooking({ serviceId: haircut.id, startsAt: at(13, '10:30'), customerName: 'X', customerPhone: '99001144' })))).toMatchObject({
+      code: 'TIME_TAKEN',
+    })
+  })
+
+  it('the database keeps the two kinds honest', async () => {
+    const base = {
+      serviceName: 'Haircut',
+      durationMinutes: 45,
+      startsAt: new Date(at(14, '10:00')),
+      endsAt: new Date(at(14, '10:45')),
+      customerName: 'x',
+      customerPhone: '99000000',
+      accessTokenHash: 'h',
+    }
+    // An online booking needs a fee, an email, and payment to be booked.
+    const noEmail = await rejection(db.insert(appointments).values({ ...base, bookingNo: 'BK-T1', source: 'online', status: 'pending', bookingFee: 100, expiresAt: new Date() }).then((r) => r))
+    expect(apiErrorFromDb(noEmail)).toMatchObject({ code: 'INVALID' })
+    const unpaid = await rejection(db.insert(appointments).values({ ...base, bookingNo: 'BK-T2', source: 'online', status: 'booked', bookingFee: 100, customerEmail: 'a@b.c' }).then((r) => r))
+    expect(apiErrorFromDb(unpaid)).toMatchObject({ code: 'INVALID' })
+    // An admin booking never carries a fee.
+    const charged = await rejection(db.insert(appointments).values({ ...base, bookingNo: 'BK-T3', source: 'admin', status: 'booked', bookingFee: 100 }).then((r) => r))
+    expect(apiErrorFromDb(charged)).toMatchObject({ code: 'INVALID' })
   })
 })
 

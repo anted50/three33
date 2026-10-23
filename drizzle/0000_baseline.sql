@@ -24,6 +24,7 @@ CREATE TABLE `appointments` (
 	`id` text PRIMARY KEY NOT NULL,
 	`booking_no` text NOT NULL,
 	`service_id` text,
+	`source` text DEFAULT 'online' NOT NULL,
 	`service_name` text NOT NULL,
 	`duration_minutes` integer NOT NULL,
 	`status` text DEFAULT 'pending' NOT NULL,
@@ -31,7 +32,7 @@ CREATE TABLE `appointments` (
 	`ends_at` integer NOT NULL,
 	`customer_name` text NOT NULL,
 	`customer_phone` text NOT NULL,
-	`customer_email` text NOT NULL,
+	`customer_email` text,
 	`note` text,
 	`booking_fee` integer NOT NULL,
 	`qpay_invoice_id` text,
@@ -46,10 +47,11 @@ CREATE TABLE `appointments` (
 	`created_at` integer DEFAULT (cast(unixepoch('subsec') * 1000 as integer)) NOT NULL,
 	FOREIGN KEY (`service_id`) REFERENCES `services`(`id`) ON UPDATE no action ON DELETE set null,
 	CONSTRAINT "appointments_status_check" CHECK("appointments"."status" in ('pending', 'booked', 'cancelled')),
+	CONSTRAINT "appointments_source_check" CHECK("appointments"."source" in ('online', 'admin')),
 	CONSTRAINT "appointments_times_check" CHECK("appointments"."ends_at" > "appointments"."starts_at" and "appointments"."duration_minutes" > 0),
-	CONSTRAINT "appointments_fee_check" CHECK("appointments"."booking_fee" > 0),
 	CONSTRAINT "appointments_pending_check" CHECK("appointments"."status" <> 'pending' or "appointments"."expires_at" is not null),
-	CONSTRAINT "appointments_booked_check" CHECK("appointments"."status" = 'pending' or "appointments"."paid_at" is not null)
+	CONSTRAINT "appointments_online_check" CHECK("appointments"."source" <> 'online' or ("appointments"."booking_fee" > 0 and "appointments"."customer_email" is not null and ("appointments"."status" = 'pending' or "appointments"."paid_at" is not null))),
+	CONSTRAINT "appointments_admin_check" CHECK("appointments"."source" <> 'admin' or ("appointments"."booking_fee" = 0 and "appointments"."status" <> 'pending' and "appointments"."qpay_invoice_id" is null))
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `appointments_booking_no_key` ON `appointments` (`booking_no`);--> statement-breakpoint

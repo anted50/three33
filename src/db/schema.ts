@@ -631,18 +631,25 @@ export const inventoryLedger = sqliteTable(
 // managed from /admin, by any admin.
 //
 // Rule: nothing a customer submits is kept unless money arrives. A new
-// booking is a `pending` hold for a few minutes while the fee is paid
+// online booking is a `pending` hold for a few minutes while the fee is paid
 // through QPay; paid, it becomes `booked` and the confirmation email goes
 // out; unpaid, the sweep deletes it (src/lib/server/booking/sweep.ts).
+// The one exception is a booking an admin enters himself — a phone call, a
+// walk-in — which is `booked` at once, with no fee.
 // ---------------------------------------------------------------------------
 
 /**
- *   pending ──(fee paid)──> booked ──(admin)──> cancelled
- *      └──(fee not paid in time)──> deleted by the sweep
+ *   online:  pending ──(fee paid)──> booked ──(admin)──> cancelled
+ *              └──(fee not paid in time)──> deleted by the sweep
+ *   admin:   booked ──(admin)──> cancelled
  *
  * A reschedule keeps the booking `booked` and moves its time.
  */
 export const appointmentStatus = sqliteEnum(['pending', 'booked', 'cancelled'])
+
+/** Who made the booking: a customer on the website (and paid the fee), or
+ * an admin entering it by hand (no fee). */
+export const appointmentSource = sqliteEnum(['online', 'admin'])
 
 export const services = sqliteTable(
   'services',
@@ -691,8 +698,9 @@ export const availability = sqliteTable(
  * One booking. The service's name and length are copied in when it is made,
  * so editing a service never rewrites a booking.
  *
- * The booking fee is paid once, through QPay, so its payment lives on this
- * row rather than in a payments table of its own.
+ * An online booking's fee is paid once, through QPay, so its payment lives
+ * on this row rather than in a payments table of its own. An admin-entered
+ * booking has no fee and may have no email.
  *
  * + no two non-cancelled appointments overlap: a trigger in the D1
  *   migrations. Pending holds count, so nobody can take a time someone else
@@ -705,6 +713,7 @@ export const appointments = sqliteTable(
     /** Short and read aloud, like order_no; also QPay's sender_invoice_no. */
     bookingNo: text('booking_no').notNull(),
     serviceId: text('service_id').references(() => services.id, { onDelete: 'set null' }),
+    source: appointmentSource('source').notNull().default('online'),
     serviceName: text('service_name').notNull(),
     durationMinutes: integer('duration_minutes').notNull(),
     status: appointmentStatus('status').notNull().default('pending'),
@@ -712,11 +721,13 @@ export const appointments = sqliteTable(
     endsAt: timestamp('ends_at').notNull(),
     customerName: text('customer_name').notNull(),
     customerPhone: text('customer_phone').notNull(),
-    /** Required: the confirmation goes here. */
-    customerEmail: text('customer_email').notNull(),
+    /** Required online — the confirmation goes here; optional for a booking
+     * an admin enters from a phone call. */
+    customerEmail: text('customer_email'),
     note: text('note'),
 
-    /** The booking fee as charged, frozen when the hold was made. */
+    /** The booking fee as charged, frozen when the hold was made. 0 for an
+     * admin-entered booking. */
     bookingFee: money('booking_fee').notNull(),
     qpayInvoiceId: text('qpay_invoice_id'),
     qpayPaymentId: text('qpay_payment_id'),
@@ -748,11 +759,20 @@ export const appointments = sqliteTable(
       .on(t.qpayPaymentId)
       .where(sql`qpay_payment_id is not null`),
     check('appointments_status_check', oneOf(t.status, appointmentStatus.enumValues)),
+    check('appointments_source_check', oneOf(t.source, appointmentSource.enumValues)),
     check('appointments_times_check', sql`${t.endsAt} > ${t.startsAt} and ${t.durationMinutes} > 0`),
-    check('appointments_fee_check', sql`${t.bookingFee} > 0`),
     check('appointments_pending_check', sql`${t.status} <> 'pending' or ${t.expiresAt} is not null`),
-    // Booked means paid: the fee is the only way a booking is confirmed.
-    check('appointments_booked_check', sql`${t.status} = 'pending' or ${t.paidAt} is not null`),
+    // Online: always money in front of it, an email to confirm to, and only
+    // ever booked by a paid fee.
+    check(
+      'appointments_online_check',
+      sql`${t.source} <> 'online' or (${t.bookingFee} > 0 and ${t.customerEmail} is not null and (${t.status} = 'pending' or ${t.paidAt} is not null))`,
+    ),
+    // Admin: booked straight away, nothing to pay online, never a hold.
+    check(
+      'appointments_admin_check',
+      sql`${t.source} <> 'admin' or (${t.bookingFee} = 0 and ${t.status} <> 'pending' and ${t.qpayInvoiceId} is null)`,
+    ),
   ],
 )
 

@@ -7,8 +7,8 @@ import { cancel } from '~/lib/server/booking/appointments'
 /**
  * POST /api/v1/admin/appointments/{appointmentId}/cancel — cancel a booking
  *
- * The time becomes free for others at once. The booking fee is not refunded
- * automatically.
+ * The time becomes free for others at once, and the customer is emailed (if
+ * the booking has an email). The booking fee is non-refundable: it is kept.
  *
  * Auth   admin (adminOnly)
  * Body   {}

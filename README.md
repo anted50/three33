@@ -117,11 +117,22 @@ One barber, one shop. The barber adds his services (a name and a length —
 hours. A customer picks a service and a free time, enters name, phone and
 email, and pays the booking fee through QPay; the paid fee confirms the
 booking and the confirmation email goes out. Unpaid holds are deleted after
-15 minutes. Admins see every booking and can move or cancel it.
+15 minutes.
 
-Three tables — `services`, `availability`, `appointments` — and a JSON API:
-`/api/v1/public/*` for the booking page, `/api/v1/admin/*` (admin session)
-for the barber. Each route file documents itself; conventions are in
+Admins see every booking. They can:
+
+- **reschedule** or **cancel** one — the customer is emailed either way, and
+  a cancelled booking's fee is kept (non-refundable);
+- **enter a booking by hand** (a phone call, a walk-in): booked at once, no
+  fee, email optional.
+
+Neither of those is held to the schedule; only overlapping another booking
+is refused.
+
+Three tables — `services`, `availability`, `appointments` — and a JSON API,
+with no screens in this app: `/api/v1/public/*` for a booking page,
+`/api/v1/admin/*` (admin session) for the barber. Each route file documents
+itself; conventions are in
 [`src/lib/server/api/README.md`](src/lib/server/api/README.md). The booking
 fee is a setting (`PUT /api/v1/admin/booking-fee`); until it is set, online
 booking is off.

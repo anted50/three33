@@ -1,6 +1,6 @@
 {
-  "id": "6a9023b6-a9ea-438e-9b1b-e0d2a6580774",
-  "prevId": "979841a4-46ef-46f8-8f63-74e30cfd3c9c",
+  "id": "2b0e2e27-5b33-413c-a4c4-15e70c672777",
+  "prevId": "459558c5-ffe8-4287-885e-a32e3f0aaa01",
   "version": "6",
   "dialect": "sqlite",
   "tables": {
@@ -184,6 +184,14 @@
           "notNull": false,
           "autoincrement": false
         },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'online'"
+        },
         "service_name": {
           "name": "service_name",
           "type": "text",
@@ -238,7 +246,7 @@
           "name": "customer_email",
           "type": "text",
           "primaryKey": false,
-          "notNull": true,
+          "notNull": false,
           "autoincrement": false
         },
         "note": {
@@ -381,21 +389,25 @@
           "name": "appointments_status_check",
           "value": "\"appointments\".\"status\" in ('pending', 'booked', 'cancelled')"
         },
+        "appointments_source_check": {
+          "name": "appointments_source_check",
+          "value": "\"appointments\".\"source\" in ('online', 'admin')"
+        },
         "appointments_times_check": {
           "name": "appointments_times_check",
           "value": "\"appointments\".\"ends_at\" > \"appointments\".\"starts_at\" and \"appointments\".\"duration_minutes\" > 0"
-        },
-        "appointments_fee_check": {
-          "name": "appointments_fee_check",
-          "value": "\"appointments\".\"booking_fee\" > 0"
         },
         "appointments_pending_check": {
           "name": "appointments_pending_check",
           "value": "\"appointments\".\"status\" <> 'pending' or \"appointments\".\"expires_at\" is not null"
         },
-        "appointments_booked_check": {
-          "name": "appointments_booked_check",
-          "value": "\"appointments\".\"status\" = 'pending' or \"appointments\".\"paid_at\" is not null"
+        "appointments_online_check": {
+          "name": "appointments_online_check",
+          "value": "\"appointments\".\"source\" <> 'online' or (\"appointments\".\"booking_fee\" > 0 and \"appointments\".\"customer_email\" is not null and (\"appointments\".\"status\" = 'pending' or \"appointments\".\"paid_at\" is not null))"
+        },
+        "appointments_admin_check": {
+          "name": "appointments_admin_check",
+          "value": "\"appointments\".\"source\" <> 'admin' or (\"appointments\".\"booking_fee\" = 0 and \"appointments\".\"status\" <> 'pending' and \"appointments\".\"qpay_invoice_id\" is null)"
         }
       }
     },

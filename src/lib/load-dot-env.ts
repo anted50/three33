@@ -8,6 +8,11 @@ import { resolve } from 'node:path'
  */
 export function loadDotEnv(file = '.env'): void {
   if (process.env.NODE_ENV === 'production') return
+  // Inside workerd (the deployed Worker and `vite dev`) there is no project
+  // directory to read, and nothing to load: wrangler has already turned
+  // .dev.vars / .env / secrets into bindings, which nodejs_compat mirrors
+  // onto process.env. This only does anything for Node scripts.
+  if (typeof navigator !== 'undefined' && navigator.userAgent === 'Cloudflare-Workers') return
 
   const path = resolve(process.cwd(), file)
   if (!existsSync(path)) return

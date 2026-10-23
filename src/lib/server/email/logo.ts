@@ -1,6 +1,4 @@
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
-import { env } from '../env'
+import { LOGO_PNG_BASE64 } from './logo-data'
 
 /**
  * The wordmark at the top of every transactional email, embedded in the
@@ -16,66 +14,24 @@ import { env } from '../env'
  * message.
  *
  * Kept as a PNG generated once by scripts/generate-email-logo.mjs — see that
- * file for why this is not inline SVG.
+ * file for why this is not inline SVG. The generator also writes the bytes
+ * into logo-data.ts, which is what gets attached: a Worker has no filesystem,
+ * so reading public/email-logo.png at send time is not an option.
  */
 export const LOGO_CID = 'three33-logo'
 
-/**
- * Where the PNG is, in dev and in production respectively. Vite copies
- * public/ into dist/client at build time, and the production server runs from
- * the repo root, so one of these two resolves in either case. Checked in this
- * order because in a built checkout both exist and public/ is the source of
- * truth.
- */
-const CANDIDATES = ['public/email-logo.png', 'dist/client/email-logo.png']
-
-/**
- * Read once and held. The file is about 2KB and never changes at run time, so
- * re-reading it per send would be a syscall per email for nothing. `null`
- * means it could not be found, which is cached too — a missing file is not
- * going to appear later in the same process.
- */
-let cached: string | null | undefined
-
-function loadLogo(): string | null {
-  if (cached !== undefined) return cached
-
-  for (const candidate of CANDIDATES) {
-    try {
-      cached = readFileSync(resolve(process.cwd(), candidate)).toString('base64')
-      return cached
-    } catch {
-      // Next candidate. A genuinely missing logo is handled below.
-    }
-  }
-
-  console.warn(
-    `email: ${CANDIDATES.join(' and ')} not found — falling back to a remote ` +
-      'logo, which many clients will not display. Run ' +
-      '`node scripts/generate-email-logo.mjs`.',
-  )
-  cached = null
-  return cached
-}
-
-/**
- * The inline attachment to hand Resend, or null when there is nothing
- * to attach — in which case logoImgTag falls back to the remote URL, so a
- * missing file costs the logo rather than the whole email.
- */
+/** Inline attachment for Resend; the bytes are bundled, see logo-data.ts. */
 export function logoAttachment(): {
   cid: string
   name: string
   mimeType: string
   base64: string
-} | null {
-  const base64 = loadLogo()
-  if (!base64) return null
+} {
   return {
     cid: LOGO_CID,
     name: 'email-logo.png',
     mimeType: 'image/png',
-    base64,
+    base64: LOGO_PNG_BASE64,
   }
 }
 
@@ -85,9 +41,5 @@ export function logoAttachment(): {
  * renders at its intrinsic 1000-odd pixels wide and blows the layout open.
  */
 export function logoImgTag(): string {
-  const src = loadLogo()
-    ? `cid:${LOGO_CID}`
-    : `${env.APP_URL}/email-logo.png`
-
-  return `<img src="${src}" alt="Three33 Barbershop" width="200" height="28" style="display:inline-block;width:200px;height:28px;border:0;outline:none;text-decoration:none" />`
+  return `<img src="cid:${LOGO_CID}" alt="Three33 Barbershop" width="200" height="28" style="display:inline-block;width:200px;height:28px;border:0;outline:none;text-decoration:none" />`
 }

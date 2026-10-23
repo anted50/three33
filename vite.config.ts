@@ -1,4 +1,5 @@
 import { fileURLToPath } from 'node:url'
+import { cloudflare } from '@cloudflare/vite-plugin'
 import { defineConfig } from 'vite'
 import { tanstackStart } from '@tanstack/react-start/plugin/vite'
 import viteReact from '@vitejs/plugin-react'
@@ -42,6 +43,11 @@ export default defineConfig(() => {
         '~': fileURLToPath(new URL('./src', import.meta.url)),
       },
     },
-    plugins: [tanstackStart(), viteReact()],
+    /**
+     * cloudflare() first: it runs the ssr environment inside workerd — the
+     * same runtime as production — for `vite dev` as well as the build, and
+     * emits the deployable Worker (dist/server) plus its wrangler.json.
+     */
+    plugins: [cloudflare({ viteEnvironment: { name: 'ssr' } }), tanstackStart(), viteReact()],
   }
 })

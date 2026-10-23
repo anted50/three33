@@ -1,0 +1,49 @@
+/**
+ * Cloudflare Workers deployment.
+ *
+ *   npm run deploy        build + wrangler deploy
+ *   npm run cf-typegen    regenerate worker-configuration.d.ts after editing this
+ *
+ * Secrets (QPAY_PASSWORD, JOBS_API_TOKEN, …) are NOT in this file — set them
+ * with `npx wrangler secret put <NAME>`. Locally they come from .dev.vars (or
+ * .env when there is no .dev.vars). The full list is .env.example.
+ * See docs/deploy-cloudflare.md.
+ */
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "three33",
+  // Must not be newer than the installed workerd (npx workerd --version).
+  "compatibility_date": "2026-10-01",
+  // node:crypto, Buffer, process.env from bindings — the server code uses all three.
+  "compatibility_flags": ["nodejs_compat"],
+
+  // TanStack Start's fetch handler plus the cron handler — see src/server.ts.
+  "main": "src/server.ts",
+
+  "observability": { "enabled": true },
+
+  /**
+   * Scheduled jobs. Each expression maps to one job in CRON_JOBS in
+   * src/server.ts — the two must be edited together. All times are UTC.
+   * Every job is also callable at POST /api/v1/jobs/<name>.
+   */
+  "triggers": {
+    "crons": [
+      "*/5 * * * *", // booking-sweep: unpaid holds block real slots, so often
+      "7 * * * *",   // reconcile: hourly net under the payment callbacks
+      "17 19 * * *"  // cleanup: 03:17 Ulaanbaatar, when the shop is closed
+    ]
+  },
+
+  /**
+   * Non-secret configuration. VITE_PUBLIC_* are NOT read from here for the
+   * browser — Vite bakes them into the client bundle at build time from the
+   * build machine's environment / .env.
+   */
+  "vars": {
+    "NODE_ENV": "production",
+    "APP_URL": "https://three33.workers.dev",
+    "QPAY_BASE_URL": "https://merchant.qpay.mn/v2",
+    "EMAIL_FROM": "Three33 Barbershop <noreply@three33barber.com>"
+  }
+}

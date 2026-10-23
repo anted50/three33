@@ -21,3 +21,8 @@ test-results/
 .docker-data/
 .pglite/
 receipt-preview.html
+
+# Cloudflare: local dev secrets and wrangler state
+.dev.vars
+.dev.vars.*
+.wrangler/

@@ -9,7 +9,6 @@
     "dev": "vite dev",
     "dev:lan": "vite dev --host",
     "build": "node scripts/build.mjs",
-    "start": "node server/index.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -24,45 +23,44 @@
     "qpay:ping": "tsx scripts/qpay-ping.ts",
     "qpay:smoke": "tsx scripts/qpay-smoke.ts",
     "storepay:ping": "tsx scripts/storepay-ping.ts",
-    "mail:preview": "tsx scripts/preview-email.ts"
+    "mail:preview": "tsx scripts/preview-email.ts",
+    "preview": "npm run build && vite preview",
+    "deploy": "npm run build && wrangler deploy",
+    "cf-typegen": "wrangler types --env-file .env.example"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.4",
-    "@hono/node-server": "^2.1.0",
-    "@opentelemetry/api-logs": "^0.223.0",
-    "@opentelemetry/exporter-logs-otlp-http": "^0.223.0",
-    "@opentelemetry/resources": "^2.12.0",
-    "@opentelemetry/sdk-logs": "^0.223.0",
-    "@opentelemetry/sdk-node": "^0.223.0",
     "@posthog/react": "^1.11.3",
     "@tanstack/react-router": "^1.170.18",
     "@tanstack/react-start": "^1.168.34",
     "@vitejs/plugin-react": "^5.0.0",
     "drizzle-orm": "^0.45.2",
     "exceljs": "^4.4.0",
-    "hono": "^4.13.0",
     "postgres": "^3.4.5",
-    "posthog-node": "^5.56.1",
     "qrcode": "^1.5.4",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "tsx": "^4.19.2",
     "vite": "^7.1.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.65.0",
     "@types/node": "^22.10.0",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "drizzle-kit": "^0.31.10",
     "sharp": "^0.35.3",
+    "tsx": "^4.23.15",
     "typescript": "^5.7.0",
-    "vitest": "^3.0.0"
+    "vitest": "^3.0.0",
+    "wrangler": "^4.152.0"
   },
   "allowScripts": {
     "esbuild@0.18.20": true,
     "esbuild@0.25.12": true,
-    "esbuild@0.28.1": true
+    "esbuild@0.28.1": true,
+    "esbuild@0.28.2": true,
+    "workerd@1.20261019.1": true
   }
 }

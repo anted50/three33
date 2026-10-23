@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dayStatus, freeStarts } from './availability'
-import { allocate, splitPayment } from './ledger-split'
-import { saleSplit } from './reports/revenue-math'
+import { freeStarts } from './availability'
 import { planSchedule } from './schedule-plan'
 import { addDays, atLocal, datesBetween, isoWeekday, localDateOf } from './time'
 import { apiErrorFromDb, findDbViolation, isUniqueViolation } from '../api/db-errors'
@@ -30,140 +28,83 @@ describe('time', () => {
 })
 
 describe('planSchedule', () => {
-  const A = '11111111-1111-4111-8111-111111111111'
-
-  it('builds the example week: Mon–Wed 9–15, Thu off, Fri–Sun 16–22', () => {
+  it('builds a week: Mon–Wed 9–15, Thu closed, Fri–Sun 16–22', () => {
     const plan = planSchedule([
-      { from: '2026-10-05', to: '2026-10-07', start: '09:00', end: '15:00', locationId: A },
-      { from: '2026-10-08', to: '2026-10-08', off: true },
-      { from: '2026-10-09', to: '2026-10-11', start: '16:00', end: '22:00', locationId: A },
+      { from: '2026-10-05', to: '2026-10-07', start: '09:00', end: '15:00' },
+      { from: '2026-10-08', to: '2026-10-08', closed: true },
+      { from: '2026-10-09', to: '2026-10-11', start: '16:00', end: '22:00' },
     ])
     expect([...plan.keys()]).toHaveLength(7)
-    expect(plan.get('2026-10-08')).toEqual({ kind: 'off', note: null })
+    expect(plan.get('2026-10-08')).toEqual({ kind: 'closed' })
     const fri = plan.get('2026-10-09')
-    expect(fri?.kind).toBe('shifts')
-    if (fri?.kind === 'shifts') {
-      expect(hhmm(fri.shifts[0]!.startsAt)).toBe('16:00')
-      expect(hhmm(fri.shifts[0]!.endsAt)).toBe('22:00')
+    expect(fri?.kind).toBe('open')
+    if (fri?.kind === 'open') {
+      expect(hhmm(fri.windows[0]!.startsAt)).toBe('16:00')
+      expect(hhmm(fri.windows[0]!.endsAt)).toBe('22:00')
     }
   })
 
-  it('applies weekdays filters inside a range', () => {
-    const plan = planSchedule([
-      { from: '2026-10-05', to: '2026-10-18', weekdays: [1, 2, 3], start: '09:00', end: '15:00', locationId: A },
-    ])
-    expect([...plan.keys()]).toEqual([
-      '2026-10-05', '2026-10-06', '2026-10-07', '2026-10-12', '2026-10-13', '2026-10-14',
-    ])
+  it('applies weekday filters inside a range', () => {
+    const plan = planSchedule([{ from: '2026-10-05', to: '2026-10-18', weekdays: [1, 2, 3], start: '09:00', end: '15:00' }])
+    expect([...plan.keys()]).toEqual(['2026-10-05', '2026-10-06', '2026-10-07', '2026-10-12', '2026-10-13', '2026-10-14'])
   })
 
-  it('allows two shifts in a day, refuses overlaps and mixed meanings', () => {
-    const B = '22222222-2222-4222-8222-222222222222'
+  it('allows two windows in a day, refuses overlaps and open-and-closed', () => {
     const plan = planSchedule([
-      { from: '2026-10-05', to: '2026-10-05', start: '09:00', end: '12:00', locationId: A },
-      { from: '2026-10-05', to: '2026-10-05', start: '13:00', end: '18:00', locationId: B },
+      { from: '2026-10-05', to: '2026-10-05', start: '09:00', end: '12:00' },
+      { from: '2026-10-05', to: '2026-10-05', start: '13:00', end: '18:00' },
     ])
-    expect(plan.get('2026-10-05')).toMatchObject({ kind: 'shifts' })
+    expect(plan.get('2026-10-05')).toMatchObject({ kind: 'open' })
 
     expect(() =>
       planSchedule([
-        { from: '2026-10-05', to: '2026-10-05', start: '09:00', end: '12:00', locationId: A },
-        { from: '2026-10-05', to: '2026-10-05', start: '11:00', end: '14:00', locationId: B },
+        { from: '2026-10-05', to: '2026-10-05', start: '09:00', end: '12:00' },
+        { from: '2026-10-05', to: '2026-10-05', start: '11:00', end: '14:00' },
       ]),
     ).toThrow(/overlap/)
 
     expect(() =>
       planSchedule([
-        { from: '2026-10-05', to: '2026-10-05', start: '09:00', end: '12:00', locationId: A },
-        { from: '2026-10-05', to: '2026-10-05', off: true },
+        { from: '2026-10-05', to: '2026-10-05', start: '09:00', end: '12:00' },
+        { from: '2026-10-05', to: '2026-10-05', closed: true },
       ]),
-    ).toThrow(/more than one meaning/)
+    ).toThrow(/both open and closed/)
   })
 
-  it('refuses backwards shifts and ranges', () => {
-    expect(() =>
-      planSchedule([{ from: '2026-10-05', to: '2026-10-05', start: '15:00', end: '09:00', locationId: A }]),
-    ).toThrow(/end after/)
-    expect(() => planSchedule([{ from: '2026-10-06', to: '2026-10-05', clear: true }])).toThrow(/before/)
+  it('takes any hours, including a late window ending at midnight', () => {
+    const plan = planSchedule([{ from: '2026-10-05', to: '2026-10-05', start: '20:00', end: '24:00' }])
+    const day = plan.get('2026-10-05')
+    expect(day?.kind === 'open' && hhmm(day.windows[0]!.endsAt)).toBe('00:00')
+  })
+
+  it('refuses backwards windows and ranges', () => {
+    expect(() => planSchedule([{ from: '2026-10-05', to: '2026-10-05', start: '15:00', end: '09:00' }])).toThrow(/end after/)
+    expect(() => planSchedule([{ from: '2026-10-06', to: '2026-10-05', closed: true }])).toThrow(/before/)
   })
 })
 
 describe('freeStarts', () => {
-  const shifts = [{ startsAt: t('10:00'), endsAt: t('18:00') }]
+  const windows = [{ startsAt: t('10:00'), endsAt: t('18:00') }]
   const busy = [
-    { startsAt: t('11:00'), blockedUntil: t('12:15') },
-    { startsAt: t('19:00'), blockedUntil: t('19:55') }, // overtime, outside the shift
+    { startsAt: t('11:00'), endsAt: t('12:15') },
+    { startsAt: t('19:00'), endsAt: t('19:55') }, // moved outside the window by the admin
   ]
 
-  it('offers only starts where the whole block fits', () => {
-    const starts = freeStarts(shifts, busy, 55, t('00:00')).map(hhmm)
+  it('offers only starts where the whole service fits', () => {
+    const starts = freeStarts(windows, busy, 55, t('00:00')).map(hhmm)
     expect(starts[0]).toBe('10:00')
     expect(starts).not.toContain('10:15') // would run into 11:00
-    expect(starts[1]).toBe('12:15') // right when the buffer ends
+    expect(starts[1]).toBe('12:15') // right when the booking ends
     expect(starts.at(-1)).toBe('17:00') // 17:00 + 55 min fits before 18:00
   })
 
   it('skips the past', () => {
-    const starts = freeStarts(shifts, [], 30, t('16:05')).map(hhmm)
+    const starts = freeStarts(windows, [], 30, t('16:05')).map(hhmm)
     expect(starts).toEqual(['16:15', '16:30', '16:45', '17:00', '17:15', '17:30'])
   })
-})
 
-describe('dayStatus', () => {
-  it('tells working, elsewhere, off and unknown apart', () => {
-    expect(dayStatus({ shiftsHere: 1, shiftsElsewhere: 0, isOff: false })).toBe('working')
-    expect(dayStatus({ shiftsHere: 0, shiftsElsewhere: 2, isOff: false })).toBe('elsewhere')
-    expect(dayStatus({ shiftsHere: 0, shiftsElsewhere: 0, isOff: true })).toBe('off')
-    expect(dayStatus({ shiftsHere: 0, shiftsElsewhere: 0, isOff: false })).toBe('unknown')
-  })
-})
-
-describe('splitPayment', () => {
-  const rates = { serviceCutBps: 3000, productCommissionBps: 1000 }
-  const svc = (n: number) => ({ service: n, product: 0 })
-
-  it('matches the worked example: 30% cut on services', () => {
-    expect(splitPayment('qpay', svc(1_000_000), rates)).toEqual([
-      { kind: 'service_share', grossAmount: 1_000_000, rateBps: 3000, amount: 700_000 },
-    ])
-    expect(splitPayment('cash', svc(4_000_000), rates)).toEqual([
-      { kind: 'service_share', grossAmount: 4_000_000, rateBps: 3000, amount: 2_800_000 },
-      { kind: 'cash_collected', grossAmount: 4_000_000, rateBps: null, amount: -4_000_000 },
-    ])
-  })
-
-  it('gives commission on products, and owes back all cash', () => {
-    expect(splitPayment('cash', { service: 0, product: 6_000_000 }, rates)).toEqual([
-      { kind: 'product_commission', grossAmount: 6_000_000, rateBps: 1000, amount: 600_000 },
-      { kind: 'cash_collected', grossAmount: 6_000_000, rateBps: null, amount: -6_000_000 },
-    ])
-    expect(splitPayment('pos', { service: 0, product: 6_000_000 }, { ...rates, productCommissionBps: 0 })).toEqual([])
-  })
-
-  it('rounds the way of the barber', () => {
-    expect(splitPayment('pos', svc(333), rates)[0]!.amount).toBe(234) // cut 99.9 -> 99
-    expect(splitPayment('pos', { service: 0, product: 333 }, rates)[0]!.amount).toBe(34) // 33.3 -> 34
-  })
-})
-
-describe('allocate', () => {
-  it('covers products first, then services, exactly', () => {
-    // 60,000 pomade + 50,000 haircut, paid 30,000 then 80,000
-    expect(allocate(3_000_000, 6_000_000, 0)).toEqual({ product: 3_000_000, service: 0 })
-    expect(allocate(8_000_000, 6_000_000, 3_000_000)).toEqual({ product: 3_000_000, service: 5_000_000 })
-    expect(allocate(1_000_000, 0, 0)).toEqual({ product: 0, service: 1_000_000 })
-  })
-})
-
-describe('saleSplit', () => {
-  it('separates products from services and never counts the fee twice', () => {
-    const lines = [
-      { unitAmount: 6_000_000, qty: 2, skuSnapshot: 'PMD-100' },
-      { unitAmount: 5_000_000, qty: 1, skuSnapshot: null },
-    ]
-    // Appointment checkout: 10,000 fee already counted when paid online.
-    expect(saleSplit({ credit: 1_000_000 }, lines)).toEqual({ products: 12_000_000, units: 2, services: 4_000_000 })
-    expect(saleSplit({ credit: 0 }, lines.slice(1))).toEqual({ products: 0, units: 0, services: 5_000_000 })
+  it('has nothing to offer without a window', () => {
+    expect(freeStarts([], [], 30, t('00:00'))).toEqual([])
   })
 })
 
@@ -175,9 +116,7 @@ describe('db errors', () => {
     expect(findDbViolation(d1('appointments_no_overlap'))).toEqual({ kind: 'trigger', target: 'appointments_no_overlap' })
     expect(apiErrorFromDb(d1('appointments_no_overlap'))).toMatchObject({ status: 409, code: 'TIME_TAKEN' })
     expect(apiErrorFromDb(d1('UNIQUE constraint failed: users.email'))).toMatchObject({ status: 409, code: 'EMAIL_TAKEN' })
-    expect(
-      apiErrorFromDb(d1('UNIQUE constraint failed: barber_terms.barber_id, barber_terms.effective_from')),
-    ).toMatchObject({ code: 'TERMS_EXIST' })
+    expect(apiErrorFromDb(d1('availability_no_overlap'))).toMatchObject({ status: 409, code: 'WINDOW_OVERLAP' })
   })
 
   it('uses a batch guard code as the API error code', () => {

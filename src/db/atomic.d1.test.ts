@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { apiErrorFromDb } from '~/lib/server/api/db-errors'
 import { atomic, changed, exists, guard } from './atomic'
 import { db } from './index'
-import { appointments, barbers, locations, orders, payments, productVariants, products, users } from './schema'
+import { appointments, orders, payments, productVariants, products, users } from './schema'
 
 async function rejectionOf(promise: Promise<unknown>) {
   return promise.then(
@@ -99,29 +99,20 @@ describe('atomic + guard on D1', () => {
   })
 
   it('maps the appointment overlap trigger to TIME_TAKEN', async () => {
-    const locationId = crypto.randomUUID()
-    const barberId = crypto.randomUUID()
-    await atomic([
-      db.insert(locations).values({ id: locationId, slug: 'loc', nameMn: 'l', nameEn: 'l', address: 'a' }),
-      db.insert(barbers).values({ id: barberId, slug: 'barber', name: 'B', phone: '1' }),
-    ])
     const at = (h: number) => new Date(Date.UTC(2026, 9, 1, h))
     const booking = (startH: number, endH: number) =>
       db.insert(appointments).values({
-        bookingNo: `B-${startH}`,
-        locationId,
-        barberId,
-        source: 'barber',
+        bookingNo: `B-${startH}-${endH}`,
+        serviceName: 'Haircut',
+        durationMinutes: (endH - startH) * 60,
         status: 'booked',
         startsAt: at(startH),
         endsAt: at(endH),
-        blockedUntil: at(endH),
-        bufferMinutes: 0,
-        total: 0,
-        bookingFee: 0,
-        confirmedAt: new Date(),
         customerName: 'c',
-        customerPhone: 'p',
+        customerPhone: '99112233',
+        customerEmail: 'c@example.com',
+        bookingFee: 1_000_000,
+        paidAt: new Date(),
         accessTokenHash: 'h',
       })
 

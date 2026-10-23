@@ -114,7 +114,6 @@ export const inventoryReason = sqliteEnum([
   'order_refunded',
   'restock',
   'manual_adjustment',
-  'pos_sale', // a barber sold it through the POS (0008); see barber_sale_lines
 ])
 
 // ---------------------------------------------------------------------------
@@ -492,7 +491,7 @@ export const payments = sqliteTable(
 
 /**
  * Marks an order as issued by an admin from /admin/invoices rather than
- * checked out by a customer. A side table, like in_store_sales, so orders
+ * checked out by a customer. A side table, so orders
  * itself stays as it is: an order is an admin invoice iff it has a row here.
  * Everything else — payment, settlement, stock, expiry — is the ordinary
  * order pipeline.
@@ -616,811 +615,144 @@ export const inventoryLedger = sqliteTable(
 )
 
 // ---------------------------------------------------------------------------
-// Booking — locations, barbers, their services, shifts and appointments.
+// Booking — one barber, one shop.
 //
-// Purely additive: nothing above this line is altered. The only references
-// into shop tables are foreign keys FROM these tables TO users, orders and
-// payments, so dropping every table below restores the shop exactly as it was
-// — see drizzle/rollback/0006_booking.down.sql. Full flows and the reasoning
-// behind each rule: docs/booking-flows.xlsx.
+// Three tables and nothing else:
 //
-// Two rules shape almost everything here:
+//   services      what can be booked, each with its own length ("Haircut",
+//                 45 minutes). The barber adds and edits them in admin.
+//   availability  the windows the barber has opened for booking — any day,
+//                 any hours, as many as he likes.
+//   appointments  one booking: one service, one time, the customer's contact
+//                 details, and the online booking fee that confirmed it.
 //
-//  1. Nothing a customer submits is kept unless money arrives. An online
-//     booking exists only as a short-lived `pending` hold until its fee is
-//     paid; an unpaid hold is deleted, not archived.
-//  2. A booking is confirmed only by a paid fee (online) or by the barber
-//     entering it themselves. The database refuses a confirmed status without
-//     confirmed_at.
+// The shop's address is not data — there is one place and it never changes,
+// so the website states it. There are no staff accounts: bookings are
+// managed from /admin, by any admin.
 //
-// Accounts. Customers never have one: their name, phone and email live only
-// on the appointment or order that carries their payment, and everything
-// reaches them by email. Barbers do: the owner creates the users row and the
-// barbers row together from a form (no signup, no passwords), and the barber
-// signs in to their own /barber area with the same emailed code as /admin —
-// otp_codes and sessions serve both unchanged.
-//
-// Who is a barber is decided by barbers.user_id + is_active, not by
-// users.role: one source of truth, so user_role is left untouched, and access
-// ends the moment the owner deactivates the barber.
+// Rule: nothing a customer submits is kept unless money arrives. A new
+// booking is a `pending` hold for a few minutes while the fee is paid
+// through QPay; paid, it becomes `booked` and the confirmation email goes
+// out; unpaid, the sweep deletes it (src/lib/server/booking/sweep.ts).
 // ---------------------------------------------------------------------------
 
-export const appointmentSource = sqliteEnum([
-  'online', // customer booked on the site and paid the fee
-  'barber', // barber entered it: phone call, walk-in, extra job after hours
-])
-
 /**
- *   pending ──> booked ──┬─> completed
- *      │                 ├─> no_show
- *      │                 └─> cancelled      (barber only; fee kept)
- *      └─> (deleted)     unpaid hold, removed by the sweep
+ *   pending ──(fee paid)──> booked ──(admin)──> cancelled
+ *      └──(fee not paid in time)──> deleted by the sweep
  *
- * Barber-entered bookings start at `booked`.
+ * A reschedule keeps the booking `booked` and moves its time.
  */
-export const appointmentStatus = sqliteEnum([
-  'pending',
-  'booked',
-  'completed',
-  'cancelled',
-  'no_show',
-])
+export const appointmentStatus = sqliteEnum(['pending', 'booked', 'cancelled'])
 
-export const appointmentEventKind = sqliteEnum([
-  'created',
-  'rescheduled',
-  'updated',
-  'flagged', // emergency: needs rescheduling, on the barber's call list
-  'cancelled',
-  'no_show',
-  'completed',
-])
-
-export const appointmentPaymentKind = sqliteEnum([
-  'booking_fee', // online, up front
-  'balance', // at the shop: total - booking_fee, possibly split
-])
-
-/**
- * Where the money lands decides the barber's ledger: qpay, pos and
- * bank_transfer arrive in the shop's main account; cash stays in the barber's
- * hand and is owed back (barber_ledger 'cash_collected').
- */
-export const paymentMethod = sqliteEnum([
-  'qpay',
-  'cash',
-  'pos',
-  'bank_transfer',
-])
-
-export const rentPeriod = sqliteEnum(['weekly', 'biweekly', 'monthly'])
-export const rentStatus = sqliteEnum(['due', 'paid', 'waived'])
-export const rentPaidVia = sqliteEnum(['direct', 'payout'])
-
-export const barberLedgerKind = sqliteEnum([
-  'service_share', // + barber's share of an appointment payment
-  'product_commission', // + commission on an in-store sale they rang up
-  'cash_collected', // − cash the barber holds and must hand back
-  'rent_deduction', // − rent taken out of a payout
-  'payout', // − shop pays the barber
-  'settlement', // + barber hands money back; owner confirms
-  'adjustment', // ± owner correction, note required
-])
-
-export const locations = sqliteTable(
-  'locations',
-  {
-    id: id(),
-    slug: text('slug').notNull(),
-    nameMn: text('name_mn').notNull(),
-    nameEn: text('name_en').notNull(),
-    address: text('address').notNull(),
-    phone: text('phone'),
-    mapLink: text('map_link'),
-    isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
-    sortOrder: integer('sort_order').notNull().default(0),
-    createdAt: createdAt(),
-  },
-  (t) => [uniqueIndex('locations_slug_key').on(t.slug)],
-)
-
-export const barbers = sqliteTable(
-  'barbers',
-  {
-    id: id(),
-    slug: text('slug').notNull(),
-    name: text('name').notNull(),
-    /** On every confirmation. Calling the barber is the customer's only way to
-     * reschedule or cancel, so it can't be empty. */
-    phone: text('phone').notNull(),
-    bioMn: text('bio_mn'),
-    bioEn: text('bio_en'),
-    photoUrl: text('photo_url'),
-    /** Cleanup time blocked after each appointment. The barber sets it. */
-    bufferMinutes: integer('buffer_minutes').notNull().default(0),
-    /** Paid online to book, kept on cancel or no-show. 0 = phone booking only:
-     * online booking always needs money in front of it. */
-    bookingFee: money('booking_fee').notNull().default(0),
-    /** The barber's login, created by the owner with this row. Signing in to
-     * /barber (email code only) requires this link and is_active; users.role
-     * plays no part. Null = the owner manages this barber, no login. */
-    userId: text('user_id').references(() => users.id, {
-      onDelete: 'set null',
-    }),
-    isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
-    sortOrder: integer('sort_order').notNull().default(0),
-    createdAt: createdAt(),
-  },
-  (t) => [
-    uniqueIndex('barbers_slug_key').on(t.slug),
-    uniqueIndex('barbers_user_id_key').on(t.userId),
-    check('barbers_buffer_minutes_check', sql`${t.bufferMinutes} >= 0`),
-    check('barbers_booking_fee_check', sql`${t.bookingFee} >= 0`),
-  ],
-)
-
-/**
- * A barber's own service at one location — they name it, price it and time
- * it. The same haircut at another branch is another row with its own price;
- * there is no override logic and no owner-defined catalog.
- */
 export const services = sqliteTable(
   'services',
   {
     id: id(),
-    barberId: text('barber_id')
-      .notNull()
-      .references(() => barbers.id, { onDelete: 'cascade' }),
-    locationId: text('location_id')
-      .notNull()
-      .references(() => locations.id, { onDelete: 'cascade' }),
-    nameEn: text('name_en').notNull(),
-    nameMn: text('name_mn'),
-    descriptionEn: text('description_en'),
-    descriptionMn: text('description_mn'),
-    price: money('price').notNull(),
+    name: text('name').notNull(),
+    description: text('description'),
     durationMinutes: integer('duration_minutes').notNull(),
+    /** What the service costs at the shop, shown on the site. Null = not shown.
+     * Only the booking fee is paid online. */
+    price: money('price'),
+    /** Inactive services can't be booked; there is no delete, so past
+     * bookings keep pointing at a real row. */
     isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
     sortOrder: integer('sort_order').notNull().default(0),
     createdAt: createdAt(),
   },
   (t) => [
-    index('services_barber_location_idx').on(t.barberId, t.locationId),
-    index('services_location_idx').on(t.locationId),
-    check('services_price_check', sql`${t.price} >= 0`),
     check('services_duration_check', sql`${t.durationMinutes} > 0`),
+    check('services_price_check', sql`${t.price} is null or ${t.price} >= 0`),
   ],
 )
 
 /**
- * Planned availability: the windows customers can book online. Dated, not a
- * weekly pattern — barbers work whatever days and places they choose.
- * Appointments never reference shifts; free slots are computed live as shifts
- * minus appointments, so a booking outside every shift (overtime) takes
- * nothing from the plan, and editing a shift never touches a booking.
+ * A window the barber is open for bookings. Free times are computed live as
+ * availability minus appointments; appointments never point at a window, so
+ * editing the schedule never touches a booking.
  *
- * + no overlapping shifts per barber: a trigger in the D1 migrations, the
- *   SQLite stand-in for the Postgres EXCLUDE constraint this used to be.
+ * + no overlapping windows: a trigger in the D1 migrations.
  */
-export const barberShifts = sqliteTable(
-  'barber_shifts',
+export const availability = sqliteTable(
+  'availability',
   {
     id: id(),
-    barberId: text('barber_id')
-      .notNull()
-      .references(() => barbers.id, { onDelete: 'cascade' }),
-    locationId: text('location_id')
-      .notNull()
-      .references(() => locations.id, { onDelete: 'cascade' }),
     startsAt: timestamp('starts_at').notNull(),
     endsAt: timestamp('ends_at').notNull(),
     createdAt: createdAt(),
   },
   (t) => [
-    index('barber_shifts_location_starts_idx').on(t.locationId, t.startsAt),
-    index('barber_shifts_barber_starts_idx').on(t.barberId, t.startsAt),
-    check('barber_shifts_range_check', sql`${t.endsAt} > ${t.startsAt}`),
+    index('availability_starts_idx').on(t.startsAt),
+    check('availability_range_check', sql`${t.endsAt} > ${t.startsAt}`),
   ],
 )
 
 /**
- * The owner–barber deal. Owner-only, and a table of its own rather than
- * columns on barbers so a barber editing their profile can never reach it.
- * A new row per change, never an edit: the terms in force are the latest
- * effective_from <= now, and past ledger rows keep the rate they were earned
- * under.
- */
-export const barberTerms = sqliteTable(
-  'barber_terms',
-  {
-    id: id(),
-    barberId: text('barber_id')
-      .notNull()
-      .references(() => barbers.id, { onDelete: 'restrict' }),
-    /** Shop's cut of service payments, in basis points: 3000 = 30%. Integer
-     * for the same reason as the MONEY RULE. */
-    serviceCutBps: integer('service_cut_bps').notNull().default(0),
-    /** Barber's commission on in-store product sales they ring up. */
-    productCommissionBps: integer('product_commission_bps')
-      .notNull()
-      .default(0),
-    rentAmount: money('rent_amount').notNull().default(0),
-    rentPeriod: rentPeriod('rent_period'),
-    /** First due date; later ones are this + n × period. */
-    rentStartsOn: text('rent_starts_on'),
-    effectiveFrom: timestamp('effective_from').notNull(),
-    createdBy: text('created_by').references(() => users.id, {
-      onDelete: 'set null',
-    }),
-    createdAt: createdAt(),
-  },
-  (t) => [
-    uniqueIndex('barber_terms_barber_effective_key').on(
-      t.barberId,
-      t.effectiveFrom,
-    ),
-    check(
-      'barber_terms_bps_check',
-      sql`${t.serviceCutBps} between 0 and 10000 and ${t.productCommissionBps} between 0 and 10000`,
-    ),
-    check(
-      'barber_terms_rent_check',
-      sql`${t.rentAmount} = 0 or (${t.rentAmount} > 0 and ${t.rentPeriod} is not null and ${t.rentStartsOn} is not null)`,
-    ),
-    check('barber_terms_rent_period_check', oneOf(t.rentPeriod, rentPeriod.enumValues)),
-  ],
-)
-
-/**
- * One row per rent due date, created by the sweep from the terms in force.
- * Paid either directly (owner confirms) or out of a payout (a
- * 'rent_deduction' ledger row points here).
- */
-export const rentCharges = sqliteTable(
-  'rent_charges',
-  {
-    id: id(),
-    barberId: text('barber_id')
-      .notNull()
-      .references(() => barbers.id, { onDelete: 'restrict' }),
-    /** Frozen from the terms: changing the rent never rewrites a bill. */
-    amount: money('amount').notNull(),
-    dueOn: text('due_on').notNull(),
-    status: rentStatus('status').notNull().default('due'),
-    paidVia: rentPaidVia('paid_via'),
-    confirmedBy: text('confirmed_by').references(() => users.id, {
-      onDelete: 'set null',
-    }),
-    confirmedAt: timestamp('confirmed_at'),
-    note: text('note'),
-    createdAt: createdAt(),
-  },
-  (t) => [
-    // The sweep can run twice; a barber is still only billed once per date.
-    uniqueIndex('rent_charges_barber_due_key').on(t.barberId, t.dueOn),
-    index('rent_charges_status_due_idx').on(t.status, t.dueOn),
-    check('rent_charges_amount_check', sql`${t.amount} > 0`),
-    check(
-      'rent_charges_paid_check',
-      sql`${t.status} <> 'paid' or ${t.paidVia} is not null`,
-    ),
-    check('rent_charges_status_check', oneOf(t.status, rentStatus.enumValues)),
-    check('rent_charges_paid_via_check', oneOf(t.paidVia, rentPaidVia.enumValues)),
-  ],
-)
-
-/**
- * One visit: one barber, one location, one or more services.
+ * One booking. The service's name and length are copied in when it is made,
+ * so editing a service never rewrites a booking.
  *
- * `blocked_until` = ends_at + the barber's buffer, frozen at booking, and it is
- * what the no-overlap constraint uses — so a barber changing their buffer
- * later can't create a clash with bookings that already exist.
+ * The booking fee is paid once, through QPay, so its payment lives on this
+ * row rather than in a payments table of its own.
  *
- * + no overlapping appointments per barber, except cancelled: a trigger in the
- *   D1 migrations (it was an EXCLUDE constraint on Postgres). Pending holds
- *   count, so nobody can take a slot someone else is paying for.
+ * + no two non-cancelled appointments overlap: a trigger in the D1
+ *   migrations. Pending holds count, so nobody can take a time someone else
+ *   is paying for.
  */
 export const appointments = sqliteTable(
   'appointments',
   {
     id: id(),
-    bookingNo: text('booking_no').notNull(), // short, read aloud, like order_no
-    locationId: text('location_id')
-      .notNull()
-      .references(() => locations.id, { onDelete: 'restrict' }),
-    barberId: text('barber_id')
-      .notNull()
-      .references(() => barbers.id, { onDelete: 'restrict' }),
-    source: appointmentSource('source').notNull(),
-    status: appointmentStatus('status').notNull(),
+    /** Short and read aloud, like order_no; also QPay's sender_invoice_no. */
+    bookingNo: text('booking_no').notNull(),
+    serviceId: text('service_id').references(() => services.id, { onDelete: 'set null' }),
+    serviceName: text('service_name').notNull(),
+    durationMinutes: integer('duration_minutes').notNull(),
+    status: appointmentStatus('status').notNull().default('pending'),
     startsAt: timestamp('starts_at').notNull(),
-    /** starts_at + the sum of the line durations. */
     endsAt: timestamp('ends_at').notNull(),
-    blockedUntil: timestamp('blocked_until').notNull(),
-    /** The barber's buffer when booked; a reschedule keeps it. */
-    bufferMinutes: integer('buffer_minutes').notNull(),
-    /** Sum of line prices, frozen. */
-    total: money('total').notNull(),
-    /** Paid online, frozen. Due at the shop = total − booking_fee. */
-    bookingFee: money('booking_fee').notNull(),
-    /** How long an unpaid hold lives. Null once confirmed-by-barber. */
-    expiresAt: timestamp('expires_at'),
-    confirmedAt: timestamp('confirmed_at'),
-    /** The barber who entered it. Null for online bookings, which the fee
-     * confirmed. */
-    confirmedBy: text('confirmed_by').references(() => users.id, {
-      onDelete: 'set null',
-    }),
-    /** Set once the confirmation email has gone out, so a QPay callback and
-     * the sweep confirming the same booking can't send it twice. */
-    confirmationSentAt: timestamp('confirmation_sent_at'),
-    /** Emergency flag: on the barber's call list until rescheduled or
-     * cancelled. */
-    needsRescheduleAt: timestamp('needs_reschedule_at'),
     customerName: text('customer_name').notNull(),
     customerPhone: text('customer_phone').notNull(),
-    customerEmail: text('customer_email'),
+    /** Required: the confirmation goes here. */
+    customerEmail: text('customer_email').notNull(),
     note: text('note'),
-    /** SHA-256 of the status-page token — same reasoning as orders. */
+
+    /** The booking fee as charged, frozen when the hold was made. */
+    bookingFee: money('booking_fee').notNull(),
+    qpayInvoiceId: text('qpay_invoice_id'),
+    qpayPaymentId: text('qpay_payment_id'),
+    invoicePayload: text('invoice_payload', { mode: 'json' }).$type<InvoicePayload>(),
+    /** Last time we spent a QPay check on this fee — polling is throttled. */
+    lastCheckedAt: timestamp('last_checked_at'),
+    paidAt: timestamp('paid_at'),
+
+    /** How long an unpaid hold lives. Null once booked. */
+    expiresAt: timestamp('expires_at'),
+    /** Set once the confirmation email has gone out, so a QPay callback and
+     * a poll confirming the same booking can't send it twice. */
+    confirmationSentAt: timestamp('confirmation_sent_at'),
+    cancelledAt: timestamp('cancelled_at'),
+    /** SHA-256 of the token that opens the customer's booking page. */
     accessTokenHash: text('access_token_hash').notNull(),
     createdAt: createdAt(),
   },
   (t) => [
     uniqueIndex('appointments_booking_no_key').on(t.bookingNo),
-    // The barber's day view, and "everyone I have from today to Friday".
-    index('appointments_barber_starts_idx').on(t.barberId, t.startsAt),
-    index('appointments_location_starts_idx').on(t.locationId, t.startsAt),
+    index('appointments_starts_idx').on(t.startsAt),
     // Drives the sweep that deletes unpaid holds.
     index('appointments_pending_expires_idx')
       .on(t.expiresAt)
       .where(sql`status = 'pending'`),
-    // The emergency call list.
-    index('appointments_needs_reschedule_idx')
-      .on(t.barberId)
-      .where(sql`needs_reschedule_at is not null`),
-    check(
-      'appointments_times_check',
-      sql`${t.endsAt} > ${t.startsAt} and ${t.blockedUntil} >= ${t.endsAt} and ${t.bufferMinutes} >= 0`,
-    ),
-    check(
-      'appointments_money_check',
-      sql`${t.bookingFee} >= 0 and ${t.bookingFee} <= ${t.total}`,
-    ),
-    // Rule 2: never confirmed without a confirmation.
-    check(
-      'appointments_confirmed_check',
-      sql`${t.status} not in ('booked', 'completed', 'no_show') or ${t.confirmedAt} is not null`,
-    ),
-    check(
-      'appointments_pending_check',
-      sql`${t.status} <> 'pending' or ${t.expiresAt} is not null`,
-    ),
-    // Rule 1: online bookings always have money in front of them, and an
-    // email to send the confirmation to.
-    check(
-      'appointments_online_check',
-      sql`${t.source} <> 'online' or (${t.bookingFee} > 0 and ${t.customerEmail} is not null)`,
-    ),
-    check(
-      'appointments_barber_check',
-      sql`${t.source} <> 'barber' or (${t.bookingFee} = 0 and ${t.expiresAt} is null)`,
-    ),
-    check('appointments_source_check', oneOf(t.source, appointmentSource.enumValues)),
+    // One QPay payment confirms one booking, even if the callback, a poll and
+    // the sweep all race to confirm it.
+    uniqueIndex('appointments_qpay_payment_id_key')
+      .on(t.qpayPaymentId)
+      .where(sql`qpay_payment_id is not null`),
     check('appointments_status_check', oneOf(t.status, appointmentStatus.enumValues)),
-  ],
-)
-
-/** Lines of an appointment, frozen — editing a service never changes them. */
-export const appointmentServices = sqliteTable(
-  'appointment_services',
-  {
-    id: id(),
-    appointmentId: text('appointment_id')
-      .notNull()
-      .references(() => appointments.id, { onDelete: 'cascade' }),
-    serviceId: text('service_id').references(() => services.id, {
-      onDelete: 'set null',
-    }),
-    nameSnapshot: text('name_snapshot').notNull(),
-    priceSnapshot: money('price_snapshot').notNull(),
-    durationMinutesSnapshot: integer('duration_minutes_snapshot').notNull(),
-    sortOrder: integer('sort_order').notNull().default(0),
-  },
-  (t) => [
-    index('appointment_services_appointment_id_idx').on(t.appointmentId),
-    check(
-      'appointment_services_values_check',
-      sql`${t.priceSnapshot} >= 0 and ${t.durationMinutesSnapshot} > 0`,
-    ),
-  ],
-)
-
-/** Append-only history. The appointment row holds the current state; this
- * holds how it got there — every move, by whom, from when to when. Holds
- * write nothing here; 'created' is written when the booking is confirmed. */
-export const appointmentEvents = sqliteTable(
-  'appointment_events',
-  {
-    id: id(),
-    appointmentId: text('appointment_id')
-      .notNull()
-      .references(() => appointments.id, { onDelete: 'cascade' }),
-    kind: appointmentEventKind('kind').notNull(),
-    fromStartsAt: timestamp('from_starts_at'),
-    toStartsAt: timestamp('to_starts_at'),
-    actorId: text('actor_id').references(() => users.id, {
-      onDelete: 'set null',
-    }),
-    note: text('note'),
-    createdAt: createdAt(),
-  },
-  (t) => [
-    index('appointment_events_appointment_id_idx').on(t.appointmentId),
-    check('appointment_events_kind_check', oneOf(t.kind, appointmentEventKind.enumValues)),
-  ],
-)
-
-/**
- * The booking fee (online, QPay) and the balance at the shop (any method,
- * possibly split). Mirrors `payments`, but for appointments, so the shop's
- * tables stay untouched.
- */
-export const appointmentPayments = sqliteTable(
-  'appointment_payments',
-  {
-    id: id(),
-    appointmentId: text('appointment_id')
-      .notNull()
-      .references(() => appointments.id, { onDelete: 'restrict' }),
-    kind: appointmentPaymentKind('kind').notNull(),
-    method: paymentMethod('method').notNull(),
-    amount: money('amount').notNull(),
-    status: paymentStatus('status').notNull().default('pending'),
-    qpayInvoiceId: text('qpay_invoice_id'),
-    qpayPaymentId: text('qpay_payment_id'),
-    invoicePayload: text('invoice_payload', { mode: 'json' }).$type<InvoicePayload>(),
-    rawCallback: text('raw_callback', { mode: 'json' }),
-    /** Who took it at the shop. Null for the online fee. */
-    receivedByUserId: text('received_by_user_id').references(() => users.id, {
-      onDelete: 'set null',
-    }),
-    paidAt: timestamp('paid_at'),
-    lastCheckedAt: timestamp('last_checked_at'),
-    createdAt: createdAt(),
-  },
-  (t) => [
-    // Same idempotency guard as payments: one QPay payment, one row.
-    uniqueIndex('appointment_payments_qpay_payment_id_key')
-      .on(t.qpayPaymentId)
-      .where(sql`qpay_payment_id is not null`),
-    // The fee is paid once; the balance may be split over several rows.
-    uniqueIndex('appointment_payments_fee_once_key')
-      .on(t.appointmentId)
-      .where(sql`kind = 'booking_fee' and status = 'paid'`),
-    index('appointment_payments_appointment_id_idx').on(t.appointmentId),
-    index('appointment_payments_qpay_invoice_id_idx').on(t.qpayInvoiceId),
-    check('appointment_payments_amount_check', sql`${t.amount} > 0`),
-    check(
-      'appointment_payments_qpay_check',
-      sql`${t.method} = 'qpay' or ${t.qpayInvoiceId} is null`,
-    ),
-    check(
-      'appointment_payments_fee_method_check',
-      sql`${t.kind} <> 'booking_fee' or ${t.method} = 'qpay'`,
-    ),
-    check(
-      'appointment_payments_paid_check',
-      sql`${t.status} <> 'paid' or ${t.paidAt} is not null`,
-    ),
-    check('appointment_payments_status_check', oneOf(t.status, paymentStatus.enumValues)),
-    check('appointment_payments_kind_check', oneOf(t.kind, appointmentPaymentKind.enumValues)),
-    check('appointment_payments_method_check', oneOf(t.method, paymentMethod.enumValues)),
-  ],
-)
-
-/**
- * Marks an order as sold in the shop by a barber. A side table instead of new
- * columns on orders, so the shop's own tables stay exactly as they are: an
- * order is an in-store sale iff it has a row here. Written together with the
- * order's first payment — see the in-store flows.
- */
-export const inStoreSales = sqliteTable(
-  'in_store_sales',
-  {
-    orderId: text('order_id')
-      .primaryKey()
-      .references(() => orders.id, { onDelete: 'cascade' }),
-    barberId: text('barber_id')
-      .notNull()
-      .references(() => barbers.id, { onDelete: 'restrict' }),
-    locationId: text('location_id')
-      .notNull()
-      .references(() => locations.id, { onDelete: 'restrict' }),
-    createdAt: createdAt(),
-  },
-  (t) => [
-    index('in_store_sales_barber_created_idx').on(t.barberId, t.createdAt),
-  ],
-)
-
-/**
- * Append-only. A barber's balance = sum(amount): positive means the shop owes
- * the barber, negative means the barber owes the shop (usually cash they
- * hold). Written in the same atomic batch as the money it records, like
- * inventory_ledger.
- */
-export const barberLedger = sqliteTable(
-  'barber_ledger',
-  {
-    id: id(),
-    barberId: text('barber_id')
-      .notNull()
-      .references(() => barbers.id, { onDelete: 'restrict' }),
-    kind: barberLedgerKind('kind').notNull(),
-    /** What the customer paid. 0 for payouts and adjustments. */
-    grossAmount: money('gross_amount').notNull().default(0),
-    /** The percentage used, frozen, so the row explains itself after terms
-     * change. */
-    rateBps: integer('rate_bps'),
-    amount: money('amount').notNull(),
-    appointmentPaymentId: text('appointment_payment_id').references(
-      () => appointmentPayments.id,
-      { onDelete: 'restrict' },
-    ),
-    /** A shop payment on an in-store sale (product commission, cash). */
-    paymentId: text('payment_id').references(() => payments.id, {
-      onDelete: 'restrict',
-    }),
-    rentChargeId: text('rent_charge_id').references(() => rentCharges.id, {
-      onDelete: 'restrict',
-    }),
-    /** A payment taken through the barber's POS (0007). */
-    salePaymentId: text('sale_payment_id').references(
-      () => barberSalePayments.id,
-      { onDelete: 'restrict' },
-    ),
-    actorId: text('actor_id').references(() => users.id, {
-      onDelete: 'set null',
-    }),
-    note: text('note'),
-    createdAt: createdAt(),
-  },
-  (t) => [
-    index('barber_ledger_barber_created_idx').on(t.barberId, t.createdAt),
-    // Each payment credits each kind once, even when a QPay callback and the
-    // sweep race each other; each rent charge is deducted once.
-    uniqueIndex('barber_ledger_appointment_payment_kind_key')
-      .on(t.appointmentPaymentId, t.kind)
-      .where(sql`appointment_payment_id is not null`),
-    uniqueIndex('barber_ledger_payment_kind_key')
-      .on(t.paymentId, t.kind)
-      .where(sql`payment_id is not null`),
-    uniqueIndex('barber_ledger_rent_charge_key')
-      .on(t.rentChargeId)
-      .where(sql`rent_charge_id is not null`),
-    uniqueIndex('barber_ledger_sale_payment_kind_key')
-      .on(t.salePaymentId, t.kind)
-      .where(sql`sale_payment_id is not null`),
-    check(
-      'barber_ledger_rate_check',
-      sql`${t.rateBps} is null or ${t.rateBps} between 0 and 10000`,
-    ),
-    check(
-      'barber_ledger_adjustment_check',
-      sql`${t.kind} <> 'adjustment' or ${t.note} is not null`,
-    ),
-    check(
-      'barber_ledger_rent_check',
-      sql`${t.kind} <> 'rent_deduction' or ${t.rentChargeId} is not null`,
-    ),
-    check('barber_ledger_kind_check', oneOf(t.kind, barberLedgerKind.enumValues)),
-  ],
-)
-
-// ---------------------------------------------------------------------------
-// Booking, part 2 (migration 0007) — also purely additive.
-//
-// Which locations a barber works at (owner-managed), explicit days off, and
-// the barber's POS: a sale of free-form lines paid by any mix of methods.
-// Checking out an appointment is a sale linked to it, so every payment taken
-// at the shop — walk-in or booked — goes through one path. appointment_payments
-// then only ever holds the online booking fee.
-// ---------------------------------------------------------------------------
-
-/** Where a barber may work: owner-managed. Services and shifts can only be
- * placed at a location in this set. */
-export const barberLocations = sqliteTable(
-  'barber_locations',
-  {
-    barberId: text('barber_id')
-      .notNull()
-      .references(() => barbers.id, { onDelete: 'cascade' }),
-    locationId: text('location_id')
-      .notNull()
-      .references(() => locations.id, { onDelete: 'cascade' }),
-    createdAt: createdAt(),
-  },
-  (t) => [
-    primaryKey({ columns: [t.barberId, t.locationId] }),
-    index('barber_locations_location_idx').on(t.locationId),
-  ],
-)
-
-/**
- * A day the barber has said they won't work. Together with barber_shifts this
- * gives every day one of three answers for customers: working (has shifts),
- * off (a row here), or unknown (neither — the barber hasn't decided).
- * A day is never both: the schedule API replaces a day as a whole.
- */
-export const barberDaysOff = sqliteTable(
-  'barber_days_off',
-  {
-    barberId: text('barber_id')
-      .notNull()
-      .references(() => barbers.id, { onDelete: 'cascade' }),
-    /** Local date in Ulaanbaatar time. */
-    day: text('day').notNull(),
-    note: text('note'),
-    createdAt: createdAt(),
-  },
-  (t) => [primaryKey({ columns: [t.barberId, t.day] })],
-)
-
-export const barberSaleStatus = sqliteEnum([
-  'open', // lines set, waiting for payments to add up
-  'paid', // payments cover total − credit
-  'void', // abandoned by the barber before it was paid
-])
-
-/**
- * One POS sale. Lines are free-form — a barber can charge a friend less, or
- * sell a one-off service with its own name — because the barber is logged in
- * and accountable, and every payment lands in their ledger.
- *
- * An appointment checkout is a sale with appointment_id set and `credit` = the
- * booking fee already paid online, so the customer is only asked for the rest.
- */
-export const barberSales = sqliteTable(
-  'barber_sales',
-  {
-    id: id(),
-    saleNo: text('sale_no').notNull(),
-    barberId: text('barber_id')
-      .notNull()
-      .references(() => barbers.id, { onDelete: 'restrict' }),
-    locationId: text('location_id')
-      .notNull()
-      .references(() => locations.id, { onDelete: 'restrict' }),
-    appointmentId: text('appointment_id').references(() => appointments.id, {
-      onDelete: 'restrict',
-    }),
-    status: barberSaleStatus('status').notNull().default('open'),
-    /** Sum of lines, frozen when the lines are set. */
-    total: money('total').notNull(),
-    /** Already paid elsewhere (the booking fee). Due = total − credit. */
-    credit: money('credit').notNull().default(0),
-    note: text('note'),
-    customerName: text('customer_name'),
-    customerPhone: text('customer_phone'),
-    customerEmail: text('customer_email'),
-    createdBy: text('created_by').references(() => users.id, {
-      onDelete: 'set null',
-    }),
-    paidAt: timestamp('paid_at'),
-    voidedAt: timestamp('voided_at'),
-    createdAt: createdAt(),
-  },
-  (t) => [
-    uniqueIndex('barber_sales_sale_no_key').on(t.saleNo),
-    index('barber_sales_barber_created_idx').on(t.barberId, t.createdAt),
-    // One live checkout per appointment.
-    uniqueIndex('barber_sales_appointment_key')
-      .on(t.appointmentId)
-      .where(sql`appointment_id is not null and status <> 'void'`),
-    check(
-      'barber_sales_money_check',
-      sql`${t.total} >= 0 and ${t.credit} >= 0 and ${t.credit} <= ${t.total}`,
-    ),
-    check(
-      'barber_sales_credit_check',
-      sql`${t.appointmentId} is not null or ${t.credit} = 0`,
-    ),
-    check(
-      'barber_sales_paid_check',
-      sql`${t.status} <> 'paid' or ${t.paidAt} is not null`,
-    ),
-    check('barber_sales_status_check', oneOf(t.status, barberSaleStatus.enumValues)),
-  ],
-)
-
-export const barberSaleLines = sqliteTable(
-  'barber_sale_lines',
-  {
-    id: id(),
-    saleId: text('sale_id')
-      .notNull()
-      .references(() => barberSales.id, { onDelete: 'cascade' }),
-    /** The barber's service it came from, if any. Name and amount are free. */
-    serviceId: text('service_id').references(() => services.id, {
-      onDelete: 'set null',
-    }),
-    /**
-     * A product line (0008). Unlike service lines, the name and unit amount
-     * are the owner's listed variant — never the barber's — and stock is
-     * deducted when the sale is paid. Set null if the owner later removes
-     * the variant; the sku snapshot keeps the line readable.
-     */
-    variantId: text('variant_id').references(() => productVariants.id, {
-      onDelete: 'set null',
-    }),
-    skuSnapshot: text('sku_snapshot'),
-    /** The stock movement this line caused, once the sale is paid. */
-    inventoryLedgerId: text('inventory_ledger_id').references(
-      () => inventoryLedger.id,
-      { onDelete: 'set null' },
-    ),
-    name: text('name').notNull(),
-    description: text('description'),
-    unitAmount: money('unit_amount').notNull(),
-    qty: integer('qty').notNull().default(1),
-    sortOrder: integer('sort_order').notNull().default(0),
-  },
-  (t) => [
-    index('barber_sale_lines_sale_id_idx').on(t.saleId),
-    check(
-      'barber_sale_lines_values_check',
-      sql`${t.unitAmount} >= 0 and ${t.qty} > 0`,
-    ),
-    check(
-      'barber_sale_lines_kind_check',
-      sql`${t.variantId} is null or ${t.serviceId} is null`,
-    ),
-  ],
-)
-
-/**
- * Money taken for a sale. QPay rows are confirmed by asking QPay; cash, pos
- * and bank_transfer are recorded as paid on entry, on the barber's word —
- * that money lands where no API can see it.
- */
-export const barberSalePayments = sqliteTable(
-  'barber_sale_payments',
-  {
-    id: id(),
-    saleId: text('sale_id')
-      .notNull()
-      .references(() => barberSales.id, { onDelete: 'restrict' }),
-    method: paymentMethod('method').notNull(),
-    amount: money('amount').notNull(),
-    status: paymentStatus('status').notNull().default('pending'),
-    qpayInvoiceId: text('qpay_invoice_id'),
-    qpayPaymentId: text('qpay_payment_id'),
-    invoicePayload: text('invoice_payload', { mode: 'json' }).$type<InvoicePayload>(),
-    rawCallback: text('raw_callback', { mode: 'json' }),
-    receivedByUserId: text('received_by_user_id').references(() => users.id, {
-      onDelete: 'set null',
-    }),
-    paidAt: timestamp('paid_at'),
-    lastCheckedAt: timestamp('last_checked_at'),
-    createdAt: createdAt(),
-  },
-  (t) => [
-    uniqueIndex('barber_sale_payments_qpay_payment_id_key')
-      .on(t.qpayPaymentId)
-      .where(sql`qpay_payment_id is not null`),
-    index('barber_sale_payments_sale_id_idx').on(t.saleId),
-    index('barber_sale_payments_qpay_invoice_id_idx').on(t.qpayInvoiceId),
-    check('barber_sale_payments_amount_check', sql`${t.amount} > 0`),
-    check(
-      'barber_sale_payments_qpay_check',
-      sql`${t.method} = 'qpay' or ${t.qpayInvoiceId} is null`,
-    ),
-    check(
-      'barber_sale_payments_paid_check',
-      sql`${t.status} <> 'paid' or ${t.paidAt} is not null`,
-    ),
-    check('barber_sale_payments_status_check', oneOf(t.status, paymentStatus.enumValues)),
-    check('barber_sale_payments_method_check', oneOf(t.method, paymentMethod.enumValues)),
+    check('appointments_times_check', sql`${t.endsAt} > ${t.startsAt} and ${t.durationMinutes} > 0`),
+    check('appointments_fee_check', sql`${t.bookingFee} > 0`),
+    check('appointments_pending_check', sql`${t.status} <> 'pending' or ${t.expiresAt} is not null`),
+    // Booked means paid: the fee is the only way a booking is confirmed.
+    check('appointments_booked_check', sql`${t.status} = 'pending' or ${t.paidAt} is not null`),
   ],
 )
 
@@ -1462,25 +794,10 @@ export type Payment = typeof payments.$inferSelect
 export type CheckoutAttempt = typeof checkoutAttempts.$inferSelect
 export type Review = typeof reviews.$inferSelect
 
-export type Location = typeof locations.$inferSelect
-export type Barber = typeof barbers.$inferSelect
 export type Service = typeof services.$inferSelect
-export type BarberShift = typeof barberShifts.$inferSelect
-export type BarberTerms = typeof barberTerms.$inferSelect
-export type RentCharge = typeof rentCharges.$inferSelect
+export type Availability = typeof availability.$inferSelect
 export type Appointment = typeof appointments.$inferSelect
-export type AppointmentService = typeof appointmentServices.$inferSelect
-export type AppointmentEvent = typeof appointmentEvents.$inferSelect
-export type AppointmentPayment = typeof appointmentPayments.$inferSelect
-export type InStoreSale = typeof inStoreSales.$inferSelect
-export type BarberLedgerEntry = typeof barberLedger.$inferSelect
-export type BarberLocation = typeof barberLocations.$inferSelect
-export type BarberDayOff = typeof barberDaysOff.$inferSelect
-export type BarberSale = typeof barberSales.$inferSelect
-export type BarberSaleLine = typeof barberSaleLines.$inferSelect
-export type BarberSalePayment = typeof barberSalePayments.$inferSelect
 
 export type OrderStatus = (typeof orderStatus.enumValues)[number]
 export type PaymentStatus = (typeof paymentStatus.enumValues)[number]
 export type AppointmentStatus = (typeof appointmentStatus.enumValues)[number]
-export type PaymentMethod = (typeof paymentMethod.enumValues)[number]

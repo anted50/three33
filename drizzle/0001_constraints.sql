@@ -10,57 +10,52 @@ BEGIN
   SELECT RAISE(ABORT, NEW.code);
 END;--> statement-breakpoint
 
--- A barber can't have two appointments overlapping, buffer included. Pending
--- holds count (nobody can take a slot someone is paying for); cancelled ones
--- don't. Ranges are half-open, [starts_at, blocked_until), exactly as the
--- Postgres EXCLUDE constraint's tstzrange was: back-to-back bookings are fine.
+-- No two appointments overlap. Pending holds count (nobody can take a time
+-- someone else is paying for); cancelled ones don't. Ranges are half-open,
+-- [starts_at, ends_at): back-to-back bookings are fine.
 CREATE TRIGGER `appointments_no_overlap_insert` BEFORE INSERT ON `appointments`
 WHEN NEW.status <> 'cancelled' AND EXISTS (
   SELECT 1 FROM `appointments` a
-  WHERE a.barber_id = NEW.barber_id
-    AND a.status <> 'cancelled'
-    AND a.starts_at < NEW.blocked_until
-    AND NEW.starts_at < a.blocked_until
+  WHERE a.status <> 'cancelled'
+    AND a.starts_at < NEW.ends_at
+    AND NEW.starts_at < a.ends_at
 )
 BEGIN
   SELECT RAISE(ABORT, 'appointments_no_overlap');
 END;--> statement-breakpoint
 
 CREATE TRIGGER `appointments_no_overlap_update`
-BEFORE UPDATE OF barber_id, starts_at, blocked_until, status ON `appointments`
+BEFORE UPDATE OF starts_at, ends_at, status ON `appointments`
 WHEN NEW.status <> 'cancelled' AND EXISTS (
   SELECT 1 FROM `appointments` a
-  WHERE a.barber_id = NEW.barber_id
-    AND a.id <> NEW.id
+  WHERE a.id <> NEW.id
     AND a.status <> 'cancelled'
-    AND a.starts_at < NEW.blocked_until
-    AND NEW.starts_at < a.blocked_until
+    AND a.starts_at < NEW.ends_at
+    AND NEW.starts_at < a.ends_at
 )
 BEGIN
   SELECT RAISE(ABORT, 'appointments_no_overlap');
 END;--> statement-breakpoint
 
--- A barber's shifts never overlap each other. Same half-open ranges.
-CREATE TRIGGER `barber_shifts_no_overlap_insert` BEFORE INSERT ON `barber_shifts`
+-- Availability windows never overlap each other. Same half-open ranges.
+CREATE TRIGGER `availability_no_overlap_insert` BEFORE INSERT ON `availability`
 WHEN EXISTS (
-  SELECT 1 FROM `barber_shifts` s
-  WHERE s.barber_id = NEW.barber_id
-    AND s.starts_at < NEW.ends_at
-    AND NEW.starts_at < s.ends_at
+  SELECT 1 FROM `availability` w
+  WHERE w.starts_at < NEW.ends_at
+    AND NEW.starts_at < w.ends_at
 )
 BEGIN
-  SELECT RAISE(ABORT, 'barber_shifts_no_overlap');
+  SELECT RAISE(ABORT, 'availability_no_overlap');
 END;--> statement-breakpoint
 
-CREATE TRIGGER `barber_shifts_no_overlap_update`
-BEFORE UPDATE OF barber_id, starts_at, ends_at ON `barber_shifts`
+CREATE TRIGGER `availability_no_overlap_update`
+BEFORE UPDATE OF starts_at, ends_at ON `availability`
 WHEN EXISTS (
-  SELECT 1 FROM `barber_shifts` s
-  WHERE s.barber_id = NEW.barber_id
-    AND s.id <> NEW.id
-    AND s.starts_at < NEW.ends_at
-    AND NEW.starts_at < s.ends_at
+  SELECT 1 FROM `availability` w
+  WHERE w.id <> NEW.id
+    AND w.starts_at < NEW.ends_at
+    AND NEW.starts_at < w.ends_at
 )
 BEGIN
-  SELECT RAISE(ABORT, 'barber_shifts_no_overlap');
+  SELECT RAISE(ABORT, 'availability_no_overlap');
 END;

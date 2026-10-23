@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "13a86bfd-b976-41e7-a25a-e95b20eb250e",
+  "id": "979841a4-46ef-46f8-8f63-74e30cfd3c9c",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "addresses": {
@@ -160,8 +160,8 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "appointment_events": {
-      "name": "appointment_events",
+    "appointments": {
+      "name": "appointments",
       "columns": {
         "id": {
           "name": "id",
@@ -170,136 +170,29 @@
           "notNull": true,
           "autoincrement": false
         },
-        "appointment_id": {
-          "name": "appointment_id",
+        "booking_no": {
+          "name": "booking_no",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "from_starts_at": {
-          "name": "from_starts_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "to_starts_at": {
-          "name": "to_starts_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "actor_id": {
-          "name": "actor_id",
+        "service_id": {
+          "name": "service_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
         },
-        "note": {
-          "name": "note",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(cast(unixepoch('subsec') * 1000 as integer))"
-        }
-      },
-      "indexes": {
-        "appointment_events_appointment_id_idx": {
-          "name": "appointment_events_appointment_id_idx",
-          "columns": [
-            "appointment_id"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "appointment_events_appointment_id_appointments_id_fk": {
-          "name": "appointment_events_appointment_id_appointments_id_fk",
-          "tableFrom": "appointment_events",
-          "tableTo": "appointments",
-          "columnsFrom": [
-            "appointment_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "appointment_events_actor_id_users_id_fk": {
-          "name": "appointment_events_actor_id_users_id_fk",
-          "tableFrom": "appointment_events",
-          "tableTo": "users",
-          "columnsFrom": [
-            "actor_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {
-        "appointment_events_kind_check": {
-          "name": "appointment_events_kind_check",
-          "value": "\"appointment_events\".\"kind\" in ('created', 'rescheduled', 'updated', 'flagged', 'cancelled', 'no_show', 'completed')"
-        }
-      }
-    },
-    "appointment_payments": {
-      "name": "appointment_payments",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "appointment_id": {
-          "name": "appointment_id",
+        "service_name": {
+          "name": "service_name",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "method": {
-          "name": "method",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "amount": {
-          "name": "amount",
+        "duration_minutes": {
+          "name": "duration_minutes",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
@@ -312,6 +205,55 @@
           "notNull": true,
           "autoincrement": false,
           "default": "'pending'"
+        },
+        "starts_at": {
+          "name": "starts_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "ends_at": {
+          "name": "ends_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "customer_name": {
+          "name": "customer_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "customer_phone": {
+          "name": "customer_phone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "customer_email": {
+          "name": "customer_email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "booking_fee": {
+          "name": "booking_fee",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
         },
         "qpay_invoice_id": {
           "name": "qpay_invoice_id",
@@ -334,16 +276,9 @@
           "notNull": false,
           "autoincrement": false
         },
-        "raw_callback": {
-          "name": "raw_callback",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "received_by_user_id": {
-          "name": "received_by_user_id",
-          "type": "text",
+        "last_checked_at": {
+          "name": "last_checked_at",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -355,319 +290,9 @@
           "notNull": false,
           "autoincrement": false
         },
-        "last_checked_at": {
-          "name": "last_checked_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(cast(unixepoch('subsec') * 1000 as integer))"
-        }
-      },
-      "indexes": {
-        "appointment_payments_qpay_payment_id_key": {
-          "name": "appointment_payments_qpay_payment_id_key",
-          "columns": [
-            "qpay_payment_id"
-          ],
-          "isUnique": true,
-          "where": "qpay_payment_id is not null"
-        },
-        "appointment_payments_fee_once_key": {
-          "name": "appointment_payments_fee_once_key",
-          "columns": [
-            "appointment_id"
-          ],
-          "isUnique": true,
-          "where": "kind = 'booking_fee' and status = 'paid'"
-        },
-        "appointment_payments_appointment_id_idx": {
-          "name": "appointment_payments_appointment_id_idx",
-          "columns": [
-            "appointment_id"
-          ],
-          "isUnique": false
-        },
-        "appointment_payments_qpay_invoice_id_idx": {
-          "name": "appointment_payments_qpay_invoice_id_idx",
-          "columns": [
-            "qpay_invoice_id"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "appointment_payments_appointment_id_appointments_id_fk": {
-          "name": "appointment_payments_appointment_id_appointments_id_fk",
-          "tableFrom": "appointment_payments",
-          "tableTo": "appointments",
-          "columnsFrom": [
-            "appointment_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "appointment_payments_received_by_user_id_users_id_fk": {
-          "name": "appointment_payments_received_by_user_id_users_id_fk",
-          "tableFrom": "appointment_payments",
-          "tableTo": "users",
-          "columnsFrom": [
-            "received_by_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {
-        "appointment_payments_amount_check": {
-          "name": "appointment_payments_amount_check",
-          "value": "\"appointment_payments\".\"amount\" > 0"
-        },
-        "appointment_payments_qpay_check": {
-          "name": "appointment_payments_qpay_check",
-          "value": "\"appointment_payments\".\"method\" = 'qpay' or \"appointment_payments\".\"qpay_invoice_id\" is null"
-        },
-        "appointment_payments_fee_method_check": {
-          "name": "appointment_payments_fee_method_check",
-          "value": "\"appointment_payments\".\"kind\" <> 'booking_fee' or \"appointment_payments\".\"method\" = 'qpay'"
-        },
-        "appointment_payments_paid_check": {
-          "name": "appointment_payments_paid_check",
-          "value": "\"appointment_payments\".\"status\" <> 'paid' or \"appointment_payments\".\"paid_at\" is not null"
-        },
-        "appointment_payments_status_check": {
-          "name": "appointment_payments_status_check",
-          "value": "\"appointment_payments\".\"status\" in ('pending', 'paid', 'failed', 'expired', 'refunded')"
-        },
-        "appointment_payments_kind_check": {
-          "name": "appointment_payments_kind_check",
-          "value": "\"appointment_payments\".\"kind\" in ('booking_fee', 'balance')"
-        },
-        "appointment_payments_method_check": {
-          "name": "appointment_payments_method_check",
-          "value": "\"appointment_payments\".\"method\" in ('qpay', 'cash', 'pos', 'bank_transfer')"
-        }
-      }
-    },
-    "appointment_services": {
-      "name": "appointment_services",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "appointment_id": {
-          "name": "appointment_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "service_id": {
-          "name": "service_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "name_snapshot": {
-          "name": "name_snapshot",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "price_snapshot": {
-          "name": "price_snapshot",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "duration_minutes_snapshot": {
-          "name": "duration_minutes_snapshot",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "sort_order": {
-          "name": "sort_order",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        }
-      },
-      "indexes": {
-        "appointment_services_appointment_id_idx": {
-          "name": "appointment_services_appointment_id_idx",
-          "columns": [
-            "appointment_id"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "appointment_services_appointment_id_appointments_id_fk": {
-          "name": "appointment_services_appointment_id_appointments_id_fk",
-          "tableFrom": "appointment_services",
-          "tableTo": "appointments",
-          "columnsFrom": [
-            "appointment_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "appointment_services_service_id_services_id_fk": {
-          "name": "appointment_services_service_id_services_id_fk",
-          "tableFrom": "appointment_services",
-          "tableTo": "services",
-          "columnsFrom": [
-            "service_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {
-        "appointment_services_values_check": {
-          "name": "appointment_services_values_check",
-          "value": "\"appointment_services\".\"price_snapshot\" >= 0 and \"appointment_services\".\"duration_minutes_snapshot\" > 0"
-        }
-      }
-    },
-    "appointments": {
-      "name": "appointments",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "booking_no": {
-          "name": "booking_no",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "location_id": {
-          "name": "location_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "barber_id": {
-          "name": "barber_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "source": {
-          "name": "source",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "starts_at": {
-          "name": "starts_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "ends_at": {
-          "name": "ends_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "blocked_until": {
-          "name": "blocked_until",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "buffer_minutes": {
-          "name": "buffer_minutes",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "total": {
-          "name": "total",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "booking_fee": {
-          "name": "booking_fee",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
         "expires_at": {
           "name": "expires_at",
           "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "confirmed_at": {
-          "name": "confirmed_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "confirmed_by": {
-          "name": "confirmed_by",
-          "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -679,37 +304,9 @@
           "notNull": false,
           "autoincrement": false
         },
-        "needs_reschedule_at": {
-          "name": "needs_reschedule_at",
+        "cancelled_at": {
+          "name": "cancelled_at",
           "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "customer_name": {
-          "name": "customer_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "customer_phone": {
-          "name": "customer_phone",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "customer_email": {
-          "name": "customer_email",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "note": {
-          "name": "note",
-          "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -738,18 +335,9 @@
           ],
           "isUnique": true
         },
-        "appointments_barber_starts_idx": {
-          "name": "appointments_barber_starts_idx",
+        "appointments_starts_idx": {
+          "name": "appointments_starts_idx",
           "columns": [
-            "barber_id",
-            "starts_at"
-          ],
-          "isUnique": false
-        },
-        "appointments_location_starts_idx": {
-          "name": "appointments_location_starts_idx",
-          "columns": [
-            "location_id",
             "starts_at"
           ],
           "isUnique": false
@@ -762,581 +350,19 @@
           "isUnique": false,
           "where": "status = 'pending'"
         },
-        "appointments_needs_reschedule_idx": {
-          "name": "appointments_needs_reschedule_idx",
+        "appointments_qpay_payment_id_key": {
+          "name": "appointments_qpay_payment_id_key",
           "columns": [
-            "barber_id"
+            "qpay_payment_id"
           ],
-          "isUnique": false,
-          "where": "needs_reschedule_at is not null"
+          "isUnique": true,
+          "where": "qpay_payment_id is not null"
         }
       },
       "foreignKeys": {
-        "appointments_location_id_locations_id_fk": {
-          "name": "appointments_location_id_locations_id_fk",
+        "appointments_service_id_services_id_fk": {
+          "name": "appointments_service_id_services_id_fk",
           "tableFrom": "appointments",
-          "tableTo": "locations",
-          "columnsFrom": [
-            "location_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "appointments_barber_id_barbers_id_fk": {
-          "name": "appointments_barber_id_barbers_id_fk",
-          "tableFrom": "appointments",
-          "tableTo": "barbers",
-          "columnsFrom": [
-            "barber_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "appointments_confirmed_by_users_id_fk": {
-          "name": "appointments_confirmed_by_users_id_fk",
-          "tableFrom": "appointments",
-          "tableTo": "users",
-          "columnsFrom": [
-            "confirmed_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {
-        "appointments_times_check": {
-          "name": "appointments_times_check",
-          "value": "\"appointments\".\"ends_at\" > \"appointments\".\"starts_at\" and \"appointments\".\"blocked_until\" >= \"appointments\".\"ends_at\" and \"appointments\".\"buffer_minutes\" >= 0"
-        },
-        "appointments_money_check": {
-          "name": "appointments_money_check",
-          "value": "\"appointments\".\"booking_fee\" >= 0 and \"appointments\".\"booking_fee\" <= \"appointments\".\"total\""
-        },
-        "appointments_confirmed_check": {
-          "name": "appointments_confirmed_check",
-          "value": "\"appointments\".\"status\" not in ('booked', 'completed', 'no_show') or \"appointments\".\"confirmed_at\" is not null"
-        },
-        "appointments_pending_check": {
-          "name": "appointments_pending_check",
-          "value": "\"appointments\".\"status\" <> 'pending' or \"appointments\".\"expires_at\" is not null"
-        },
-        "appointments_online_check": {
-          "name": "appointments_online_check",
-          "value": "\"appointments\".\"source\" <> 'online' or (\"appointments\".\"booking_fee\" > 0 and \"appointments\".\"customer_email\" is not null)"
-        },
-        "appointments_barber_check": {
-          "name": "appointments_barber_check",
-          "value": "\"appointments\".\"source\" <> 'barber' or (\"appointments\".\"booking_fee\" = 0 and \"appointments\".\"expires_at\" is null)"
-        },
-        "appointments_source_check": {
-          "name": "appointments_source_check",
-          "value": "\"appointments\".\"source\" in ('online', 'barber')"
-        },
-        "appointments_status_check": {
-          "name": "appointments_status_check",
-          "value": "\"appointments\".\"status\" in ('pending', 'booked', 'completed', 'cancelled', 'no_show')"
-        }
-      }
-    },
-    "barber_days_off": {
-      "name": "barber_days_off",
-      "columns": {
-        "barber_id": {
-          "name": "barber_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "day": {
-          "name": "day",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "note": {
-          "name": "note",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(cast(unixepoch('subsec') * 1000 as integer))"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "barber_days_off_barber_id_barbers_id_fk": {
-          "name": "barber_days_off_barber_id_barbers_id_fk",
-          "tableFrom": "barber_days_off",
-          "tableTo": "barbers",
-          "columnsFrom": [
-            "barber_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "barber_days_off_barber_id_day_pk": {
-          "columns": [
-            "barber_id",
-            "day"
-          ],
-          "name": "barber_days_off_barber_id_day_pk"
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "barber_ledger": {
-      "name": "barber_ledger",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "barber_id": {
-          "name": "barber_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "gross_amount": {
-          "name": "gross_amount",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "rate_bps": {
-          "name": "rate_bps",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "amount": {
-          "name": "amount",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "appointment_payment_id": {
-          "name": "appointment_payment_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "payment_id": {
-          "name": "payment_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "rent_charge_id": {
-          "name": "rent_charge_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "sale_payment_id": {
-          "name": "sale_payment_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "actor_id": {
-          "name": "actor_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "note": {
-          "name": "note",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(cast(unixepoch('subsec') * 1000 as integer))"
-        }
-      },
-      "indexes": {
-        "barber_ledger_barber_created_idx": {
-          "name": "barber_ledger_barber_created_idx",
-          "columns": [
-            "barber_id",
-            "created_at"
-          ],
-          "isUnique": false
-        },
-        "barber_ledger_appointment_payment_kind_key": {
-          "name": "barber_ledger_appointment_payment_kind_key",
-          "columns": [
-            "appointment_payment_id",
-            "kind"
-          ],
-          "isUnique": true,
-          "where": "appointment_payment_id is not null"
-        },
-        "barber_ledger_payment_kind_key": {
-          "name": "barber_ledger_payment_kind_key",
-          "columns": [
-            "payment_id",
-            "kind"
-          ],
-          "isUnique": true,
-          "where": "payment_id is not null"
-        },
-        "barber_ledger_rent_charge_key": {
-          "name": "barber_ledger_rent_charge_key",
-          "columns": [
-            "rent_charge_id"
-          ],
-          "isUnique": true,
-          "where": "rent_charge_id is not null"
-        },
-        "barber_ledger_sale_payment_kind_key": {
-          "name": "barber_ledger_sale_payment_kind_key",
-          "columns": [
-            "sale_payment_id",
-            "kind"
-          ],
-          "isUnique": true,
-          "where": "sale_payment_id is not null"
-        }
-      },
-      "foreignKeys": {
-        "barber_ledger_barber_id_barbers_id_fk": {
-          "name": "barber_ledger_barber_id_barbers_id_fk",
-          "tableFrom": "barber_ledger",
-          "tableTo": "barbers",
-          "columnsFrom": [
-            "barber_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "barber_ledger_appointment_payment_id_appointment_payments_id_fk": {
-          "name": "barber_ledger_appointment_payment_id_appointment_payments_id_fk",
-          "tableFrom": "barber_ledger",
-          "tableTo": "appointment_payments",
-          "columnsFrom": [
-            "appointment_payment_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "barber_ledger_payment_id_payments_id_fk": {
-          "name": "barber_ledger_payment_id_payments_id_fk",
-          "tableFrom": "barber_ledger",
-          "tableTo": "payments",
-          "columnsFrom": [
-            "payment_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "barber_ledger_rent_charge_id_rent_charges_id_fk": {
-          "name": "barber_ledger_rent_charge_id_rent_charges_id_fk",
-          "tableFrom": "barber_ledger",
-          "tableTo": "rent_charges",
-          "columnsFrom": [
-            "rent_charge_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "barber_ledger_sale_payment_id_barber_sale_payments_id_fk": {
-          "name": "barber_ledger_sale_payment_id_barber_sale_payments_id_fk",
-          "tableFrom": "barber_ledger",
-          "tableTo": "barber_sale_payments",
-          "columnsFrom": [
-            "sale_payment_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "barber_ledger_actor_id_users_id_fk": {
-          "name": "barber_ledger_actor_id_users_id_fk",
-          "tableFrom": "barber_ledger",
-          "tableTo": "users",
-          "columnsFrom": [
-            "actor_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {
-        "barber_ledger_rate_check": {
-          "name": "barber_ledger_rate_check",
-          "value": "\"barber_ledger\".\"rate_bps\" is null or \"barber_ledger\".\"rate_bps\" between 0 and 10000"
-        },
-        "barber_ledger_adjustment_check": {
-          "name": "barber_ledger_adjustment_check",
-          "value": "\"barber_ledger\".\"kind\" <> 'adjustment' or \"barber_ledger\".\"note\" is not null"
-        },
-        "barber_ledger_rent_check": {
-          "name": "barber_ledger_rent_check",
-          "value": "\"barber_ledger\".\"kind\" <> 'rent_deduction' or \"barber_ledger\".\"rent_charge_id\" is not null"
-        },
-        "barber_ledger_kind_check": {
-          "name": "barber_ledger_kind_check",
-          "value": "\"barber_ledger\".\"kind\" in ('service_share', 'product_commission', 'cash_collected', 'rent_deduction', 'payout', 'settlement', 'adjustment')"
-        }
-      }
-    },
-    "barber_locations": {
-      "name": "barber_locations",
-      "columns": {
-        "barber_id": {
-          "name": "barber_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "location_id": {
-          "name": "location_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(cast(unixepoch('subsec') * 1000 as integer))"
-        }
-      },
-      "indexes": {
-        "barber_locations_location_idx": {
-          "name": "barber_locations_location_idx",
-          "columns": [
-            "location_id"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "barber_locations_barber_id_barbers_id_fk": {
-          "name": "barber_locations_barber_id_barbers_id_fk",
-          "tableFrom": "barber_locations",
-          "tableTo": "barbers",
-          "columnsFrom": [
-            "barber_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "barber_locations_location_id_locations_id_fk": {
-          "name": "barber_locations_location_id_locations_id_fk",
-          "tableFrom": "barber_locations",
-          "tableTo": "locations",
-          "columnsFrom": [
-            "location_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "barber_locations_barber_id_location_id_pk": {
-          "columns": [
-            "barber_id",
-            "location_id"
-          ],
-          "name": "barber_locations_barber_id_location_id_pk"
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "barber_sale_lines": {
-      "name": "barber_sale_lines",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "sale_id": {
-          "name": "sale_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "service_id": {
-          "name": "service_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "variant_id": {
-          "name": "variant_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "sku_snapshot": {
-          "name": "sku_snapshot",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "inventory_ledger_id": {
-          "name": "inventory_ledger_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "description": {
-          "name": "description",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "unit_amount": {
-          "name": "unit_amount",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "qty": {
-          "name": "qty",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 1
-        },
-        "sort_order": {
-          "name": "sort_order",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        }
-      },
-      "indexes": {
-        "barber_sale_lines_sale_id_idx": {
-          "name": "barber_sale_lines_sale_id_idx",
-          "columns": [
-            "sale_id"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "barber_sale_lines_sale_id_barber_sales_id_fk": {
-          "name": "barber_sale_lines_sale_id_barber_sales_id_fk",
-          "tableFrom": "barber_sale_lines",
-          "tableTo": "barber_sales",
-          "columnsFrom": [
-            "sale_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "barber_sale_lines_service_id_services_id_fk": {
-          "name": "barber_sale_lines_service_id_services_id_fk",
-          "tableFrom": "barber_sale_lines",
           "tableTo": "services",
           "columnsFrom": [
             "service_id"
@@ -1346,461 +372,40 @@
           ],
           "onDelete": "set null",
           "onUpdate": "no action"
-        },
-        "barber_sale_lines_variant_id_product_variants_id_fk": {
-          "name": "barber_sale_lines_variant_id_product_variants_id_fk",
-          "tableFrom": "barber_sale_lines",
-          "tableTo": "product_variants",
-          "columnsFrom": [
-            "variant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "barber_sale_lines_inventory_ledger_id_inventory_ledger_id_fk": {
-          "name": "barber_sale_lines_inventory_ledger_id_inventory_ledger_id_fk",
-          "tableFrom": "barber_sale_lines",
-          "tableTo": "inventory_ledger",
-          "columnsFrom": [
-            "inventory_ledger_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {
-        "barber_sale_lines_values_check": {
-          "name": "barber_sale_lines_values_check",
-          "value": "\"barber_sale_lines\".\"unit_amount\" >= 0 and \"barber_sale_lines\".\"qty\" > 0"
+        "appointments_status_check": {
+          "name": "appointments_status_check",
+          "value": "\"appointments\".\"status\" in ('pending', 'booked', 'cancelled')"
         },
-        "barber_sale_lines_kind_check": {
-          "name": "barber_sale_lines_kind_check",
-          "value": "\"barber_sale_lines\".\"variant_id\" is null or \"barber_sale_lines\".\"service_id\" is null"
+        "appointments_times_check": {
+          "name": "appointments_times_check",
+          "value": "\"appointments\".\"ends_at\" > \"appointments\".\"starts_at\" and \"appointments\".\"duration_minutes\" > 0"
+        },
+        "appointments_fee_check": {
+          "name": "appointments_fee_check",
+          "value": "\"appointments\".\"booking_fee\" > 0"
+        },
+        "appointments_pending_check": {
+          "name": "appointments_pending_check",
+          "value": "\"appointments\".\"status\" <> 'pending' or \"appointments\".\"expires_at\" is not null"
+        },
+        "appointments_booked_check": {
+          "name": "appointments_booked_check",
+          "value": "\"appointments\".\"status\" = 'pending' or \"appointments\".\"paid_at\" is not null"
         }
       }
     },
-    "barber_sale_payments": {
-      "name": "barber_sale_payments",
+    "availability": {
+      "name": "availability",
       "columns": {
         "id": {
           "name": "id",
           "type": "text",
           "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "sale_id": {
-          "name": "sale_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "method": {
-          "name": "method",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "amount": {
-          "name": "amount",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'pending'"
-        },
-        "qpay_invoice_id": {
-          "name": "qpay_invoice_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "qpay_payment_id": {
-          "name": "qpay_payment_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "invoice_payload": {
-          "name": "invoice_payload",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "raw_callback": {
-          "name": "raw_callback",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "received_by_user_id": {
-          "name": "received_by_user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "paid_at": {
-          "name": "paid_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "last_checked_at": {
-          "name": "last_checked_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(cast(unixepoch('subsec') * 1000 as integer))"
-        }
-      },
-      "indexes": {
-        "barber_sale_payments_qpay_payment_id_key": {
-          "name": "barber_sale_payments_qpay_payment_id_key",
-          "columns": [
-            "qpay_payment_id"
-          ],
-          "isUnique": true,
-          "where": "qpay_payment_id is not null"
-        },
-        "barber_sale_payments_sale_id_idx": {
-          "name": "barber_sale_payments_sale_id_idx",
-          "columns": [
-            "sale_id"
-          ],
-          "isUnique": false
-        },
-        "barber_sale_payments_qpay_invoice_id_idx": {
-          "name": "barber_sale_payments_qpay_invoice_id_idx",
-          "columns": [
-            "qpay_invoice_id"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "barber_sale_payments_sale_id_barber_sales_id_fk": {
-          "name": "barber_sale_payments_sale_id_barber_sales_id_fk",
-          "tableFrom": "barber_sale_payments",
-          "tableTo": "barber_sales",
-          "columnsFrom": [
-            "sale_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "barber_sale_payments_received_by_user_id_users_id_fk": {
-          "name": "barber_sale_payments_received_by_user_id_users_id_fk",
-          "tableFrom": "barber_sale_payments",
-          "tableTo": "users",
-          "columnsFrom": [
-            "received_by_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {
-        "barber_sale_payments_amount_check": {
-          "name": "barber_sale_payments_amount_check",
-          "value": "\"barber_sale_payments\".\"amount\" > 0"
-        },
-        "barber_sale_payments_qpay_check": {
-          "name": "barber_sale_payments_qpay_check",
-          "value": "\"barber_sale_payments\".\"method\" = 'qpay' or \"barber_sale_payments\".\"qpay_invoice_id\" is null"
-        },
-        "barber_sale_payments_paid_check": {
-          "name": "barber_sale_payments_paid_check",
-          "value": "\"barber_sale_payments\".\"status\" <> 'paid' or \"barber_sale_payments\".\"paid_at\" is not null"
-        },
-        "barber_sale_payments_status_check": {
-          "name": "barber_sale_payments_status_check",
-          "value": "\"barber_sale_payments\".\"status\" in ('pending', 'paid', 'failed', 'expired', 'refunded')"
-        },
-        "barber_sale_payments_method_check": {
-          "name": "barber_sale_payments_method_check",
-          "value": "\"barber_sale_payments\".\"method\" in ('qpay', 'cash', 'pos', 'bank_transfer')"
-        }
-      }
-    },
-    "barber_sales": {
-      "name": "barber_sales",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "sale_no": {
-          "name": "sale_no",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "barber_id": {
-          "name": "barber_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "location_id": {
-          "name": "location_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "appointment_id": {
-          "name": "appointment_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'open'"
-        },
-        "total": {
-          "name": "total",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "credit": {
-          "name": "credit",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "note": {
-          "name": "note",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "customer_name": {
-          "name": "customer_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "customer_phone": {
-          "name": "customer_phone",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "customer_email": {
-          "name": "customer_email",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "paid_at": {
-          "name": "paid_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "voided_at": {
-          "name": "voided_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(cast(unixepoch('subsec') * 1000 as integer))"
-        }
-      },
-      "indexes": {
-        "barber_sales_sale_no_key": {
-          "name": "barber_sales_sale_no_key",
-          "columns": [
-            "sale_no"
-          ],
-          "isUnique": true
-        },
-        "barber_sales_barber_created_idx": {
-          "name": "barber_sales_barber_created_idx",
-          "columns": [
-            "barber_id",
-            "created_at"
-          ],
-          "isUnique": false
-        },
-        "barber_sales_appointment_key": {
-          "name": "barber_sales_appointment_key",
-          "columns": [
-            "appointment_id"
-          ],
-          "isUnique": true,
-          "where": "appointment_id is not null and status <> 'void'"
-        }
-      },
-      "foreignKeys": {
-        "barber_sales_barber_id_barbers_id_fk": {
-          "name": "barber_sales_barber_id_barbers_id_fk",
-          "tableFrom": "barber_sales",
-          "tableTo": "barbers",
-          "columnsFrom": [
-            "barber_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "barber_sales_location_id_locations_id_fk": {
-          "name": "barber_sales_location_id_locations_id_fk",
-          "tableFrom": "barber_sales",
-          "tableTo": "locations",
-          "columnsFrom": [
-            "location_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "barber_sales_appointment_id_appointments_id_fk": {
-          "name": "barber_sales_appointment_id_appointments_id_fk",
-          "tableFrom": "barber_sales",
-          "tableTo": "appointments",
-          "columnsFrom": [
-            "appointment_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "barber_sales_created_by_users_id_fk": {
-          "name": "barber_sales_created_by_users_id_fk",
-          "tableFrom": "barber_sales",
-          "tableTo": "users",
-          "columnsFrom": [
-            "created_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {
-        "barber_sales_money_check": {
-          "name": "barber_sales_money_check",
-          "value": "\"barber_sales\".\"total\" >= 0 and \"barber_sales\".\"credit\" >= 0 and \"barber_sales\".\"credit\" <= \"barber_sales\".\"total\""
-        },
-        "barber_sales_credit_check": {
-          "name": "barber_sales_credit_check",
-          "value": "\"barber_sales\".\"appointment_id\" is not null or \"barber_sales\".\"credit\" = 0"
-        },
-        "barber_sales_paid_check": {
-          "name": "barber_sales_paid_check",
-          "value": "\"barber_sales\".\"status\" <> 'paid' or \"barber_sales\".\"paid_at\" is not null"
-        },
-        "barber_sales_status_check": {
-          "name": "barber_sales_status_check",
-          "value": "\"barber_sales\".\"status\" in ('open', 'paid', 'void')"
-        }
-      }
-    },
-    "barber_shifts": {
-      "name": "barber_shifts",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "barber_id": {
-          "name": "barber_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "location_id": {
-          "name": "location_id",
-          "type": "text",
-          "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
@@ -1828,334 +433,21 @@
         }
       },
       "indexes": {
-        "barber_shifts_location_starts_idx": {
-          "name": "barber_shifts_location_starts_idx",
+        "availability_starts_idx": {
+          "name": "availability_starts_idx",
           "columns": [
-            "location_id",
-            "starts_at"
-          ],
-          "isUnique": false
-        },
-        "barber_shifts_barber_starts_idx": {
-          "name": "barber_shifts_barber_starts_idx",
-          "columns": [
-            "barber_id",
             "starts_at"
           ],
           "isUnique": false
         }
       },
-      "foreignKeys": {
-        "barber_shifts_barber_id_barbers_id_fk": {
-          "name": "barber_shifts_barber_id_barbers_id_fk",
-          "tableFrom": "barber_shifts",
-          "tableTo": "barbers",
-          "columnsFrom": [
-            "barber_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "barber_shifts_location_id_locations_id_fk": {
-          "name": "barber_shifts_location_id_locations_id_fk",
-          "tableFrom": "barber_shifts",
-          "tableTo": "locations",
-          "columnsFrom": [
-            "location_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {
-        "barber_shifts_range_check": {
-          "name": "barber_shifts_range_check",
-          "value": "\"barber_shifts\".\"ends_at\" > \"barber_shifts\".\"starts_at\""
-        }
-      }
-    },
-    "barber_terms": {
-      "name": "barber_terms",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "barber_id": {
-          "name": "barber_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "service_cut_bps": {
-          "name": "service_cut_bps",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "product_commission_bps": {
-          "name": "product_commission_bps",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "rent_amount": {
-          "name": "rent_amount",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "rent_period": {
-          "name": "rent_period",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "rent_starts_on": {
-          "name": "rent_starts_on",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "effective_from": {
-          "name": "effective_from",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(cast(unixepoch('subsec') * 1000 as integer))"
-        }
-      },
-      "indexes": {
-        "barber_terms_barber_effective_key": {
-          "name": "barber_terms_barber_effective_key",
-          "columns": [
-            "barber_id",
-            "effective_from"
-          ],
-          "isUnique": true
-        }
-      },
-      "foreignKeys": {
-        "barber_terms_barber_id_barbers_id_fk": {
-          "name": "barber_terms_barber_id_barbers_id_fk",
-          "tableFrom": "barber_terms",
-          "tableTo": "barbers",
-          "columnsFrom": [
-            "barber_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "barber_terms_created_by_users_id_fk": {
-          "name": "barber_terms_created_by_users_id_fk",
-          "tableFrom": "barber_terms",
-          "tableTo": "users",
-          "columnsFrom": [
-            "created_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {
-        "barber_terms_bps_check": {
-          "name": "barber_terms_bps_check",
-          "value": "\"barber_terms\".\"service_cut_bps\" between 0 and 10000 and \"barber_terms\".\"product_commission_bps\" between 0 and 10000"
-        },
-        "barber_terms_rent_check": {
-          "name": "barber_terms_rent_check",
-          "value": "\"barber_terms\".\"rent_amount\" = 0 or (\"barber_terms\".\"rent_amount\" > 0 and \"barber_terms\".\"rent_period\" is not null and \"barber_terms\".\"rent_starts_on\" is not null)"
-        },
-        "barber_terms_rent_period_check": {
-          "name": "barber_terms_rent_period_check",
-          "value": "\"barber_terms\".\"rent_period\" in ('weekly', 'biweekly', 'monthly')"
-        }
-      }
-    },
-    "barbers": {
-      "name": "barbers",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "slug": {
-          "name": "slug",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "phone": {
-          "name": "phone",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "bio_mn": {
-          "name": "bio_mn",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "bio_en": {
-          "name": "bio_en",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "photo_url": {
-          "name": "photo_url",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "buffer_minutes": {
-          "name": "buffer_minutes",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "booking_fee": {
-          "name": "booking_fee",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "is_active": {
-          "name": "is_active",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": true
-        },
-        "sort_order": {
-          "name": "sort_order",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(cast(unixepoch('subsec') * 1000 as integer))"
-        }
-      },
-      "indexes": {
-        "barbers_slug_key": {
-          "name": "barbers_slug_key",
-          "columns": [
-            "slug"
-          ],
-          "isUnique": true
-        },
-        "barbers_user_id_key": {
-          "name": "barbers_user_id_key",
-          "columns": [
-            "user_id"
-          ],
-          "isUnique": true
-        }
-      },
-      "foreignKeys": {
-        "barbers_user_id_users_id_fk": {
-          "name": "barbers_user_id_users_id_fk",
-          "tableFrom": "barbers",
-          "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {
-        "barbers_buffer_minutes_check": {
-          "name": "barbers_buffer_minutes_check",
-          "value": "\"barbers\".\"buffer_minutes\" >= 0"
-        },
-        "barbers_booking_fee_check": {
-          "name": "barbers_booking_fee_check",
-          "value": "\"barbers\".\"booking_fee\" >= 0"
+        "availability_range_check": {
+          "name": "availability_range_check",
+          "value": "\"availability\".\"ends_at\" > \"availability\".\"starts_at\""
         }
       }
     },
@@ -2490,94 +782,6 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "in_store_sales": {
-      "name": "in_store_sales",
-      "columns": {
-        "order_id": {
-          "name": "order_id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "barber_id": {
-          "name": "barber_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "location_id": {
-          "name": "location_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(cast(unixepoch('subsec') * 1000 as integer))"
-        }
-      },
-      "indexes": {
-        "in_store_sales_barber_created_idx": {
-          "name": "in_store_sales_barber_created_idx",
-          "columns": [
-            "barber_id",
-            "created_at"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "in_store_sales_order_id_orders_id_fk": {
-          "name": "in_store_sales_order_id_orders_id_fk",
-          "tableFrom": "in_store_sales",
-          "tableTo": "orders",
-          "columnsFrom": [
-            "order_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "in_store_sales_barber_id_barbers_id_fk": {
-          "name": "in_store_sales_barber_id_barbers_id_fk",
-          "tableFrom": "in_store_sales",
-          "tableTo": "barbers",
-          "columnsFrom": [
-            "barber_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "in_store_sales_location_id_locations_id_fk": {
-          "name": "in_store_sales_location_id_locations_id_fk",
-          "tableFrom": "in_store_sales",
-          "tableTo": "locations",
-          "columnsFrom": [
-            "location_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
     "inventory_ledger": {
       "name": "inventory_ledger",
       "columns": {
@@ -2687,100 +891,9 @@
       "checkConstraints": {
         "inventory_ledger_reason_check": {
           "name": "inventory_ledger_reason_check",
-          "value": "\"inventory_ledger\".\"reason\" in ('order_paid', 'order_cancelled', 'order_refunded', 'restock', 'manual_adjustment', 'pos_sale')"
+          "value": "\"inventory_ledger\".\"reason\" in ('order_paid', 'order_cancelled', 'order_refunded', 'restock', 'manual_adjustment')"
         }
       }
-    },
-    "locations": {
-      "name": "locations",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "slug": {
-          "name": "slug",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "name_mn": {
-          "name": "name_mn",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "name_en": {
-          "name": "name_en",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "address": {
-          "name": "address",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "phone": {
-          "name": "phone",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "map_link": {
-          "name": "map_link",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "is_active": {
-          "name": "is_active",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": true
-        },
-        "sort_order": {
-          "name": "sort_order",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(cast(unixepoch('subsec') * 1000 as integer))"
-        }
-      },
-      "indexes": {
-        "locations_slug_key": {
-          "name": "locations_slug_key",
-          "columns": [
-            "slug"
-          ],
-          "isUnique": true
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
     },
     "order_items": {
       "name": "order_items",
@@ -3559,149 +1672,6 @@
         }
       }
     },
-    "rent_charges": {
-      "name": "rent_charges",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "barber_id": {
-          "name": "barber_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "amount": {
-          "name": "amount",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "due_on": {
-          "name": "due_on",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'due'"
-        },
-        "paid_via": {
-          "name": "paid_via",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "confirmed_by": {
-          "name": "confirmed_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "confirmed_at": {
-          "name": "confirmed_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "note": {
-          "name": "note",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(cast(unixepoch('subsec') * 1000 as integer))"
-        }
-      },
-      "indexes": {
-        "rent_charges_barber_due_key": {
-          "name": "rent_charges_barber_due_key",
-          "columns": [
-            "barber_id",
-            "due_on"
-          ],
-          "isUnique": true
-        },
-        "rent_charges_status_due_idx": {
-          "name": "rent_charges_status_due_idx",
-          "columns": [
-            "status",
-            "due_on"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "rent_charges_barber_id_barbers_id_fk": {
-          "name": "rent_charges_barber_id_barbers_id_fk",
-          "tableFrom": "rent_charges",
-          "tableTo": "barbers",
-          "columnsFrom": [
-            "barber_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "rent_charges_confirmed_by_users_id_fk": {
-          "name": "rent_charges_confirmed_by_users_id_fk",
-          "tableFrom": "rent_charges",
-          "tableTo": "users",
-          "columnsFrom": [
-            "confirmed_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {
-        "rent_charges_amount_check": {
-          "name": "rent_charges_amount_check",
-          "value": "\"rent_charges\".\"amount\" > 0"
-        },
-        "rent_charges_paid_check": {
-          "name": "rent_charges_paid_check",
-          "value": "\"rent_charges\".\"status\" <> 'paid' or \"rent_charges\".\"paid_via\" is not null"
-        },
-        "rent_charges_status_check": {
-          "name": "rent_charges_status_check",
-          "value": "\"rent_charges\".\"status\" in ('due', 'paid', 'waived')"
-        },
-        "rent_charges_paid_via_check": {
-          "name": "rent_charges_paid_via_check",
-          "value": "\"rent_charges\".\"paid_via\" in ('direct', 'payout')"
-        }
-      }
-    },
     "reviews": {
       "name": "reviews",
       "columns": {
@@ -3843,53 +1813,18 @@
           "notNull": true,
           "autoincrement": false
         },
-        "barber_id": {
-          "name": "barber_id",
+        "name": {
+          "name": "name",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "location_id": {
-          "name": "location_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "name_en": {
-          "name": "name_en",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "name_mn": {
-          "name": "name_mn",
+        "description": {
+          "name": "description",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
-          "autoincrement": false
-        },
-        "description_en": {
-          "name": "description_en",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "description_mn": {
-          "name": "description_mn",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "price": {
-          "name": "price",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
           "autoincrement": false
         },
         "duration_minutes": {
@@ -3897,6 +1832,13 @@
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "price": {
+          "name": "price",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         },
         "is_active": {
@@ -3924,61 +1866,18 @@
           "default": "(cast(unixepoch('subsec') * 1000 as integer))"
         }
       },
-      "indexes": {
-        "services_barber_location_idx": {
-          "name": "services_barber_location_idx",
-          "columns": [
-            "barber_id",
-            "location_id"
-          ],
-          "isUnique": false
-        },
-        "services_location_idx": {
-          "name": "services_location_idx",
-          "columns": [
-            "location_id"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "services_barber_id_barbers_id_fk": {
-          "name": "services_barber_id_barbers_id_fk",
-          "tableFrom": "services",
-          "tableTo": "barbers",
-          "columnsFrom": [
-            "barber_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "services_location_id_locations_id_fk": {
-          "name": "services_location_id_locations_id_fk",
-          "tableFrom": "services",
-          "tableTo": "locations",
-          "columnsFrom": [
-            "location_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
+      "indexes": {},
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {
-        "services_price_check": {
-          "name": "services_price_check",
-          "value": "\"services\".\"price\" >= 0"
-        },
         "services_duration_check": {
           "name": "services_duration_check",
           "value": "\"services\".\"duration_minutes\" > 0"
+        },
+        "services_price_check": {
+          "name": "services_price_check",
+          "value": "\"services\".\"price\" is null or \"services\".\"price\" >= 0"
         }
       }
     },

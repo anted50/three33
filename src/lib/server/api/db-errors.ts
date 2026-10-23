@@ -27,19 +27,8 @@ import { ApiError } from './errors'
  */
 const KNOWN: Record<string, [code: string, message: string]> = {
   appointments_no_overlap: ['TIME_TAKEN', 'That time overlaps another booking'],
-  barber_shifts_no_overlap: ['SHIFT_OVERLAP', 'Shifts overlap each other'],
+  availability_no_overlap: ['WINDOW_OVERLAP', 'That window overlaps another open window'],
   'users.email': ['EMAIL_TAKEN', 'That email already belongs to an account'],
-  'barbers.slug': ['SLUG_TAKEN', 'Another barber already uses that slug'],
-  'barbers.user_id': ['ALREADY_BARBER', 'That account is already a barber'],
-  'locations.slug': ['SLUG_TAKEN', 'Another location already uses that slug'],
-  'barber_terms.barber_id, barber_terms.effective_from': [
-    'TERMS_EXIST',
-    'Terms already start at that moment',
-  ],
-  'barber_sales.appointment_id': [
-    'CHECKOUT_EXISTS',
-    'This appointment already has an open checkout',
-  ],
 }
 
 export type ViolationKind = 'unique' | 'check' | 'foreign_key' | 'not_null' | 'trigger' | 'guard'
@@ -56,7 +45,7 @@ const PATTERNS: Array<[ViolationKind, RegExp]> = [
   ['check', /CHECK constraint failed: (\w+)/],
   ['foreign_key', /FOREIGN KEY constraint failed()/],
   ['not_null', /NOT NULL constraint failed: ([\w.]+)/],
-  ['trigger', /(appointments_no_overlap|barber_shifts_no_overlap)/],
+  ['trigger', /(appointments_no_overlap|availability_no_overlap)/],
 ]
 
 export function findDbViolation(error: unknown): DbViolation | null {

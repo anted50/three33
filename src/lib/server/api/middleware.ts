@@ -4,20 +4,18 @@ import { readSessionToken } from './cookie'
 import { ApiError, forbidden, unauthorized } from './errors'
 import { verifyJobToken } from './job-token'
 import { errorResponse } from './respond'
-import { resolveStaff } from './staff'
+import { validateSessionToken } from '../auth/session'
 
 /**
- * Request middleware for every authenticated API route. A route opts in by
- * listing ONE of these in `server.middleware`:
+ * Request middleware for API routes. A route opts in by listing ONE of these
+ * in `server.middleware`:
  *
- *   staffAuth   any signed-in owner or active barber      -> context.staff
- *   ownerOnly   staffAuth + must be an owner
- *   barberOnly  staffAuth + must have an active barber row -> context.barberId
- *   jobToken    bearer JOBS_API_TOKEN, for schedulers — no staff at all
+ *   adminOnly   a signed-in admin (users.role = 'admin') -> context.admin
+ *   jobToken    bearer JOBS_API_TOKEN, for schedulers — no user at all
  *
- * ownerOnly and barberOnly include staffAuth themselves, so a route never
- * lists two. Handlers read identity from `context`, never from the request
- * body: a barber can only ever act as the barber their session belongs to.
+ * adminOnly uses the same session cookie as the /admin pages: signing in at
+ * /admin/login is what signs you in here. Handlers read identity from
+ * `context`, never from the request body.
  */
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS'])
@@ -35,23 +33,26 @@ function isCrossSiteWrite(request: Request): boolean {
   return !type.toLowerCase().startsWith('application/json')
 }
 
-export const staffAuth = createMiddleware({ type: 'request' }).server(
+export interface Admin {
+  userId: string
+  email: string
+  name: string
+}
+
+export const adminOnly = createMiddleware({ type: 'request' }).server(
   async ({ request, next }) => {
     if (isCrossSiteWrite(request)) {
       return errorResponse(forbidden('Writes must send Content-Type: application/json'))
     }
-    const staff = await resolveStaff(readSessionToken(request))
-    if (!staff) return errorResponse(unauthorized())
-    return next({ context: { staff } })
+    // Re-read on every request, so a revoked session or a demoted admin is
+    // locked out on their very next call.
+    const user = await validateSessionToken(readSessionToken(request))
+    if (!user) return errorResponse(unauthorized())
+    if (user.role !== 'admin') return errorResponse(forbidden('Admins only'))
+    const admin: Admin = { userId: user.id, email: user.email, name: user.name }
+    return next({ context: { admin } })
   },
 )
-
-export const ownerOnly = createMiddleware({ type: 'request' })
-  .middleware([staffAuth])
-  .server(async ({ context, next }) => {
-    if (!context.staff.isOwner) return errorResponse(forbidden('Owner only'))
-    return next()
-  })
 
 /**
  * Machine auth for /api/v1/jobs/*: `Authorization: Bearer <JOBS_API_TOKEN>`.
@@ -71,11 +72,3 @@ export const jobToken = createMiddleware({ type: 'request' }).server(
     return next()
   },
 )
-
-export const barberOnly = createMiddleware({ type: 'request' })
-  .middleware([staffAuth])
-  .server(async ({ context, next }) => {
-    const barberId = context.staff.barberId
-    if (!barberId) return errorResponse(forbidden('Barbers only'))
-    return next({ context: { barberId } })
-  })

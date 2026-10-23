@@ -108,20 +108,15 @@ tabs, and exhausted provider retries.
 
 ## `booking-sweep` — every 5 minutes
 
-Two jobs, both in `src/lib/server/booking/sweep.ts`:
+In `src/lib/server/booking/sweep.ts`. **Unpaid booking holds are deleted.**
+A booking is only a hold until its fee is paid; past `expires_at` the sweep
+asks QPay one last time (a last-second payment still confirms the booking),
+cancels the invoice, and only then deletes the hold. If QPay won't cancel,
+the hold stays for the next run, so a payment can never land with nothing to
+match it.
 
-- **Unpaid booking holds are deleted.** An online booking is only a hold
-  until its fee is paid; past `expires_at` the sweep asks QPay one last time
-  (a last-second payment still confirms the booking), cancels the invoice, and
-  only then deletes the hold. If QPay won't cancel, the hold stays for the next
-  run, so a payment can never land with nothing to match it.
-- **Stranded POS QPay payments are checked.** A barber who closes the screen
-  before QPay's callback arrives would leave a paid payment `pending`. After
-  five minutes the sweep asks QPay; after a day unpaid it withdraws the
-  invoice and marks the payment failed.
-
-Frequent because a hold blocks a real slot from other customers. Cheap when
-there is nothing to do — two indexed selects and no QPay call.
+Frequent because a hold blocks a real time from other customers. Cheap when
+there is nothing to do — one indexed select and no QPay call.
 
 ## `cleanup` — daily
 

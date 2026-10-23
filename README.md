@@ -110,6 +110,22 @@ handing secrets to the client bundler at all. Verify with:
 npm run build && grep -r "QPAY_PASSWORD" dist/client/
 ```
 
+## Booking
+
+One barber, one shop. The barber adds his services (a name and a length —
+"Haircut, 45 minutes") and opens windows on his schedule, any day and any
+hours. A customer picks a service and a free time, enters name, phone and
+email, and pays the booking fee through QPay; the paid fee confirms the
+booking and the confirmation email goes out. Unpaid holds are deleted after
+15 minutes. Admins see every booking and can move or cancel it.
+
+Three tables — `services`, `availability`, `appointments` — and a JSON API:
+`/api/v1/public/*` for the booking page, `/api/v1/admin/*` (admin session)
+for the barber. Each route file documents itself; conventions are in
+[`src/lib/server/api/README.md`](src/lib/server/api/README.md). The booking
+fee is a setting (`PUT /api/v1/admin/booking-fee`); until it is set, online
+booking is off.
+
 ## Admin
 
 `/admin` — dashboard, orders (list, detail, status transitions), products
@@ -216,7 +232,7 @@ also be triggered over HTTP with a bearer token. Full detail in
 | Job | Every | What it does |
 |---|---|---|
 | `reconcile` | hourly, at :07 | Settles orders whose payment callback never arrived (QPay and StorePay); cancels lapsed invoices with the provider and expires them |
-| `booking-sweep` | 5 minutes | Deletes unpaid booking holds past their deadline; checks POS QPay payments whose callback never came |
+| `booking-sweep` | 5 minutes | Deletes unpaid booking holds past their deadline, after a last QPay check |
 | `cleanup` | daily, 03:17 Ulaanbaatar | Deletes expired sessions, OTP codes and guest carts, and prunes `checkout_attempts` |
 
 | Way in | How |

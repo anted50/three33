@@ -6,17 +6,16 @@ import { runJob } from '~/lib/server/jobs'
 /**
  * POST /api/v1/jobs/booking-sweep
  *
- * Deletes unpaid online-booking holds past their deadline (after a last
- * QPay check and invoice cancel), and checks POS QPay payments whose
- * callback never came.
- * Also runs on the server's own timer — see docs/scheduled-jobs.md.
+ * Deletes unpaid booking holds past their deadline, after a last QPay check
+ * (a last-second payment still confirms the booking) and cancelling the
+ * invoice.
+ * Also runs on a Cron Trigger — see docs/scheduled-jobs.md.
  *
  * Auth   Authorization: Bearer <JOBS_API_TOKEN> (jobToken). No body.
  * 200    { job, durationMs, result }
- *        result { holdsConfirmed, holdsDeleted, holdsKept, posSettled,
- *          posWithdrawn, errors }
+ *        result { holdsConfirmed, holdsDeleted, holdsKept, errors }
  * 401    UNAUTHORIZED       missing or wrong token
- * 409    JOB_RUNNING        already running on this instance
+ * 409    JOB_RUNNING        already running in this isolate
  * 500    JOB_FAILED         some part failed; details = { durationMs, result }
  * 503    JOBS_API_DISABLED  JOBS_API_TOKEN is not set
  */

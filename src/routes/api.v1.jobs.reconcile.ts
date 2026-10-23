@@ -9,14 +9,14 @@ import { runJob } from '~/lib/server/jobs'
  * Settles pending orders whose payment callback never arrived and expires
  * the ones past their invoice window (cancelling the invoice with QPay or
  * StorePay first). Checks up to 500 orders older than 10 minutes.
- * Also runs on the server's own timer — see docs/scheduled-jobs.md.
+ * Also runs on a Cron Trigger — see docs/scheduled-jobs.md.
  *
  * Auth   Authorization: Bearer <JOBS_API_TOKEN> (jobToken). No body.
  * 200    { job, durationMs, result }
  *        result { checked, error, settled?, unpaid?, underpaid?, not_found?,
  *          already_settled?, throttled?, expired? } — counts per outcome
  * 401    UNAUTHORIZED       missing or wrong token
- * 409    JOB_RUNNING        already running on this instance
+ * 409    JOB_RUNNING        already running in this isolate
  * 500    JOB_FAILED         some part failed; details = { durationMs, result }
  * 503    JOBS_API_DISABLED  JOBS_API_TOKEN is not set
  */

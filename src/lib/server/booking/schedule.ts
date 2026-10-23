@@ -1,87 +1,88 @@
-import { and, asc, eq, gte, inArray, lt } from 'drizzle-orm'
+import { and, asc, eq, gte, inArray, lt, ne } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '~/db'
 import { atomic } from '~/db/atomic'
-import { barberDaysOff, barberShifts } from '~/db/schema'
-import { badRequest } from '../api/errors'
+import { appointments, availability } from '~/db/schema'
+import { badRequest, notFound } from '../api/errors'
 import { clockTime, isoDate } from '../api/input'
-import { assertWorksAt } from './barber-locations'
 import { localDay } from './db'
 import { planSchedule, type ScheduleEntry } from './schedule-plan'
 import { addDays, atLocal, datesBetween, type IsoDate } from './time'
 
 /**
- * The barber's schedule: which days they work (and where, when), which days
- * they are off, and — by saying nothing — which days are still unknown.
+ * The barber's schedule: the windows he is open for bookings. He sets it
+ * however he likes — any day, any hours, several windows a day — from admin.
  * See schedule-plan.ts for how a request becomes per-day plans.
  *
- * Appointments never reference shifts, so rewriting a day never cancels or
- * moves a booking; one that ends up outside the new shifts simply becomes
- * overtime.
+ * Appointments never reference windows, so rewriting a day never cancels or
+ * moves a booking; one that ends up outside the new windows still stands.
  */
 
 const range = { from: isoDate, to: isoDate, weekdays: z.array(z.number().int().min(1).max(7)).min(1).max(7).optional() }
 
 export const scheduleInput = z.object({
   entries: z
-    .array(
-      z.union([
-        z.object({ ...range, start: clockTime, end: clockTime, locationId: z.uuid() }),
-        z.object({ ...range, off: z.literal(true), note: z.string().trim().max(200).optional() }),
-        z.object({ ...range, clear: z.literal(true) }),
-      ]),
-    )
+    .array(z.union([z.object({ ...range, start: clockTime, end: clockTime }), z.object({ ...range, closed: z.literal(true) })]))
     .min(1)
     .max(50),
 })
 
-export async function applySchedule(barberId: string, input: z.infer<typeof scheduleInput>) {
+export const scheduleQuery = z.object({ from: isoDate, to: isoDate })
+
+export async function applySchedule(input: z.infer<typeof scheduleInput>) {
   const plan = planSchedule(input.entries as ScheduleEntry[])
   const days = [...plan.keys()].sort()
   if (days.length === 0) throw badRequest('No days matched (check weekdays)')
 
-  const shiftLocations = [...plan.values()].flatMap((p) => (p.kind === 'shifts' ? p.shifts.map((s) => s.locationId) : []))
-  await assertWorksAt(barberId, shiftLocations)
+  const windows = [...plan.values()].flatMap((p) => (p.kind === 'open' ? p.windows : []))
 
-  const shifts = [...plan.values()].flatMap((p) => (p.kind === 'shifts' ? p.shifts : []))
-  const off = [...plan.entries()].flatMap(([day, p]) => (p.kind === 'off' ? [{ barberId, day, note: p.note }] : []))
-
-  // The day is replaced as a whole, in one batch: never half old, half new.
+  // Each touched day is replaced as a whole, in one batch: never half old,
+  // half new.
   await atomic([
-    db.delete(barberShifts).where(and(eq(barberShifts.barberId, barberId), inArray(localDay(barberShifts.startsAt), days))),
-    db.delete(barberDaysOff).where(and(eq(barberDaysOff.barberId, barberId), inArray(barberDaysOff.day, days))),
-    shifts.length > 0 && db.insert(barberShifts).values(shifts.map((s) => ({ ...s, barberId }))),
-    off.length > 0 && db.insert(barberDaysOff).values(off),
+    db.delete(availability).where(inArray(localDay(availability.startsAt), days)),
+    windows.length > 0 && db.insert(availability).values(windows),
   ])
 
-  return getSchedule(barberId, days[0]!, days.at(-1)!)
+  return getSchedule(days[0]!, days.at(-1)!)
 }
 
-export async function getSchedule(barberId: string, from: IsoDate, to: IsoDate) {
+/** Removes one window. */
+export async function deleteWindow(windowId: string) {
+  const removed = await db.delete(availability).where(eq(availability.id, windowId)).returning({ id: availability.id })
+  if (removed.length === 0) throw notFound('Window')
+}
+
+/** Each day from `from` to `to`, with its windows and its bookings. */
+export async function getSchedule(from: IsoDate, to: IsoDate) {
   if (to < from) throw badRequest('"to" is before "from"')
   const days = datesBetween(from, to)
   if (days.length > 93) throw badRequest('At most 93 days at a time')
 
-  const shifts = await db
-    .select({ id: barberShifts.id, locationId: barberShifts.locationId, startsAt: barberShifts.startsAt, endsAt: barberShifts.endsAt })
-    .from(barberShifts)
-    .where(
-      and(
-        eq(barberShifts.barberId, barberId),
-        gte(barberShifts.startsAt, atLocal(from, '00:00')),
-        lt(barberShifts.startsAt, atLocal(addDays(to, 1), '00:00')),
-      ),
-    )
-    .orderBy(asc(barberShifts.startsAt))
-  const off = await db
-    .select({ day: barberDaysOff.day, note: barberDaysOff.note })
-    .from(barberDaysOff)
-    .where(and(eq(barberDaysOff.barberId, barberId), gte(barberDaysOff.day, from), lt(barberDaysOff.day, addDays(to, 1))))
+  const start = atLocal(from, '00:00')
+  const end = atLocal(addDays(to, 1), '00:00')
+  const windows = await db
+    .select({ id: availability.id, startsAt: availability.startsAt, endsAt: availability.endsAt })
+    .from(availability)
+    .where(and(gte(availability.startsAt, start), lt(availability.startsAt, end)))
+    .orderBy(asc(availability.startsAt))
+  const booked = await db
+    .select({
+      id: appointments.id,
+      bookingNo: appointments.bookingNo,
+      status: appointments.status,
+      startsAt: appointments.startsAt,
+      endsAt: appointments.endsAt,
+      serviceName: appointments.serviceName,
+      customerName: appointments.customerName,
+    })
+    .from(appointments)
+    .where(and(ne(appointments.status, 'cancelled'), gte(appointments.startsAt, start), lt(appointments.startsAt, end)))
+    .orderBy(asc(appointments.startsAt))
 
-  const offByDay = new Map(off.map((o) => [o.day, o.note]))
   return days.map((date) => {
-    const dayShifts = shifts.filter((s) => s.startsAt >= atLocal(date, '00:00') && s.startsAt < atLocal(addDays(date, 1), '00:00'))
-    const status = dayShifts.length > 0 ? 'working' : offByDay.has(date) ? 'off' : 'unknown'
-    return { date, status, note: offByDay.get(date) ?? null, shifts: dayShifts }
+    const dayStart = atLocal(date, '00:00')
+    const dayEnd = atLocal(addDays(date, 1), '00:00')
+    const inDay = <T extends { startsAt: Date }>(rows: T[]) => rows.filter((r) => r.startsAt >= dayStart && r.startsAt < dayEnd)
+    return { date, windows: inDay(windows), appointments: inDay(booked) }
   })
 }

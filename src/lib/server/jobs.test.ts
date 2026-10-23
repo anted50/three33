@@ -10,7 +10,7 @@ const { sweepBooking } = await import('./booking/sweep')
 const { runCleanup } = await import('./maintenance')
 const { runJob } = await import('./jobs')
 
-const sweepTally = { holdsConfirmed: 0, holdsDeleted: 1, holdsKept: 0, posSettled: 0, posWithdrawn: 0, errors: 0 }
+const sweepTally = { holdsConfirmed: 0, holdsDeleted: 1, holdsKept: 0, errors: 0 }
 
 async function rejection(promise: Promise<unknown>): Promise<ApiError> {
   const error = await promise.then(

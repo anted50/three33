@@ -1,28 +1,24 @@
 import { and, eq, isNull } from 'drizzle-orm'
 import { db } from '~/db'
-import { appointmentServices, appointments, barbers, locations } from '~/db/schema'
+import { appointments } from '~/db/schema'
 import { formatMnt } from '~/lib/money'
 import { logoAttachment, logoImgTag } from '../../email/logo'
 import { emailDocument, INK, INK_FAINT, INK_SOFT, PANEL, PAPER, RULE } from '../../email/shell'
 import { sendEmail } from '../../email/resend'
 
 /**
- * The booking confirmation. Sent exactly once, and only when a booking is
- * confirmed — its fee paid online, or the barber entering it. Never for a
- * hold. `confirmation_sent_at` is claimed before sending, so a QPay callback
- * and a poll confirming the same booking can't both send it; a failed send
- * releases the claim so the resend button (or the next attempt) can retry.
- *
- * Contacting the barber is the customer's only way to change the booking,
- * so their phone is the most prominent thing after the time.
+ * The booking confirmation. Sent once, when a booking is confirmed by its
+ * paid fee — never for a hold — and again only when an admin resends it.
+ * `confirmation_sent_at` is claimed before sending, so a QPay callback and a
+ * poll confirming the same booking can't both send it; a failed send releases
+ * the claim so the resend (or the next attempt) can retry.
  */
 
-export type ConfirmationOutcome = 'sent' | 'no_email' | 'already_sent' | 'mail_disabled' | 'not_confirmed'
+export type ConfirmationOutcome = 'sent' | 'already_sent' | 'mail_disabled' | 'not_confirmed'
 
 export async function sendConfirmation(appointmentId: string, opts: { force?: boolean } = {}): Promise<ConfirmationOutcome> {
   const data = await load(appointmentId)
   if (!data) return 'not_confirmed'
-  if (!data.appointment.customerEmail) return 'no_email'
 
   if (!opts.force) {
     const claimed = await db
@@ -37,7 +33,7 @@ export async function sendConfirmation(appointmentId: string, opts: { force?: bo
     const { subject, html, text } = render(data)
     const logo = logoAttachment()
     const sent = await sendEmail({
-      to: { email: data.appointment.customerEmail, name: data.appointment.customerName },
+      to: { email: data.customerEmail, name: data.customerName },
       subject,
       html,
       text,
@@ -55,33 +51,13 @@ export async function sendConfirmation(appointmentId: string, opts: { force?: bo
   }
 }
 
-/** Fire-and-forget after the confirming batch: the booking is already
- * real, and a mail hiccup must not turn into an error for the caller. */
-export function sendConfirmationInBackground(appointmentId: string) {
-  void sendConfirmation(appointmentId).catch((error) => {
-    console.error(`confirmation email failed for appointment ${appointmentId}`, error)
-  })
-}
-
 async function release(appointmentId: string) {
   await db.update(appointments).set({ confirmationSentAt: null }).where(eq(appointments.id, appointmentId))
 }
 
 async function load(appointmentId: string) {
-  const [row] = await db
-    .select({ appointment: appointments, barber: { name: barbers.name, phone: barbers.phone }, location: locations })
-    .from(appointments)
-    .innerJoin(barbers, eq(barbers.id, appointments.barberId))
-    .innerJoin(locations, eq(locations.id, appointments.locationId))
-    .where(eq(appointments.id, appointmentId))
-    .limit(1)
-  if (!row || !['booked', 'completed'].includes(row.appointment.status)) return null
-  const lines = await db
-    .select({ name: appointmentServices.nameSnapshot, price: appointmentServices.priceSnapshot })
-    .from(appointmentServices)
-    .where(eq(appointmentServices.appointmentId, appointmentId))
-    .orderBy(appointmentServices.sortOrder)
-  return { ...row, lines }
+  const [row] = await db.select().from(appointments).where(eq(appointments.id, appointmentId)).limit(1)
+  return row?.status === 'booked' ? row : null
 }
 
 type Loaded = NonNullable<Awaited<ReturnType<typeof load>>>
@@ -99,29 +75,17 @@ function escapeHtml(value: string): string {
 const SANS = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif"
 const MAX_WIDTH = 460
 
-function render({ appointment: a, barber, location, lines }: Loaded) {
+function render(a: Loaded) {
   const when = localStamp(a.startsAt)
-  const due = a.total - a.bookingFee
   const rows: Array<[string, string]> = [
     ['Захиалгын дугаар', a.bookingNo],
+    ['Үйлчилгээ', a.serviceName],
     ['Цаг', `${when} – ${localStamp(a.endsAt).slice(11)}`],
-    ['Салбар', `${location.nameMn}, ${location.address}`],
-    ['Үсчин', `${barber.name} · ${barber.phone}`],
-    ...lines.map((l): [string, string] => [l.name, formatMnt(l.price)]),
-    ['Нийт', formatMnt(a.total)],
-    ...(a.bookingFee > 0 ? ([['Урьдчилгаа төлсөн', formatMnt(a.bookingFee)]] as Array<[string, string]>) : []),
-    ['Салбар дээр төлөх', formatMnt(due)],
+    ['Урьдчилгаа төлсөн', formatMnt(a.bookingFee)],
   ]
-  const changeNote = `Цагаа өөрчлөх эсвэл цуцлах бол үсчин ${barber.name}-тай ${barber.phone} дугаараар холбогдоно уу.`
+  const changeNote = 'Цагаа өөрчлөх эсвэл цуцлах бол бидэнтэй холбогдоно уу.'
 
-  const text = [
-    'Цаг захиалга баталгаажлаа',
-    '',
-    ...rows.map(([k, v]) => `${k}: ${v}`),
-    ...(location.mapLink ? ['', `Байршил: ${location.mapLink}`] : []),
-    '',
-    changeNote,
-  ].join('\n')
+  const text = ['Цаг захиалга баталгаажлаа', '', ...rows.map(([k, v]) => `${k}: ${v}`), '', changeNote].join('\n')
 
   const tableRows = rows
     .map(
@@ -140,7 +104,6 @@ function render({ appointment: a, barber, location, lines }: Loaded) {
         <p class="keepink" style="margin:0 0 6px;font-size:14px;color:${INK};text-align:center">Цаг захиалга баталгаажлаа</p>
         <p class="keepink" style="margin:0 0 20px;font-size:26px;font-weight:800;color:${INK};text-align:center">${escapeHtml(when)}</p>
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">${tableRows}</table>
-        ${location.mapLink ? `<p style="margin:18px 0 0;font-size:13px;text-align:center"><a href="${escapeHtml(location.mapLink)}" style="color:${INK}">Байршил харах</a></p>` : ''}
       </div>
       <div style="max-width:${MAX_WIDTH}px;margin:0 auto;padding:20px 24px 36px;text-align:center">
         <p class="faint" style="margin:0;font-size:12px;color:${INK_FAINT}">${escapeHtml(changeNote)}</p>
@@ -149,7 +112,7 @@ function render({ appointment: a, barber, location, lines }: Loaded) {
 
   return {
     subject: `Цаг баталгаажлаа — ${when}`,
-    html: emailDocument({ title: 'Цаг захиалга баталгаажлаа', preheader: `${location.nameMn} · ${barber.name}`, body }),
+    html: emailDocument({ title: 'Цаг захиалга баталгаажлаа', preheader: `${a.serviceName} · ${when}`, body }),
     text,
   }
 }

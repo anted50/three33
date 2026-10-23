@@ -1,3 +1,4 @@
+import { eq } from 'drizzle-orm'
 import { db } from '~/db'
 import { atomic } from '~/db/atomic'
 import { settings } from '~/db/schema'
@@ -11,6 +12,7 @@ import type { ShippingRates } from './cart/pricing'
 
 const SHIPPING_FEE = 'shipping_fee'
 const FREE_THRESHOLD = 'shipping_free_threshold'
+const BOOKING_FEE = 'booking_fee'
 
 /** Mungu. Used until the shop saves its own numbers. */
 const DEFAULT_RATES: ShippingRates = {
@@ -52,4 +54,23 @@ export async function saveShippingRates(rates: ShippingRates): Promise<void> {
         }),
     ),
   )
+}
+
+/**
+ * The online booking fee, in mungu — what a customer pays through QPay to
+ * confirm a booking. Null until an admin sets it, and online booking is
+ * refused until then: a made-up default would quietly start charging
+ * customers a price nobody chose.
+ */
+export async function loadBookingFee(): Promise<number | null> {
+  const [row] = await db.select({ value: settings.value }).from(settings).where(eq(settings.key, BOOKING_FEE)).limit(1)
+  const fee = row ? Number(row.value) : Number.NaN
+  return Number.isInteger(fee) && fee > 0 ? fee : null
+}
+
+export async function saveBookingFee(fee: number): Promise<void> {
+  await db
+    .insert(settings)
+    .values({ key: BOOKING_FEE, value: String(fee) })
+    .onConflictDoUpdate({ target: settings.key, set: { value: String(fee) } })
 }

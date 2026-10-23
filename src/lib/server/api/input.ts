@@ -1,5 +1,4 @@
 import { z } from 'zod'
-import { clientIp } from '../client-ip'
 import { badRequest } from './errors'
 
 /**
@@ -33,14 +32,6 @@ export function readParams<T>(params: unknown, schema: z.ZodType<T>): T {
 /** One uuid path param. A malformed id is a 400, never a database error. */
 export function readId(params: Record<string, string>, key: string): string {
   return z.object({ [key]: z.uuid() }).parse(params)[key] as string
-}
-
-/** Client IP and user agent, recorded on new sessions. */
-export function requestMeta(request: Request) {
-  return {
-    userAgent: request.headers.get('user-agent'),
-    ip: clientIp((name) => request.headers.get(name)),
-  }
 }
 
 // Shared field schemas -------------------------------------------------------

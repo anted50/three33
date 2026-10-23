@@ -4,54 +4,52 @@ import { db } from '~/db'
 import { services } from '~/db/schema'
 import { notFound } from '../api/errors'
 import { mungu } from '../api/input'
-import { assertWorksAt } from './barber-locations'
 
 /**
- * A barber's own services. Each row is one service at one location with its
- * own price and duration; the same haircut elsewhere is another row.
- * Editing never changes past or upcoming appointments — they froze the name,
- * price and duration when booked. There is no delete: deactivate instead.
+ * What can be booked: a name and a length ("Haircut", 45 minutes), managed
+ * by the barber from admin. Editing a service never changes a booking — each
+ * one copied the name and length when it was made. There is no delete:
+ * deactivate instead, so past bookings keep pointing at a real row.
  */
 
 export const serviceInput = z.object({
-  locationId: z.uuid(),
-  nameEn: z.string().trim().min(1).max(120),
-  nameMn: z.string().trim().max(120).nullish(),
-  descriptionEn: z.string().trim().max(2000).nullish(),
-  descriptionMn: z.string().trim().max(2000).nullish(),
-  price: mungu,
+  name: z.string().trim().min(1).max(120),
+  description: z.string().trim().max(2000).nullish(),
   durationMinutes: z.number().int().min(5).max(600),
+  /** Shown on the site; paid at the shop. Null = not shown. */
+  price: mungu.nullish(),
   isActive: z.boolean().optional(),
   sortOrder: z.number().int().min(0).max(10_000).optional(),
 })
 
-/** The location is fixed once created — a different branch is a new row. */
-export const servicePatch = serviceInput.omit({ locationId: true }).partial()
+export const servicePatch = serviceInput.partial()
 
-export async function listServices(barberId: string) {
+export async function listServices({ activeOnly }: { activeOnly: boolean }) {
   return db
     .select()
     .from(services)
-    .where(eq(services.barberId, barberId))
-    .orderBy(asc(services.locationId), asc(services.sortOrder), asc(services.nameEn))
+    .where(activeOnly ? eq(services.isActive, true) : undefined)
+    .orderBy(asc(services.sortOrder), asc(services.name))
 }
 
-export async function createService(barberId: string, input: z.infer<typeof serviceInput>) {
-  await assertWorksAt(barberId, [input.locationId])
-  const [row] = await db.insert(services).values({ ...input, barberId }).returning()
+export async function createService(input: z.infer<typeof serviceInput>) {
+  const [row] = await db.insert(services).values(input).returning()
   return row!
 }
 
-export async function updateService(
-  barberId: string,
-  serviceId: string,
-  patch: z.infer<typeof servicePatch>,
-) {
+export async function updateService(serviceId: string, patch: z.infer<typeof servicePatch>) {
+  const [row] = await db.update(services).set(patch).where(eq(services.id, serviceId)).returning()
+  if (!row) throw notFound('Service')
+  return row
+}
+
+/** An active service, or a 404 — what a booking must be for. */
+export async function bookableService(serviceId: string) {
   const [row] = await db
-    .update(services)
-    .set(patch)
-    .where(and(eq(services.id, serviceId), eq(services.barberId, barberId)))
-    .returning()
+    .select()
+    .from(services)
+    .where(and(eq(services.id, serviceId), eq(services.isActive, true)))
+    .limit(1)
   if (!row) throw notFound('Service')
   return row
 }

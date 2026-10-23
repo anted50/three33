@@ -2,45 +2,36 @@ import { badRequest } from '../api/errors'
 import { atLocal, datesBetween, isoWeekday, type IsoDate } from './time'
 
 /**
- * Turns a barber's schedule request into one plan per calendar day. Pure:
+ * Turns the barber's schedule request into one plan per calendar day. Pure:
  * unit tested, no database.
  *
  * A request is a list of entries, each covering a date range and optionally
  * only some weekdays:
  *
- *   { from: '2026-10-05', to: '2026-10-07', start: '09:00', end: '15:00', locationId }
- *   { from: '2026-10-08', to: '2026-10-08', off: true }
- *   { from: '2026-10-09', to: '2026-10-11', start: '16:00', end: '22:00', locationId }
+ *   { from: '2026-10-05', to: '2026-10-31', weekdays: [1,2,3,4,5], start: '10:00', end: '18:00' }
+ *   { from: '2026-10-11', to: '2026-10-11', start: '12:00', end: '14:00' }
+ *   { from: '2026-10-15', to: '2026-10-15', closed: true }
  *
  * Every day a request touches is REPLACED as a whole with what the request
  * says for it — so sending the same schedule twice changes nothing, and
- * changing one day never disturbs the days around it. Several shift entries
- * may land on one day (morning at A, afternoon at B); `off` and `clear`
- * must stand alone.
- *
- *   shifts  working, in these windows
- *   off     the barber has said they won't work
- *   clear   back to unknown: nothing said about this day
+ * changing one day never disturbs the days around it. Several windows may
+ * land on one day (morning and evening); `closed` must stand alone and
+ * empties the day. A day with no windows simply can't be booked.
  */
 
 export type ScheduleEntry =
-  | { from: IsoDate; to: IsoDate; weekdays?: number[]; start: string; end: string; locationId: string }
-  | { from: IsoDate; to: IsoDate; weekdays?: number[]; off: true; note?: string }
-  | { from: IsoDate; to: IsoDate; weekdays?: number[]; clear: true }
+  | { from: IsoDate; to: IsoDate; weekdays?: number[]; start: string; end: string }
+  | { from: IsoDate; to: IsoDate; weekdays?: number[]; closed: true }
 
-export interface Shift {
-  locationId: string
+export interface PlannedWindow {
   startsAt: Date
   endsAt: Date
 }
 
-export type DayPlan =
-  | { kind: 'shifts'; shifts: Shift[] }
-  | { kind: 'off'; note: string | null }
-  | { kind: 'clear' }
+export type DayPlan = { kind: 'open'; windows: PlannedWindow[] } | { kind: 'closed' }
 
-/** Longest span one request may touch: two months of planning at once. */
-export const MAX_SCHEDULE_DAYS = 62
+/** Longest span one request may touch: about three months of planning at once. */
+export const MAX_SCHEDULE_DAYS = 93
 
 export function planSchedule(entries: ScheduleEntry[]): Map<IsoDate, DayPlan> {
   const plan = new Map<IsoDate, DayPlan>()
@@ -60,39 +51,38 @@ export function planSchedule(entries: ScheduleEntry[]): Map<IsoDate, DayPlan> {
   }
 
   for (const [day, dayPlan] of plan) {
-    if (dayPlan.kind === 'shifts') assertNoOverlap(day, dayPlan.shifts)
+    if (dayPlan.kind === 'open') assertNoOverlap(day, dayPlan.windows)
   }
   return plan
 }
 
 function toDayPlan(entry: ScheduleEntry, day: IsoDate): DayPlan {
-  if ('off' in entry) return { kind: 'off', note: entry.note ?? null }
-  if ('clear' in entry) return { kind: 'clear' }
+  if ('closed' in entry) return { kind: 'closed' }
 
   const startsAt = atLocal(day, entry.start)
   const endsAt = atLocal(day, entry.end)
   if (endsAt <= startsAt) {
-    throw badRequest(`Shift on ${day} must end after it starts (${entry.start}–${entry.end})`)
+    throw badRequest(`The window on ${day} must end after it starts (${entry.start}–${entry.end})`)
   }
-  return { kind: 'shifts', shifts: [{ locationId: entry.locationId, startsAt, endsAt }] }
+  return { kind: 'open', windows: [{ startsAt, endsAt }] }
 }
 
 function merge(plan: Map<IsoDate, DayPlan>, day: IsoDate, next: DayPlan) {
   const current = plan.get(day)
   if (!current) return plan.set(day, next)
 
-  if (current.kind === 'shifts' && next.kind === 'shifts') {
-    current.shifts.push(...next.shifts)
+  if (current.kind === 'open' && next.kind === 'open') {
+    current.windows.push(...next.windows)
     return
   }
-  throw badRequest(`${day} is given more than one meaning (working, off or clear)`)
+  throw badRequest(`${day} is both open and closed in this request`)
 }
 
-function assertNoOverlap(day: IsoDate, shifts: Shift[]) {
-  const sorted = [...shifts].sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime())
+function assertNoOverlap(day: IsoDate, windows: PlannedWindow[]) {
+  const sorted = [...windows].sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime())
   for (let i = 1; i < sorted.length; i++) {
     if (sorted[i]!.startsAt < sorted[i - 1]!.endsAt) {
-      throw badRequest(`Shifts on ${day} overlap each other`)
+      throw badRequest(`Windows on ${day} overlap each other`)
     }
   }
 }

@@ -13,12 +13,11 @@ changes shape once clients depend on it. A breaking change ships as
 Additive changes (a new optional field, a new endpoint) stay in v1.
 
 ```
-/api/v1/auth/*      sign-in by emailed code        none / staffAuth
-/api/v1/public/*    locations, barbers, availability   none
-/api/v1/owner/*     locations, barbers, terms       ownerOnly
-/api/v1/barber/*    own profile, services, schedule,
-                    appointments, POS sales         barberOnly
-/api/v1/jobs/*      trigger scheduled jobs          jobToken
+/api/v1/public/*    booking: options, slots, bookings,
+                    the QPay booking-fee callback      none
+/api/v1/admin/*     booking: services, schedule,
+                    appointments, booking fee          adminOnly
+/api/v1/jobs/*      trigger scheduled jobs             jobToken
 ```
 
 ## Auth: one middleware per route
@@ -26,27 +25,23 @@ Additive changes (a new optional field, a new endpoint) stay in v1.
 Every authenticated route lists exactly one of these in `server.middleware`
 (see `middleware.ts`):
 
-| Middleware   | Lets through                          | Adds to `context`   |
-|--------------|---------------------------------------|---------------------|
-| `staffAuth`  | a signed-in owner or active barber     | `staff`             |
-| `ownerOnly`  | staffAuth + `users.role = 'admin'`     | `staff`             |
-| `barberOnly` | staffAuth + an active `barbers` row    | `staff`, `barberId` |
-| `jobToken`   | `Authorization: Bearer $JOBS_API_TOKEN` | nothing             |
+| Middleware   | Lets through                              | Adds to `context` |
+|--------------|-------------------------------------------|-------------------|
+| `adminOnly`  | a signed-in user with `users.role = 'admin'` | `admin`         |
+| `jobToken`   | `Authorization: Bearer $JOBS_API_TOKEN`   | nothing           |
 
-`jobToken` is the one exception to the cookie session: it is for machines
-(an external scheduler), carries no staff identity, and skips the CSRF guard
-since there is no cookie to ride on. See `docs/scheduled-jobs.md`.
-
-Identity always comes from `context`, never from the request body — a barber
-can only act as themselves. Writes must send `Content-Type: application/json`
-(the CSRF guard). The session is the same `uc_session` cookie as `/admin`.
+`adminOnly` uses the same `uc_session` cookie as `/admin` — signing in at
+`/admin/login` is what signs you in here. Writes must send
+`Content-Type: application/json` (the CSRF guard). `jobToken` is for
+machines (an external scheduler): no user, no cookie, no CSRF guard. See
+`docs/scheduled-jobs.md`.
 
 ## Shape of every response
 
 - Success: the resource as JSON. Money is integer **mungu** (₮ × 100);
   timestamps are ISO strings; dates are `YYYY-MM-DD` in Ulaanbaatar time.
 - Failure: `{ "error": { "code", "message", "details"? } }` with a real status.
-  `code` is stable (`TIME_TAKEN`, `AMOUNT_TOO_HIGH`, …) — branch on it, not on
+  `code` is stable (`TIME_TAKEN`, `HOLD_EXISTS`, …) — branch on it, not on
   `message`. Constraint violations from the database map to 409/400 in
   `db-errors.ts`, so races (two bookings for one slot) get a clean answer.
 
@@ -54,10 +49,10 @@ can only act as themselves. Writes must send `Content-Type: application/json`
 
 ```
 src/routes/api.v1.*.ts         wiring + docs only: middleware, input, one call
-src/lib/server/api/            this layer: errors, input, middleware, sign-in
+src/lib/server/api/            this layer: errors, input, middleware
 src/lib/server/booking/        the domain — one file per concern, pure logic
-                               (time, schedule-plan, availability,
-                               ledger-split) unit tested in booking-pure.test.ts
+                               (time, schedule-plan, availability) unit tested
+                               in booking-pure.test.ts
 ```
 
 A route file never touches the database directly.

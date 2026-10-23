@@ -98,6 +98,7 @@ one renders a text placeholder rather than a wrong photo.
 | `npm run db:seed` | Seed the catalogue into the local D1 |
 | `npm run admin:add -- <email> [name] [--remote \| --staging]` | Grant admin — locally, on production, or on staging |
 | `npm run order:inspect -- <orderNo>` | Print an order and its payment from the local D1 |
+| `npm run import:railway -- <dump>` | Turn a pg_dump of the old Railway Postgres into a cleaned D1 import (`backups/railway-import.sql`) — see the script's header for what is kept |
 | `npm run job -- <name> [--url <base>]` | Trigger a scheduled job through its API endpoint |
 | `npm run qpay:ping` | Fetch one QPay token to check credentials. Read-only |
 | `npm run qpay:smoke` | Create / watch / cancel a real test invoice (see QPay below) |

@@ -18,38 +18,41 @@ three Cron Triggers. The database is Cloudflare D1. Configuration lives in
 
 ## First deploy
 
+The order matters. Cloudflare runs the Worker's startup code when it is
+uploaded, and the Worker refuses to start without its required secrets
+(`src/lib/server/env.ts`) — so the secrets go in **before** the first
+deploy, or the upload is rejected with "Invalid environment configuration".
+
 ```bash
 npx wrangler login
+
+# 1. secrets — the first `secret put` offers to create the Worker; say yes
+npx wrangler secret put QPAY_USERNAME
+npx wrangler secret put QPAY_PASSWORD
+npx wrangler secret put QPAY_INVOICE_CODE
+npx wrangler secret put QPAY_CALLBACK_SECRET     # openssl rand -base64 48
+npx wrangler secret put RESEND_API_KEY           # for any email at all
+npx wrangler secret put JOBS_API_TOKEN           # openssl rand -hex 32, optional
+
+# 2. the code
 npm run deploy
+
+# 3. the tables
+npm run db:migrate:remote
+
+# 4. the first admin, so someone can sign in
+npm run admin:add -- you@three33barber.com "Your Name" --remote
 ```
 
-`npm run deploy` builds (`scripts/build.mjs`) and runs `wrangler deploy`.
-Because the D1 binding has no `database_id` yet, that first deploy **creates
-the database** and writes its id back into `wrangler.jsonc` — commit that
-change, or the next deploy from another machine will create a second, empty
+The D1 database already exists (`database_id` in `wrangler.jsonc`). On a
+brand-new account, leaving `database_id` out makes the first deploy create
+it — then copy the id from `npx wrangler d1 list` into `wrangler.jsonc` and
+commit it, or the next deploy from another machine creates a second, empty
 database.
 
 The Worker answers on `https://three33.<your-subdomain>.workers.dev`. Set
 `APP_URL` in `wrangler.jsonc` `vars` to that address (or the custom domain,
 once attached — see below) and deploy again.
-
-Then, in this order:
-
-```bash
-# 1. secrets — the Worker refuses to start without the required ones
-npx wrangler secret put QPAY_USERNAME
-npx wrangler secret put QPAY_PASSWORD
-npx wrangler secret put QPAY_INVOICE_CODE
-npx wrangler secret put QPAY_CALLBACK_SECRET     # openssl rand -base64 48
-npx wrangler secret put RESEND_API_KEY
-npx wrangler secret put JOBS_API_TOKEN           # openssl rand -hex 32, optional
-
-# 2. the tables
-npm run db:migrate:remote
-
-# 3. the first admin, so someone can sign in
-npm run admin:add -- you@three33barber.com "Your Name" --remote
-```
 
 The database starts **empty**: no products, no categories, no orders. That
 is the intended state for now — data comes later, from an import into D1.

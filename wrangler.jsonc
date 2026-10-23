@@ -22,6 +22,10 @@
 
   "observability": { "enabled": true },
 
+  // Served on https://three33.uppercut-mn.workers.dev — the temporary address
+  // until three33barber.com is attached (then update APP_URL below too).
+  "workers_dev": true,
+
   /**
    * Scheduled jobs. Each expression maps to one job in CRON_JOBS in
    * src/server.ts — the two must be edited together. All times are UTC.
@@ -36,15 +40,14 @@
   },
 
   /**
-   * The database. Code reaches it as `env.DB` (src/db/index.ts).
-   * No database_id yet: the first `wrangler deploy` creates the database and
-   * wrangler writes the id back here — commit that change. Locally, wrangler
-   * keeps a SQLite file under .wrangler/state.
+   * The database. Code reaches it as `env.DB` (src/db/index.ts). Locally,
+   * wrangler keeps a SQLite file under .wrangler/state instead.
    */
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "three33",
+      "database_id": "3106b8b7-fe3e-4422-81ee-dcf8d4c65423",
       "migrations_dir": "drizzle"
     }
   ],
@@ -56,7 +59,7 @@
    */
   "vars": {
     "NODE_ENV": "production",
-    "APP_URL": "https://three33.workers.dev",
+    "APP_URL": "https://three33.uppercut-mn.workers.dev",
     "QPAY_BASE_URL": "https://merchant.qpay.mn/v2",
     "EMAIL_FROM": "Three33 Barbershop <noreply@three33barber.com>"
   }

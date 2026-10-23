@@ -26,3 +26,6 @@ receipt-preview.html
 .dev.vars
 .dev.vars.*
 .wrangler/
+
+# Secrets files for `wrangler deploy --secrets-file` (see docs/deploy-cloudflare.md)
+*.secrets.env

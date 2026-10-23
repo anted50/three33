@@ -62,5 +62,50 @@
     "APP_URL": "https://three33.uppercut-mn.workers.dev",
     "QPAY_BASE_URL": "https://merchant.qpay.mn/v2",
     "EMAIL_FROM": "Three33 Barbershop <noreply@three33barber.com>"
+  },
+
+  /**
+   * Staging: a second Worker (three33-staging) for trying changes on
+   * Cloudflare before they reach production.
+   *
+   *   npm run deploy:staging            build for staging + deploy
+   *   npx wrangler secret put NAME --env staging
+   *
+   * Build with CLOUDFLARE_ENV=staging (deploy:staging does this): the Vite
+   * plugin flattens this block into the deployed config at build time, so
+   * `wrangler deploy --env staging` on its own does not switch environments.
+   *
+   * Keys like vars, d1_databases and triggers are not inherited from the
+   * top level — everything staging needs is spelled out here.
+   */
+  "env": {
+    "staging": {
+      "name": "three33-staging",
+      "vars": {
+        "NODE_ENV": "production",
+        "APP_URL": "https://three33-staging.uppercut-mn.workers.dev",
+        "QPAY_BASE_URL": "https://merchant.qpay.mn/v2",
+        "EMAIL_FROM": "Three33 Barbershop <noreply@three33barber.com>"
+      },
+      /**
+       * FOR NOW the PRODUCTION database — on purpose, while production is
+       * still empty. Everything staging writes is real production data, and
+       * `npm run db:migrate:staging` migrates production. To give staging
+       * its own data: `npx wrangler d1 create three33-staging`, put the new
+       * id here, and run `npm run db:migrate:staging`.
+       */
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "three33",
+          "database_id": "3106b8b7-fe3e-4422-81ee-dcf8d4c65423",
+          "migrations_dir": "drizzle"
+        }
+      ],
+      // No crons: production's already sweep the shared database, and two
+      // sets would only double the QPay checks. Trigger a job by hand with
+      // `npm run job -- <name> --url <staging url>` if needed.
+      "triggers": { "crons": [] }
+    }
   }
 }

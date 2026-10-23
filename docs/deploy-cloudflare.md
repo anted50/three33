@@ -58,6 +58,37 @@ The database starts **empty**: no products, no categories, no orders. That
 is the intended state for now — data comes later, from an import into D1.
 `npm run db:seed` only ever writes to the local D1.
 
+## Staging
+
+A second Worker, `three33-staging`, defined under `env.staging` in
+`wrangler.jsonc`, at https://three33-staging.uppercut-mn.workers.dev.
+
+```bash
+npm run deploy:staging          # build with CLOUDFLARE_ENV=staging, then deploy
+npm run db:migrate:staging      # migrations for staging's database
+npx wrangler secret put NAME --env staging
+```
+
+- **Build-time environment.** The Cloudflare Vite plugin picks the
+  environment when building (`CLOUDFLARE_ENV`, set by `scripts/build.mjs
+  --env staging`) and writes that environment's flattened config into
+  `dist/server`. `wrangler deploy --env staging` on its own does not switch
+  environments; always deploy staging through `npm run deploy:staging`.
+- **Other wrangler commands** (`secret`, `d1`) read `wrangler.jsonc`
+  directly — production by default, staging only with `--env staging`.
+- **Shared database, for now.** Staging binds the production D1 while
+  production is empty. Give it its own before launch: `npx wrangler d1 create
+  three33-staging`, put the id in `env.staging.d1_databases`, then
+  `npm run db:migrate:staging`.
+- **No crons** on staging (`triggers.crons: []`), so the shared database is
+  not swept twice.
+- **First deploy.** `secret put --env staging` refuses until the Worker
+  exists, and the Worker can't be uploaded without its secrets — so the first
+  deploy carries them in a file: put them in `staging.secrets.env`
+  (gitignored via `*.secrets.env`), run
+  `npm run deploy:staging -- --secrets-file staging.secrets.env`, then delete
+  the file. Later secret changes go through `secret put --env staging`.
+
 ## Configuration
 
 Non-secret values are in `wrangler.jsonc` under `vars`, committed:

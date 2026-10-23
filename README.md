@@ -34,7 +34,31 @@ npm run dev
 App on http://localhost:3000. Admin login is an emailed code; without
 `RESEND_API_KEY` the code is printed to the dev server's console instead.
 
-Deploying: [docs/deploy-cloudflare.md](docs/deploy-cloudflare.md).
+## Environments
+
+| | Where | Database | Deploy |
+|---|---|---|---|
+| **Local** | http://localhost:3000 | local D1 (`.wrangler/state`) | `npm run dev` |
+| **Staging** | https://three33-staging.uppercut-mn.workers.dev | **the production D1, for now** | `npm run deploy:staging` |
+| **Production** | https://three33.uppercut-mn.workers.dev (temporary, until `three33barber.com` is attached) | production D1 | `npm run deploy` |
+
+All three are configured in [`wrangler.jsonc`](wrangler.jsonc) — production at
+the top level, staging under `env.staging`. Build a new feature locally, deploy
+it to staging to try it on Cloudflare, then deploy production.
+
+**Staging shares production's database on purpose while production is still
+empty.** Everything done on staging is real production data, and
+`npm run db:migrate:staging` migrates production. Before production has real
+customers, give staging its own database (`npx wrangler d1 create
+three33-staging`, then put the new id in `env.staging` in `wrangler.jsonc`).
+Staging runs no cron jobs, so the shared database is not swept twice.
+
+Both deployed environments use the real QPay merchant — there is no QPay
+sandbox, so a staging checkout makes a real, payable invoice.
+
+Secrets are per environment: `npx wrangler secret put NAME` for production,
+`npx wrangler secret put NAME --env staging` for staging. Full deploy notes:
+[docs/deploy-cloudflare.md](docs/deploy-cloudflare.md).
 
 ## Product imagery
 
@@ -52,11 +76,8 @@ which browsers cannot render at all, and their transparency lives in a separate
 `public/products/<slug>.webp`. The mapping is by eye from contact sheets, since
 the PDF has no machine-readable link between an image and a product name.
 
-**13 of 22 products have imagery. 9 do not** — clay, clay-spray, control-cream,
-texture-cream, salt-spray, foam-tonic, beard-oil, beard-balm, barber-cape. Their
-packshots are the CMYK-plus-mask variants the extractor can't yet decode. They
-render a text placeholder rather than a wrong photo. Either the mask handling
-gets fixed or the client supplies plain product shots.
+All 22 products now have a packshot in `public/products/`. A product without
+one renders a text placeholder rather than a wrong photo.
 
 ## Scripts
 
@@ -65,17 +86,24 @@ gets fixed or the client supplies plain product shots.
 | `npm run dev` | Vite dev server, SSR in workerd, HMR, local D1 |
 | `npm run build` | Production build to `dist/` (client assets + Worker) |
 | `npm run preview` | Build, then serve the built Worker locally |
-| `npm run deploy` | Build and `wrangler deploy` |
+| `npm run deploy` | Build and deploy **production** |
+| `npm run deploy:staging` | Build for staging and deploy **staging** |
 | `npm run cf-typegen` | Regenerate `worker-configuration.d.ts` after editing `wrangler.jsonc` |
 | `npm run typecheck` | `tsc --noEmit` |
-| `npm test` | Vitest: `unit` (pure functions) and `d1` (database code on a real local D1) |
+| `npm test` | Vitest: `unit` (pure functions) and `d1` (database code on a real local D1); `test:unit` / `test:d1` run one |
 | `npm run db:generate` | Generate a migration from `src/db/schema.ts` |
-| `npm run db:migrate` | Apply pending migrations to the local D1 (`db:migrate:remote` for the deployed one) |
+| `npm run db:migrate` | Apply pending migrations to the local D1 |
+| `npm run db:migrate:remote` | …to the production D1 |
+| `npm run db:migrate:staging` | …to staging's D1 (today the production one) |
 | `npm run db:studio` | Drizzle Studio on the local D1 |
 | `npm run db:seed` | Seed the catalogue into the local D1 |
-| `npm run admin:add -- <email> [name] [--remote]` | Grant admin, locally or on the deployed D1 |
+| `npm run admin:add -- <email> [name] [--remote]` | Grant admin, locally or on the production D1 |
+| `npm run order:inspect -- <orderNo>` | Print an order and its payment from the local D1 |
 | `npm run job -- <name> [--url <base>]` | Trigger a scheduled job through its API endpoint |
 | `npm run qpay:ping` | Fetch one QPay token to check credentials. Read-only |
+| `npm run qpay:smoke` | Create / watch / cancel a real test invoice (see QPay below) |
+| `npm run storepay:ping` | Check StorePay credentials. Read-only |
+| `npm run mail:preview` | Render the receipt email to `receipt-preview.html` |
 
 ## Cart and checkout
 
@@ -140,8 +168,11 @@ booking is off.
 ## Admin
 
 `/admin` — dashboard, orders (list, detail, status transitions), products
-(list, price/stock/status editing). Desktop-first, since it is used at a desk,
-but it collapses to one column so orders can be checked on a phone.
+(create, edit price/stock/status, variants, images), categories, goods
+received (restocking), invoices (QPay/StorePay invoices and manual card-reader
+sales) and settings (delivery fee). Desktop-first, since it is used at a desk,
+but it collapses to one column so orders can be checked on a phone. Booking is
+managed through the admin API — see Booking above.
 
 ### Signing in
 
@@ -268,14 +299,20 @@ src/
   styles/
 scripts/         seed, admin, job trigger, provider checks — run outside the Worker
 drizzle/         generated D1 migrations (plus hand-written triggers), committed
-wrangler.jsonc   the Worker: bindings, cron triggers, vars
+wrangler.jsonc   the Workers: bindings, cron triggers, vars — production + env.staging
 ```
 
 ## Status
 
-Phase 0 (foundations). Next: Phase 1 catalog — products/variants/categories
-schema is already in place; admin CRUD, image upload, and the storefront listing
-are not.
+Running on Cloudflare Workers + D1 (this `cloudflare` branch; `main` still
+deploys the older Postgres version to Railway until this branch is merged).
 
-**QPay merchant onboarding should already be in flight** — it is the long pole,
-and Phase 4 stalls without sandbox credentials.
+- **Live:** production at https://three33.uppercut-mn.workers.dev, staging at
+  https://three33-staging.uppercut-mn.workers.dev. Admin login, storefront,
+  booking API and the cron jobs work.
+- **Empty on purpose:** the production database has its tables but no
+  products, orders or services yet.
+- **Next:** import the catalogue (and anything else worth keeping) from the
+  Railway Postgres; attach `three33barber.com` and update `APP_URL`; set the
+  booking fee, services and schedule; build a booking page on top of
+  `/api/v1/public/*`; give staging its own database before launch.

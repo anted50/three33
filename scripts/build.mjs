@@ -17,6 +17,22 @@
  */
 process.env.NODE_ENV = 'production'
 
+/**
+ * `--env staging` builds for that Cloudflare environment (wrangler.jsonc
+ * `env.staging`). The Cloudflare Vite plugin reads CLOUDFLARE_ENV at build
+ * time and writes that environment's flattened config into dist/server;
+ * `wrangler deploy` then deploys whatever was built. Without --env, the
+ * top-level (production) config is used.
+ */
+const envFlag = process.argv.indexOf('--env')
+if (envFlag >= 0) {
+  const name = process.argv[envFlag + 1]
+  if (!name) throw new Error('build: --env needs a name, e.g. --env staging')
+  process.env.CLOUDFLARE_ENV = name
+} else {
+  delete process.env.CLOUDFLARE_ENV
+}
+
 const { createBuilder } = await import('vite')
 
 /**
@@ -31,4 +47,4 @@ const { createBuilder } = await import('vite')
 const builder = await createBuilder()
 await builder.buildApp()
 
-console.log('build: done (NODE_ENV=production, all environments)')
+console.log(`build: done (NODE_ENV=production, Cloudflare env: ${process.env.CLOUDFLARE_ENV ?? 'production'})`)

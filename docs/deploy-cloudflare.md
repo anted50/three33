@@ -44,11 +44,12 @@ npm run db:migrate:remote
 npm run admin:add -- you@three33barber.com "Your Name" --remote
 ```
 
-The D1 database already exists (`database_id` in `wrangler.jsonc`). On a
-brand-new account, leaving `database_id` out makes the first deploy create
-it — then copy the id from `npx wrangler d1 list` into `wrangler.jsonc` and
-commit it, or the next deploy from another machine creates a second, empty
-database.
+The D1 databases already exist (`database_id` in `wrangler.jsonc`), both in
+Asia-Pacific. On a new account, create them first with the location hint —
+`npx wrangler d1 create three33 --location apac` (and `three33-staging`) —
+and put the ids in `wrangler.jsonc`. Don't let `wrangler deploy` create one
+for you: it picks a region near *you*, not near the customers, and a D1's
+region can't be changed afterwards.
 
 The Worker answers on `https://three33.<your-subdomain>.workers.dev`. Set
 `APP_URL` in `wrangler.jsonc` `vars` to that address (or the custom domain,
@@ -76,12 +77,11 @@ npx wrangler secret put NAME --env staging
   environments; always deploy staging through `npm run deploy:staging`.
 - **Other wrangler commands** (`secret`, `d1`) read `wrangler.jsonc`
   directly — production by default, staging only with `--env staging`.
-- **Shared database, for now.** Staging binds the production D1 while
-  production is empty. Give it its own before launch: `npx wrangler d1 create
-  three33-staging`, put the id in `env.staging.d1_databases`, then
-  `npm run db:migrate:staging`.
-- **No crons** on staging (`triggers.crons: []`), so the shared database is
-  not swept twice.
+- **Its own database**, `three33-staging`, separate from production's.
+  Migrate both when the schema changes: `npm run db:migrate:staging`, then
+  `npm run db:migrate:remote`. Admins are per database:
+  `npm run admin:add -- <email> --staging`.
+- **No crons** on staging (`triggers.crons: []`).
 - **First deploy.** `secret put --env staging` refuses until the Worker
   exists, and the Worker can't be uploaded without its secrets — so the first
   deploy carries them in a file: put them in `staging.secrets.env`

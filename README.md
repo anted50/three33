@@ -39,19 +39,18 @@ App on http://localhost:3000. Admin login is an emailed code; without
 | | Where | Database | Deploy |
 |---|---|---|---|
 | **Local** | http://localhost:3000 | local D1 (`.wrangler/state`) | `npm run dev` |
-| **Staging** | https://three33-staging.uppercut-mn.workers.dev | **the production D1, for now** | `npm run deploy:staging` |
+| **Staging** | https://three33-staging.uppercut-mn.workers.dev | its own D1 (`three33-staging`) | `npm run deploy:staging` |
 | **Production** | https://three33.uppercut-mn.workers.dev (temporary, until `three33barber.com` is attached) | production D1 | `npm run deploy` |
 
 All three are configured in [`wrangler.jsonc`](wrangler.jsonc) — production at
 the top level, staging under `env.staging`. Build a new feature locally, deploy
 it to staging to try it on Cloudflare, then deploy production.
 
-**Staging shares production's database on purpose while production is still
-empty.** Everything done on staging is real production data, and
-`npm run db:migrate:staging` migrates production. Before production has real
-customers, give staging its own database (`npx wrangler d1 create
-three33-staging`, then put the new id in `env.staging` in `wrangler.jsonc`).
-Staging runs no cron jobs, so the shared database is not swept twice.
+Staging and production each have their own D1 database, both created in
+Asia-Pacific (`--location apac`) since the customers are in Mongolia — a
+database's region is fixed when it is created. Staging runs no cron jobs.
+Apply migrations to both: `npm run db:migrate:staging`, then
+`npm run db:migrate:remote`.
 
 Both deployed environments use the real QPay merchant — there is no QPay
 sandbox, so a staging checkout makes a real, payable invoice.
@@ -94,10 +93,10 @@ one renders a text placeholder rather than a wrong photo.
 | `npm run db:generate` | Generate a migration from `src/db/schema.ts` |
 | `npm run db:migrate` | Apply pending migrations to the local D1 |
 | `npm run db:migrate:remote` | …to the production D1 |
-| `npm run db:migrate:staging` | …to staging's D1 (today the production one) |
+| `npm run db:migrate:staging` | …to staging's D1 |
 | `npm run db:studio` | Drizzle Studio on the local D1 |
 | `npm run db:seed` | Seed the catalogue into the local D1 |
-| `npm run admin:add -- <email> [name] [--remote]` | Grant admin, locally or on the production D1 |
+| `npm run admin:add -- <email> [name] [--remote \| --staging]` | Grant admin — locally, on production, or on staging |
 | `npm run order:inspect -- <orderNo>` | Print an order and its payment from the local D1 |
 | `npm run job -- <name> [--url <base>]` | Trigger a scheduled job through its API endpoint |
 | `npm run qpay:ping` | Fetch one QPay token to check credentials. Read-only |
@@ -315,4 +314,4 @@ deploys the older Postgres version to Railway until this branch is merged).
 - **Next:** import the catalogue (and anything else worth keeping) from the
   Railway Postgres; attach `three33barber.com` and update `APP_URL`; set the
   booking fee, services and schedule; build a booking page on top of
-  `/api/v1/public/*`; give staging its own database before launch.
+  `/api/v1/public/*`.

@@ -42,12 +42,16 @@
   /**
    * The database. Code reaches it as `env.DB` (src/db/index.ts). Locally,
    * wrangler keeps a SQLite file under .wrangler/state instead.
+   *
+   * Created with `--location apac`: customers are in Mongolia, and every
+   * query is a round trip to the database's primary — Asia-Pacific, not
+   * Europe. A database's region can't be changed later, only recreated.
    */
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "three33",
-      "database_id": "3106b8b7-fe3e-4422-81ee-dcf8d4c65423",
+      "database_id": "20fd578e-133d-422f-87ee-2cfb2a1463e2",
       "migrations_dir": "drizzle"
     }
   ],
@@ -87,24 +91,19 @@
         "QPAY_BASE_URL": "https://merchant.qpay.mn/v2",
         "EMAIL_FROM": "Three33 Barbershop <noreply@three33barber.com>"
       },
-      /**
-       * FOR NOW the PRODUCTION database — on purpose, while production is
-       * still empty. Everything staging writes is real production data, and
-       * `npm run db:migrate:staging` migrates production. To give staging
-       * its own data: `npx wrangler d1 create three33-staging`, put the new
-       * id here, and run `npm run db:migrate:staging`.
-       */
+      // Staging's own database (`three33-staging`, also APAC), so nothing
+      // done on staging touches production data.
       "d1_databases": [
         {
           "binding": "DB",
-          "database_name": "three33",
-          "database_id": "3106b8b7-fe3e-4422-81ee-dcf8d4c65423",
+          "database_name": "three33-staging",
+          "database_id": "bc5485ba-ee15-4cfd-b63e-7fc6bfcd23aa",
           "migrations_dir": "drizzle"
         }
       ],
-      // No crons: production's already sweep the shared database, and two
-      // sets would only double the QPay checks. Trigger a job by hand with
-      // `npm run job -- <name> --url <staging url>` if needed.
+      // No crons: staging has no customers, so nothing to sweep on a clock,
+      // and fewer QPay checks against the shared merchant account. Trigger a
+      // job by hand with `npm run job -- <name> --url <staging url>`.
       "triggers": { "crons": [] }
     }
   }

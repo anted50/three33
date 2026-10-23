@@ -2,6 +2,7 @@ import { createHash, randomBytes } from 'node:crypto'
 import { and, eq, inArray } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '~/db'
+import { atomic } from '~/db/atomic'
 import { appointmentEvents, appointmentServices, appointments, barbers, services } from '~/db/schema'
 import { badRequest } from '../../api/errors'
 import { email, phone } from '../../api/input'
@@ -54,45 +55,42 @@ export async function createBarberBooking(staff: Staff, barberId: string, input:
   const endsAt = addMinutes(startsAt, ordered.reduce((sum, s) => sum + s.durationMinutes, 0))
   const buffer = barber!.bufferMinutes
 
-  const id = await db.transaction(async (tx) => {
-    const [appointment] = await tx
-      .insert(appointments)
-      .values({
-        bookingNo: generateRef('BK'),
-        locationId: input.locationId,
-        barberId,
-        source: 'barber',
-        status: 'booked',
-        startsAt,
-        endsAt,
-        blockedUntil: addMinutes(endsAt, buffer),
-        bufferMinutes: buffer,
-        total: ordered.reduce((sum, s) => sum + s.price, 0),
-        bookingFee: 0,
-        confirmedAt: new Date(),
-        confirmedBy: staff.userId,
-        customerName: input.customerName,
-        customerPhone: input.customerPhone,
-        customerEmail: input.customerEmail ?? null,
-        note: input.note ?? null,
-        // No customer link is sent yet; the hash still guards the future one.
-        accessTokenHash: createHash('sha256').update(randomBytes(32)).digest('hex'),
-      })
-      .returning({ id: appointments.id })
-
-    await tx.insert(appointmentServices).values(
+  const id = crypto.randomUUID()
+  await atomic([
+    db.insert(appointments).values({
+      id,
+      bookingNo: generateRef('BK'),
+      locationId: input.locationId,
+      barberId,
+      source: 'barber',
+      status: 'booked',
+      startsAt,
+      endsAt,
+      blockedUntil: addMinutes(endsAt, buffer),
+      bufferMinutes: buffer,
+      total: ordered.reduce((sum, s) => sum + s.price, 0),
+      bookingFee: 0,
+      confirmedAt: new Date(),
+      confirmedBy: staff.userId,
+      customerName: input.customerName,
+      customerPhone: input.customerPhone,
+      customerEmail: input.customerEmail ?? null,
+      note: input.note ?? null,
+      // No customer link is sent yet; the hash still guards the future one.
+      accessTokenHash: createHash('sha256').update(randomBytes(32)).digest('hex'),
+    }),
+    db.insert(appointmentServices).values(
       ordered.map((s, i) => ({
-        appointmentId: appointment!.id,
+        appointmentId: id,
         serviceId: s.id,
         nameSnapshot: s.nameEn,
         priceSnapshot: s.price,
         durationMinutesSnapshot: s.durationMinutes,
         sortOrder: i,
       })),
-    )
-    await tx.insert(appointmentEvents).values({ appointmentId: appointment!.id, kind: 'created', actorId: staff.userId, note: 'Entered by barber' })
-    return appointment!.id
-  })
+    ),
+    db.insert(appointmentEvents).values({ appointmentId: id, kind: 'created', actorId: staff.userId, note: 'Entered by barber' }),
+  ])
 
   // Entering it is the confirmation, so the email goes now (if there is one).
   if (input.customerEmail) sendConfirmationInBackground(id)

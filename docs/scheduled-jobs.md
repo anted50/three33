@@ -3,25 +3,26 @@
 Everything in this project that runs on a clock. If it is not in this table, it
 is not scheduled.
 
-| Job | Every | First run | Script (`npm run …`) | HTTP trigger | Work lives in |
-|---|---|---|---|---|---|
-| `reconcile` | 1 hour | 5 min after boot | `reconcile` | `POST /api/v1/jobs/reconcile` | `src/lib/server/orders/reconcile.ts` |
-| `booking-sweep` | 5 minutes | 2 min after boot | `booking:sweep` | `POST /api/v1/jobs/booking-sweep` | `src/lib/server/booking/sweep.ts` |
-| `cleanup` | 24 hours | 10 min after boot | `cleanup` | `POST /api/v1/jobs/cleanup` | `src/lib/server/maintenance.ts` |
+| Job | Cron (UTC) | Runs | HTTP trigger | Work lives in |
+|---|---|---|---|---|
+| `reconcile` | `7 * * * *` | hourly, at :07 | `POST /api/v1/jobs/reconcile` | `src/lib/server/orders/reconcile.ts` |
+| `booking-sweep` | `*/5 * * * *` | every 5 minutes | `POST /api/v1/jobs/booking-sweep` | `src/lib/server/booking/sweep.ts` |
+| `cleanup` | `17 19 * * *` | daily, 03:17 Ulaanbaatar | `POST /api/v1/jobs/cleanup` | `src/lib/server/maintenance.ts` |
 
-Each job has three ways in, all calling the same function:
+Each job has two ways in, both calling the same function through `runJob`
+(`src/lib/server/jobs.ts`):
 
-1. **The server's own timers** (default). `startScheduledJobs()` in
-   `server/index.mjs` starts them once the HTTP listener is up; that file's
-   `JOBS` array is the source of truth for the timings above.
-2. **An external scheduler over HTTP**, with a bearer token. See
+1. **Cloudflare Cron Triggers** (default). `triggers.crons` in
+   `wrangler.jsonc` schedules them; `scheduled()` in `src/server.ts` maps each
+   expression to a job through its `CRON_JOBS` table. Deploying the Worker is
+   all it takes.
+2. **HTTP, with a bearer token** — for an external scheduler, or by hand with
+   `npm run job -- <name>` (add `--url https://…` for a deployed Worker). See
    [Triggering from outside](#triggering-from-outside).
-3. **By hand** — `npm run reconcile`, `npm run booking:sweep`,
-   `npm run cleanup`. The `scripts/*.ts` files are thin wrappers that exit 1
-   if any part of the run failed.
 
-There is no `pg_cron` and no cron service in the repo. Out of the box,
-deploying the app is enough for all three jobs to run.
+There is no `pg_cron`, no cron service and no long-running process: a Worker
+only runs when something invokes it, and the Cron Triggers are what invoke it
+on a clock.
 
 ## Triggering from outside
 
@@ -37,57 +38,53 @@ curl -fsS -X POST -H "Authorization: Bearer $JOBS_API_TOKEN" \
 |---|---|
 | 200 | `{ job, durationMs, result }` — `result` is the job's tally |
 | 401 `UNAUTHORIZED` | missing or wrong token |
-| 409 `JOB_RUNNING` | this instance is already running that job; try next tick |
+| 409 `JOB_RUNNING` | this isolate is already running that job; try next tick |
 | 500 `JOB_FAILED` | ran, but some order/hold/table failed — tally in `error.details` |
 | 503 `JOBS_API_DISABLED` | `JOBS_API_TOKEN` is not set on the server |
 
-Over HTTP the job runs **inline in the web process** and the request stays open
-until it finishes — usually well under a second, but `reconcile` can check up
-to 500 orders against the payment providers, so give the scheduler a generous
-timeout (a few minutes). Every route file (`src/routes/api.v1.jobs.*.ts`)
-documents its own result shape.
+A job runs inline in the request, and the request stays open until it
+finishes — usually well under a second, but `reconcile` can check up to 500
+orders against the payment providers, so give a scheduler a generous timeout
+(a few minutes). Every route file (`src/routes/api.v1.jobs.*.ts`) documents its
+own result shape.
 
-Once something external calls these on schedule, set `SCHEDULED_JOBS=off` so
-the in-process timers stand down. Leaving both on is safe (see below), just
-redundant. **Do not turn the timers off before the external schedule is
-live** — nothing else cancels abandoned invoices.
+## How a cron run works
 
-## How the timers run them
+Cloudflare invokes the Worker's `scheduled()` handler with the cron
+expression that fired. The handler looks the job up in `CRON_JOBS`, runs it
+through `runJob` inside `ctx.waitUntil`, and logs a
+`scheduled_job_finished` line (Workers Logs — observability is on in
+`wrangler.jsonc`).
 
-Each tick spawns a short-lived child process (`node --import tsx <script>`),
-not inline. Three reasons:
+- A failed run is **rethrown**, so the invocation shows as failed in the
+  dashboard's Cron Events.
+- A job still running from its previous tick (in the same isolate) is skipped
+  with a warning, not stacked.
+- An expression with no entry in `CRON_JOBS` is logged as an error and does
+  nothing. Edit `triggers.crons` and `CRON_JOBS` together.
 
-- A job that throws, hangs or leaks cannot take the web server down with it.
-- It gets its own database connection, which closes when the process exits,
-  instead of holding one from the server's pool for the duration.
-- The child runs the same `scripts/*.ts` you run by hand, so there is one code
-  path, not a scheduled one and a manual one that drift.
-
-A job that is still running when its next tick arrives is skipped, with a
-warning, rather than started twice. Each finished run is logged to PostHog as
-`scheduled_job_finished`.
-
-`tsx` is a **runtime** dependency, not a dev dependency, specifically so this
-works in production. Do not move it to `devDependencies`.
+Locally, `npm run dev` exposes the handler at
+`/cdn-cgi/handler/scheduled?cron=<expression>` (spaces as `+`), e.g.
+`curl "localhost:3000/cdn-cgi/handler/scheduled?cron=17+19+*+*+*"`.
 
 ## Running more than once at a time is safe
 
-Several replicas, the timers plus an external scheduler, or a scheduler that
+A cron tick plus an external scheduler, two isolates, or a scheduler that
 retries on timeout can all end up running the same job at once. That needs no
 coordination:
 
-- `reconcile` settles through `settleOrder`, which is built to be raced — the
-  unique index `payments_payment_id_key` lets exactly one settlement land no
-  matter how many callers arrive at once. It is the same guarantee that makes
-  the sweep safe alongside a live payment callback.
+- `reconcile` settles through `settleOrder`, which is built to be raced: its
+  D1 batch starts with a guard that the order is still `pending_payment`, and
+  the unique index `payments_payment_id_key` backs it up, so exactly one
+  settlement lands no matter how many callers arrive at once. It is the same
+  guarantee that makes the sweep safe alongside a live payment callback.
 - `booking-sweep` guards every confirmation with `status = 'pending'`.
 - `cleanup` is idempotent `DELETE`s over expired rows.
 
 The cost of overlap is duplicate provider calls (QPay `payment/check`,
-StorePay loan checks), not duplicate payments. The HTTP endpoints refuse a
-second concurrent run *on the same instance* with 409, which is enough to stop
-a retrying scheduler from stacking runs; they do not coordinate across
-replicas.
+StorePay loan checks), not duplicate payments. `runJob` refuses a second
+concurrent run *in the same isolate* (409 over HTTP, a skipped tick for cron);
+it does not coordinate across isolates, and does not need to.
 
 ## `reconcile` — hourly
 
@@ -146,31 +143,18 @@ The 7-day window on `checkout_attempts` is not for the rate limiter, which only
 ever counts the last hour (`src/lib/server/orders/rate-limit.ts`). It is for the
 person looking into a burst of junk orders days after the shop noticed them.
 
-## Why not `pg_cron`
-
-It was considered. `pg_cron` runs SQL, and Postgres has no network stack — but
-`reconcile` is outbound HTTPS calls (the provider's payment check, invoice
-cancellation, and the receipt e-mail through Resend). Moving it into PL/pgSQL
-would mean reimplementing the settlement path, including its OAuth token
-handling and response validation, in the one language in this project that
-has no unit tests.
-
-The four `cleanup` deletes *would* have fitted `pg_cron` perfectly. They stayed
-here so that there is one place to look, and because `pg_cron` needs
-`shared_preload_libraries`, a Postgres restart, and superuser to install —
-infrastructure this app otherwise does not require.
-
 ## Changing a schedule
 
-For the in-process timers: edit the `JOBS` array in `server/index.mjs` and
-update the table at the top of this file. Both, or this document stops being
-true. If an external scheduler drives the jobs, its schedule is the one that
-counts — keep the table in step with it.
+Edit `triggers.crons` in `wrangler.jsonc` **and** `CRON_JOBS` in
+`src/server.ts` — Cloudflare hands back the exact expression, so the two must
+match character for character — then update the table at the top of this file
+and deploy.
 
 ## Adding a job
 
 1. Put the work in a function under `src/lib/server/<domain>/`.
-2. Add a `scripts/<name>.ts` wrapper and an `npm run` entry.
-3. Register it in `src/lib/server/jobs.ts` and add
+2. Register it in `src/lib/server/jobs.ts` and add
    `src/routes/api.v1.jobs.<name>.ts`.
-4. Add it to `JOBS` in `server/index.mjs` and to the table above.
+3. Add its expression to `triggers.crons` in `wrangler.jsonc` and to
+   `CRON_JOBS` in `src/server.ts`, and its row to the table above.
+4. Add it to the list in `scripts/run-job.ts`.

@@ -1,4 +1,5 @@
 import { db } from '~/db'
+import { atomic } from '~/db/atomic'
 import { settings } from '~/db/schema'
 import type { ShippingRates } from './cart/pricing'
 
@@ -35,18 +36,20 @@ export async function loadShippingRates(): Promise<ShippingRates> {
 }
 
 export async function saveShippingRates(rates: ShippingRates): Promise<void> {
-  await db.transaction(async (tx) => {
-    for (const [key, value] of [
-      [SHIPPING_FEE, rates.fee],
-      [FREE_THRESHOLD, rates.freeThreshold],
-    ] as const) {
-      await tx
+  await atomic(
+    (
+      [
+        [SHIPPING_FEE, rates.fee],
+        [FREE_THRESHOLD, rates.freeThreshold],
+      ] as const
+    ).map(([key, value]) =>
+      db
         .insert(settings)
         .values({ key, value: String(value) })
         .onConflictDoUpdate({
           target: settings.key,
           set: { value: String(value) },
-        })
-    }
-  })
+        }),
+    ),
+  )
 }

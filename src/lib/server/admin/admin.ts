@@ -1,9 +1,11 @@
 import { createServerFn } from '@tanstack/react-start'
 import { formatDate } from '~/lib/dates'
-import { eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '~/db'
+import { atomic, changed, exists, guard } from '~/db/atomic'
 import { inventoryLedger, orders, productVariants } from '~/db/schema'
+import { isGuardFailure, isUniqueViolation } from '../api/db-errors'
 import { expireCheckout } from '../orders/expire'
 import { deliverOrderReceipt } from '../orders/receipt'
 import { assertTransition, isPaid } from '../orders/state'
@@ -223,25 +225,26 @@ export const setOrderStatus = createServerFn({ method: 'POST' })
       return { ok: true as const, status: data.status }
     }
 
-    return db.transaction(async (tx) => {
-      const [order] = await tx
-        .select({ id: orders.id, status: orders.status })
-        .from(orders)
-        .where(eq(orders.orderNo, data.orderNo))
-        .for('update')
-        .limit(1)
+    assertTransition(existing.status, data.status)
 
-      if (!order) throw new Error('Захиалга олдсонгүй')
+    try {
+      // Conditional on the status just checked: if someone else moved the
+      // order in the meantime, the update matches nothing and the batch stops.
+      await atomic([
+        db
+          .update(orders)
+          .set({ status: data.status })
+          .where(and(eq(orders.id, existing.id), eq(orders.status, existing.status))),
+        changed('ORDER_CHANGED'),
+      ])
+    } catch (error) {
+      if (isGuardFailure(error, 'ORDER_CHANGED')) {
+        throw new Error('Захиалгын төлөв өөрчлөгдсөн байна — хуудсаа шинэчилнэ үү')
+      }
+      throw error
+    }
 
-      assertTransition(order.status, data.status)
-
-      await tx
-        .update(orders)
-        .set({ status: data.status })
-        .where(eq(orders.id, order.id))
-
-      return { ok: true as const, status: data.status }
-    })
+    return { ok: true as const, status: data.status }
   })
 
 export const setVariantInput = z.object({
@@ -254,7 +257,7 @@ export const setVariantInput = z.object({
 
 /**
  * Edits price and stock. Any stock change writes an inventory_ledger row in the
- * same transaction, so the number in product_variants always has an
+ * same atomic batch, so the number in product_variants always has an
  * explanation — that invariant is the whole point of the ledger.
  */
 export const setVariant = createServerFn({ method: 'POST' })
@@ -262,39 +265,48 @@ export const setVariant = createServerFn({ method: 'POST' })
   .handler(async ({ data }) => {
     await assertAdmin()
 
-    return db.transaction(async (tx) => {
-      const [current] = await tx
-        .select({
-          id: productVariants.id,
-          stockQty: productVariants.stockQty,
-        })
-        .from(productVariants)
-        .where(eq(productVariants.id, data.variantId))
-        .for('update')
-        .limit(1)
+    const [current] = await db
+      .select({ id: productVariants.id, stockQty: productVariants.stockQty })
+      .from(productVariants)
+      .where(eq(productVariants.id, data.variantId))
+      .limit(1)
 
-      if (!current) throw new Error('Хувилбар олдсонгүй')
+    if (!current) throw new Error('Хувилбар олдсонгүй')
 
-      await tx
-        .update(productVariants)
-        .set({
-          price: data.price,
-          stockQty: data.stockQty,
-          isActive: data.isActive,
-        })
-        .where(eq(productVariants.id, data.variantId))
+    const delta = data.stockQty - current.stockQty
 
-      const delta = data.stockQty - current.stockQty
-      if (delta !== 0) {
-        await tx.insert(inventoryLedger).values({
-          variantId: data.variantId,
-          delta,
-          reason: delta > 0 ? 'restock' : 'manual_adjustment',
-        })
+    try {
+      await atomic([
+        // The ledger delta is computed from the stock just read; if a sale
+        // moved it since, that delta would be a lie, so stop instead.
+        guard(
+          exists(
+            db
+              .select({ id: productVariants.id })
+              .from(productVariants)
+              .where(and(eq(productVariants.id, data.variantId), eq(productVariants.stockQty, current.stockQty))),
+          ),
+          'STOCK_CHANGED',
+        ),
+        db
+          .update(productVariants)
+          .set({ price: data.price, stockQty: data.stockQty, isActive: data.isActive })
+          .where(eq(productVariants.id, data.variantId)),
+        delta !== 0 &&
+          db.insert(inventoryLedger).values({
+            variantId: data.variantId,
+            delta,
+            reason: delta > 0 ? 'restock' : 'manual_adjustment',
+          }),
+      ])
+    } catch (error) {
+      if (isGuardFailure(error, 'STOCK_CHANGED')) {
+        throw new Error('Үлдэгдэл энэ хооронд өөрчлөгдсөн байна — хуудсаа шинэчлээд дахин оролдоно уу')
       }
+      throw error
+    }
 
-      return { ok: true as const }
-    })
+    return { ok: true as const }
   })
 
 export const getCategoryOptions = createServerFn({ method: 'GET' }).handler(
@@ -324,12 +336,7 @@ export const createCategory = createServerFn({ method: 'POST' })
     try {
       return await insertCategory(data)
     } catch (err) {
-      if (
-        err &&
-        typeof err === 'object' &&
-        'code' in err &&
-        err.code === '23505'
-      ) {
+      if (isUniqueViolation(err, 'categories.slug')) {
         throw new Error('Ийм slug-тай ангилал аль хэдийн бүртгэлтэй байна')
       }
       throw err
@@ -431,8 +438,8 @@ export const createProductInput = z.object({
 
 /**
  * Registers a new product with its sellable variants. Unique slug/SKU
- * violations come back from Postgres as code 23505 — surfaced here as a
- * message a shop owner can act on instead of the raw driver error.
+ * violations come back from D1 as a UNIQUE constraint failure — surfaced here
+ * as a message a shop owner can act on instead of the raw driver error.
  */
 export const createProduct = createServerFn({ method: 'POST' })
   .validator(createProductInput)
@@ -462,12 +469,7 @@ export const createProduct = createServerFn({ method: 'POST' })
         images: data.images.map((i) => ({ url: i.url, alt: i.alt || null })),
       })
     } catch (err) {
-      if (
-        err &&
-        typeof err === 'object' &&
-        'code' in err &&
-        err.code === '23505'
-      ) {
+      if (isUniqueViolation(err, 'products.slug') || isUniqueViolation(err, 'product_variants.sku')) {
         throw new Error('Ийм slug эсвэл SKU аль хэдийн бүртгэлтэй байна')
       }
       throw err
@@ -497,12 +499,7 @@ export const addVariant = createServerFn({ method: 'POST' })
         stockQty: data.variant.stockQty,
       })
     } catch (err) {
-      if (
-        err &&
-        typeof err === 'object' &&
-        'code' in err &&
-        err.code === '23505'
-      ) {
+      if (isUniqueViolation(err, 'product_variants.sku')) {
         throw new Error('Ийм SKU аль хэдийн бүртгэлтэй байна')
       }
       throw err
@@ -595,7 +592,7 @@ export const receiveStockInput = z.object({
 /**
  * A goods-received note: several variants restocked and repriced in one pass.
  *
- * One transaction for the whole sheet — a delivery that half-applied would
+ * One atomic batch for the whole sheet — a delivery that half-applied would
  * leave the shop guessing which lines it still has to enter. Each arriving unit
  * writes a `restock` ledger row, same as a single-variant edit does, so the
  * stock number keeps its explanation.
@@ -605,36 +602,32 @@ export const receiveStock = createServerFn({ method: 'POST' })
   .handler(async ({ data }) => {
     await assertAdmin()
 
-    return db.transaction(async (tx) => {
-      for (const line of data.lines) {
-        const [current] = await tx
-          .select({ stockQty: productVariants.stockQty })
-          .from(productVariants)
-          .where(eq(productVariants.id, line.variantId))
-          .for('update')
-          .limit(1)
+    try {
+      await atomic(
+        data.lines.flatMap((line) => [
+          guard(
+            exists(db.select({ id: productVariants.id }).from(productVariants).where(eq(productVariants.id, line.variantId))),
+            'VARIANT_NOT_FOUND',
+          ),
+          // Added in SQL, not computed from a read: nothing to go stale.
+          db
+            .update(productVariants)
+            .set({ price: line.price, stockQty: sql`${productVariants.stockQty} + ${line.qty}` })
+            .where(eq(productVariants.id, line.variantId)),
+          line.qty > 0 &&
+            db.insert(inventoryLedger).values({
+              variantId: line.variantId,
+              delta: line.qty,
+              reason: 'restock',
+            }),
+        ]),
+      )
+    } catch (error) {
+      if (isGuardFailure(error, 'VARIANT_NOT_FOUND')) throw new Error('Хувилбар олдсонгүй')
+      throw error
+    }
 
-        if (!current) throw new Error('Хувилбар олдсонгүй')
-
-        await tx
-          .update(productVariants)
-          .set({
-            price: line.price,
-            stockQty: current.stockQty + line.qty,
-          })
-          .where(eq(productVariants.id, line.variantId))
-
-        if (line.qty > 0) {
-          await tx.insert(inventoryLedger).values({
-            variantId: line.variantId,
-            delta: line.qty,
-            reason: 'restock',
-          })
-        }
-      }
-
-      return { ok: true as const, lines: data.lines.length }
-    })
+    return { ok: true as const, lines: data.lines.length }
   })
 
 export const getInvoiceMethods = createServerFn({ method: 'GET' }).handler(

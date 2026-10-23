@@ -6,19 +6,19 @@ import { reconcileOrders } from './orders/reconcile'
 /**
  * The scheduled jobs, callable over HTTP (POST /api/v1/jobs/<name>).
  *
- * The same functions the in-process timers in server/index.mjs reach through
- * scripts/*.ts — one code path whichever way a run starts. The list of what
- * exists and why is docs/scheduled-jobs.md.
+ * The same functions the Worker's Cron Triggers run (src/server.ts) — one code
+ * path whichever way a run starts. The list of what exists and why is
+ * docs/scheduled-jobs.md.
  *
- * Over HTTP a job runs inline in the web process, not as a child process. Each
- * one already isolates its own failures per row or per task, so a bad order
- * fails that order, not the request.
+ * A job runs inline in the request (or the cron invocation). Each one already
+ * isolates its own failures per row or per task, so a bad order fails that
+ * order, not the run.
  */
 
 export type JobName = 'reconcile' | 'booking-sweep' | 'cleanup'
 
 interface JobReport {
-  /** False when some part failed — the same case a script exits 1 on. */
+  /** False when some part failed — a run that counts as failed. */
   ok: boolean
   result: unknown
 }
@@ -45,9 +45,9 @@ const JOBS: Record<JobName, () => Promise<JobReport>> = {
 }
 
 /**
- * Runs in this process right now. Not across replicas or against the
- * in-process timers' child processes — every job is safe to race, so this only
- * stops a scheduler that retries on timeout from stacking runs on one instance.
+ * Runs in this isolate right now. Not across isolates — every job is safe to
+ * race, so this only stops a cron tick or a retrying scheduler from stacking
+ * runs on one isolate.
  */
 const running = new Set<JobName>()
 

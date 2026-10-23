@@ -1,6 +1,7 @@
-import { and, eq, gte, inArray, isNull, lt } from 'drizzle-orm'
+import { and, eq, gte, inArray, isNull, lt, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '~/db'
+import { atomic, guard, retryOnGuard } from '~/db/atomic'
 import { appointmentEvents, appointments } from '~/db/schema'
 import { isoDate } from '../../api/input'
 import type { Staff } from '../../api/staff'
@@ -31,26 +32,32 @@ export async function clearPeriod(staff: Staff, barberId: string, input: z.infer
     entries: [{ from: input.from, to: input.to, off: true, note: input.note ?? 'Emergency' }],
   })
 
-  await db.transaction(async (tx) => {
-    const flagged = await tx
-      .update(appointments)
-      .set({ needsRescheduleAt: new Date() })
-      .where(
-        and(
-          eq(appointments.barberId, barberId),
-          inArray(appointments.status, ['booked', 'pending']),
-          isNull(appointments.needsRescheduleAt),
-          gte(appointments.startsAt, atLocal(input.from, '00:00')),
-          lt(appointments.startsAt, atLocal(addDays(input.to, 1), '00:00')),
+  // Read, then flag and log in one batch, guarded so that a booking changed
+  // in between (moved, cancelled, flagged by a second call) restarts this.
+  await retryOnGuard('APPOINTMENT_CHANGED', async () => {
+    const inPeriod = and(
+      eq(appointments.barberId, barberId),
+      inArray(appointments.status, ['booked', 'pending']),
+      isNull(appointments.needsRescheduleAt),
+      gte(appointments.startsAt, atLocal(input.from, '00:00')),
+      lt(appointments.startsAt, atLocal(addDays(input.to, 1), '00:00')),
+    )
+    const toFlag = await db.select({ id: appointments.id, status: appointments.status }).from(appointments).where(inPeriod)
+    if (toFlag.length === 0) return
+
+    const ids = toFlag.map((a) => a.id)
+    const booked = toFlag.filter((a) => a.status === 'booked')
+    await atomic([
+      guard(
+        sql`(select count(*) from ${appointments} where ${and(inPeriod, inArray(appointments.id, ids))}) = ${ids.length}`,
+        'APPOINTMENT_CHANGED',
+      ),
+      db.update(appointments).set({ needsRescheduleAt: new Date() }).where(inArray(appointments.id, ids)),
+      booked.length > 0 &&
+        db.insert(appointmentEvents).values(
+          booked.map((a) => ({ appointmentId: a.id, kind: 'flagged' as const, actorId: staff.userId, note: input.note ?? null })),
         ),
-      )
-      .returning({ id: appointments.id, status: appointments.status })
-    const booked = flagged.filter((a) => a.status === 'booked')
-    if (booked.length > 0) {
-      await tx.insert(appointmentEvents).values(
-        booked.map((a) => ({ appointmentId: a.id, kind: 'flagged' as const, actorId: staff.userId, note: input.note ?? null })),
-      )
-    }
+    ])
   })
 
   const callList = await listAppointments(barberId, { from: input.from, to: input.to, status: 'booked', needsReschedule: 'true' })

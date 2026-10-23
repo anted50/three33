@@ -27,9 +27,7 @@ const schema = z.object({
     .default('development'),
   APP_URL: z.url(),
 
-  // Optional: unset means the PGlite driver, which needs no connection string.
-  DATABASE_URL: z.string().startsWith('postgres').optional(),
-  DB_DRIVER: z.enum(['postgres', 'pglite']).optional(),
+  // No database URL: the database is the D1 binding (env.DB), see src/db/index.ts.
 
   /*
    * No object storage. Product images are static files in public/products/,
@@ -37,9 +35,8 @@ const schema = z.object({
    * a megabyte, so a bucket, its credentials and its failure modes bought
    * nothing.
    *
-   * If admin image upload lands later it needs somewhere durable, because a
-   * container's filesystem does not survive a redeploy. Cloudflare R2 or a
-   * Railway volume at that point; not before.
+   * If admin image upload lands later it needs somewhere durable — a Worker
+   * has no filesystem at all. Cloudflare R2 at that point; not before.
    */
 
   QPAY_BASE_URL: z.url(),

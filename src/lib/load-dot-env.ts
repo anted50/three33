@@ -2,11 +2,11 @@ import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 /**
- * Loads `.env` into process.env using Node's built-in loader (22.6+), so we
- * don't carry a dotenv dependency. No-ops in production, where the environment
+ * Loads `.dev.vars` (or `.env`) into process.env using Node's built-in loader
+ * (22.6+), so we don't carry a dotenv dependency. No-ops in production, where the environment
  * comes from the container/host rather than a file on disk.
  */
-export function loadDotEnv(file = '.env'): void {
+export function loadDotEnv(): void {
   if (process.env.NODE_ENV === 'production') return
   // Inside workerd (the deployed Worker and `vite dev`) there is no project
   // directory to read, and nothing to load: wrangler has already turned
@@ -14,8 +14,10 @@ export function loadDotEnv(file = '.env'): void {
   // onto process.env. This only does anything for Node scripts.
   if (typeof navigator !== 'undefined' && navigator.userAgent === 'Cloudflare-Workers') return
 
-  const path = resolve(process.cwd(), file)
-  if (!existsSync(path)) return
+  // Same precedence as wrangler for local dev: .dev.vars when it exists,
+  // otherwise .env — so a script sees the config the dev server sees.
+  const path = ['.dev.vars', '.env'].map((f) => resolve(process.cwd(), f)).find((p) => existsSync(p))
+  if (!path) return
 
   /**
    * NODE_ENV is preserved across the load.

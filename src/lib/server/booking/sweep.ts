@@ -1,5 +1,6 @@
 import { and, eq, lt } from 'drizzle-orm'
 import { db } from '~/db'
+import { atomic } from '~/db/atomic'
 import { appointmentPayments, appointments, barberSalePayments } from '~/db/schema'
 import { getQpayProvider } from '../payments/qpay'
 import { checkBookingFee } from './online/settle'
@@ -96,13 +97,13 @@ async function retireHold(appointmentId: string): Promise<'holdsConfirmed' | 'ho
     }
   }
 
-  await db.transaction(async (tx) => {
-    await tx
+  await atomic([
+    db
       .delete(appointmentPayments)
-      .where(and(eq(appointmentPayments.appointmentId, appointmentId), eq(appointmentPayments.status, 'pending')))
+      .where(and(eq(appointmentPayments.appointmentId, appointmentId), eq(appointmentPayments.status, 'pending'))),
     // Lines cascade with the appointment. The status guard means a hold that
     // got confirmed a moment ago is never deleted.
-    await tx.delete(appointments).where(and(eq(appointments.id, appointmentId), eq(appointments.status, 'pending')))
-  })
+    db.delete(appointments).where(and(eq(appointments.id, appointmentId), eq(appointments.status, 'pending'))),
+  ])
   return 'holdsDeleted'
 }

@@ -1,12 +1,13 @@
 import { asc, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '~/db'
-import { barbers, users } from '~/db/schema'
+import { atomic } from '~/db/atomic'
+import { barberTerms, barbers, users } from '~/db/schema'
 import { SLUG_RE, slugify } from '~/lib/slugify'
 import { conflict, notFound } from '../api/errors'
 import { email, mungu, phone } from '../api/input'
-import { locationIdsOf, setLocations } from './barber-locations'
-import { addTerms, currentTerms, termsInput } from './terms'
+import { locationIdsOf, planLocations } from './barber-locations'
+import { currentTerms, termsInput, termsRow } from './terms'
 
 /**
  * Owner-side barber management. Creating a barber creates their login too:
@@ -60,35 +61,31 @@ export async function getBarber(id: string) {
 }
 
 export async function createBarber(input: z.infer<typeof createBarberInput>, ownerId: string) {
-  const id = await db.transaction(async (tx) => {
-    const [existing] = await tx.select({ id: users.id }).from(users).where(eq(users.email, input.email)).limit(1)
-    const userId =
-      existing?.id ??
-      (await tx.insert(users).values({ email: input.email, name: input.name }).returning({ id: users.id }))[0]!.id
+  const [existing] = await db.select({ id: users.id }).from(users).where(eq(users.email, input.email)).limit(1)
+  const userId = existing?.id ?? crypto.randomUUID()
+  const id = crypto.randomUUID()
 
-    const { email: _email, locationIds, terms, slug, ...profile } = input
-    const [barber] = await tx
-      .insert(barbers)
-      .values({ ...profile, slug: slug ?? slugify(input.name), userId })
-      .returning({ id: barbers.id })
+  const { email: _email, locationIds, terms, slug, ...profile } = input
+  const { statements: placeAt } = await planLocations(id, locationIds)
 
-    await setLocations(barber!.id, locationIds, tx)
-    if (terms) await addTerms(barber!.id, terms, ownerId, tx)
-    return barber!.id
-  })
+  // The login, the barber, where they work and their deal: all or nothing.
+  await atomic([
+    !existing && db.insert(users).values({ id: userId, email: input.email, name: input.name }),
+    db.insert(barbers).values({ ...profile, id, slug: slug ?? slugify(input.name), userId }),
+    ...placeAt,
+    terms && db.insert(barberTerms).values(termsRow(id, terms, ownerId)),
+  ])
   return getBarber(id)
 }
 
 export async function updateBarber(id: string, patch: z.infer<typeof updateBarberInput>) {
   const { email: newEmail, ...fields } = patch
-  await db.transaction(async (tx) => {
-    const [row] = await tx.select({ userId: barbers.userId }).from(barbers).where(eq(barbers.id, id)).limit(1)
-    if (!row) throw notFound('Barber')
-    if (Object.keys(fields).length > 0) await tx.update(barbers).set(fields).where(eq(barbers.id, id))
-    if (newEmail) {
-      if (!row.userId) throw conflict('NO_LOGIN', 'This barber has no login to change')
-      await tx.update(users).set({ email: newEmail }).where(eq(users.id, row.userId))
-    }
-  })
+  const [row] = await db.select({ userId: barbers.userId }).from(barbers).where(eq(barbers.id, id)).limit(1)
+  if (!row) throw notFound('Barber')
+  if (newEmail && !row.userId) throw conflict('NO_LOGIN', 'This barber has no login to change')
+  await atomic([
+    Object.keys(fields).length > 0 && db.update(barbers).set(fields).where(eq(barbers.id, id)),
+    newEmail && row.userId ? db.update(users).set({ email: newEmail }).where(eq(users.id, row.userId)) : null,
+  ])
   return getBarber(id)
 }

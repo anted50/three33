@@ -3,7 +3,6 @@ import {
   deleteCookie,
   getCookie,
   getRequestHeader,
-  getRequestIP,
   setCookie,
 } from '@tanstack/react-start/server'
 import { z } from 'zod'
@@ -14,6 +13,7 @@ import {
   invalidateSession,
   validateSessionToken,
 } from '../auth/session'
+import { clientIp } from '../client-ip'
 import { SESSION_COOKIE, sessionCookieOptions } from '../cookies'
 import { findAdminByEmail } from './auth-internal'
 
@@ -83,9 +83,7 @@ export const verifyAdminLogin = createServerFn({ method: 'POST' })
 
     const { token } = await createSession(admin.id, {
       userAgent: getRequestHeader('user-agent'),
-      // Railway sits behind a proxy, so the socket address is useless without
-      // this — same reasoning as the QPay callback's own IP handling.
-      ip: getRequestIP({ xForwardedFor: true }),
+      ip: clientIp(getRequestHeader),
     })
 
     setCookie(SESSION_COOKIE, token, sessionCookieOptions)

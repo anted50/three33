@@ -2,15 +2,15 @@
  * Prints an order and its payment row. Development aid for confirming what
  * checkout actually wrote, without opening a SQL client.
  *
- * Usage: npx tsx scripts/order-inspect.ts <orderNo>
+ * Usage: npm run order:inspect -- <orderNo>      (local D1)
  */
 import { eq } from 'drizzle-orm'
 import { orderItems, orders, payments } from '~/db/schema'
 import { formatMnt } from '~/lib/money'
-import { assertNoDevServer } from '~/lib/server/pglite-guard'
+import { useLocalD1 } from './lib/local-d1'
 
-// Before importing ~/db — see scripts/migrate.ts.
-await assertNoDevServer()
+// Before importing ~/db, which builds its client from the binding at load.
+const local = await useLocalD1()
 const { db } = await import('~/db')
 
 const orderNo = process.argv[2]
@@ -27,6 +27,7 @@ const [order] = await db
 
 if (!order) {
   console.error(`no such order: ${orderNo}`)
+  await local.dispose()
   process.exit(1)
 }
 
@@ -63,4 +64,5 @@ if (payment) {
   console.log(`  stored links: ${payload?.links.length ?? 0}`)
 }
 
+await local.dispose()
 process.exit(0)

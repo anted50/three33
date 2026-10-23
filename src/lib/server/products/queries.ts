@@ -1,5 +1,5 @@
 import { createServerFn } from '@tanstack/react-start'
-import { and, asc, desc, eq, ilike, inArray, min, or, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, min, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '~/db'
 import {
@@ -38,33 +38,46 @@ export const listProductsInput = z.object({
 })
 
 /**
- * Builds the search predicate.
- *
- * ILIKE across a handful of columns, not full-text search or trigram: the
- * catalogue is 22 products and will not pass 100 SKUs. A GIN index would cost
- * a migration and an extension to speed up a query that already returns in
- * under a millisecond.
+ * Ids of the products a search term matches.
  *
  * Matches name (both languages), brand line, SKU and category, because people
  * search for all of them — "pomade", "UD-DP-100", "сахал" and "Featherweight"
  * are all things someone will type.
+ *
+ * Done in JS rather than SQL because SQLite (and so D1) only folds case for
+ * ASCII: `LIKE` and `lower()` treat "Сахал" and "сахал" as different, which
+ * makes a Mongolian shop's search useless. On Postgres this was ILIKE. The
+ * catalogue is 22 products and will not pass 100 SKUs, so reading every
+ * searchable string and matching here is cheaper than any index — and
+ * toLocaleLowerCase gets Cyrillic right.
  */
-function searchPredicate(raw: string) {
-  /**
-   * Escape LIKE wildcards. Drizzle parameterises the value so this is not an
-   * injection concern — but a customer typing "100%" should search for the
-   * literal text, not match every product in the shop.
-   */
-  const term = `%${raw.replace(/([\\%_])/g, '\\$1')}%`
+async function matchingProductIds(raw: string): Promise<string[]> {
+  const needle = raw.trim().toLocaleLowerCase()
 
-  return or(
-    ilike(products.nameMn, term),
-    ilike(products.nameEn, term),
-    ilike(products.brandLine, term),
-    ilike(productVariants.sku, term),
-    ilike(categories.nameMn, term),
-    ilike(categories.nameEn, term),
-  )
+  const rows = await db
+    .select({
+      id: products.id,
+      nameMn: products.nameMn,
+      nameEn: products.nameEn,
+      brandLine: products.brandLine,
+      sku: productVariants.sku,
+      categoryMn: categories.nameMn,
+      categoryEn: categories.nameEn,
+    })
+    .from(products)
+    .innerJoin(
+      productVariants,
+      and(eq(productVariants.productId, products.id), eq(productVariants.isActive, true)),
+    )
+    .leftJoin(categories, eq(categories.id, products.categoryId))
+    .where(eq(products.status, 'active'))
+
+  const ids = new Set<string>()
+  for (const row of rows) {
+    const haystack = [row.nameMn, row.nameEn, row.brandLine, row.sku, row.categoryMn, row.categoryEn]
+    if (haystack.some((value) => value?.toLocaleLowerCase().includes(needle))) ids.add(row.id)
+  }
+  return [...ids]
 }
 
 export interface ProductCard {
@@ -94,13 +107,16 @@ export const listCategories = createServerFn({ method: 'GET' }).handler(
 export const listProducts = createServerFn({ method: 'GET' })
   .validator(listProductsInput)
   .handler(async ({ data }): Promise<ProductCard[]> => {
+    const matched = data.q ? await matchingProductIds(data.q) : null
+    if (matched?.length === 0) return []
+
     const rows = await db
       .select({
         slug: products.slug,
         name: products.nameMn,
         fromPrice: min(productVariants.price),
-        totalStock: sql<number>`coalesce(sum(${productVariants.stockQty}), 0)::int`,
-        variantCount: sql<number>`count(${productVariants.id})::int`,
+        totalStock: sql<number>`coalesce(sum(${productVariants.stockQty}), 0)`,
+        variantCount: sql<number>`count(${productVariants.id})`,
         size: sql<string | null>`min(${productVariants.size})`,
         // Correlated subquery rather than another join: product_images would
         // multiply the rows this GROUP BY is already aggregating over.
@@ -127,7 +143,7 @@ export const listProducts = createServerFn({ method: 'GET' })
         and(
           eq(products.status, 'active'),
           data.category ? eq(categories.slug, data.category) : undefined,
-          data.q ? searchPredicate(data.q) : undefined,
+          matched ? inArray(products.id, matched) : undefined,
         ),
       )
       .groupBy(products.id, products.slug, products.nameMn, products.createdAt)
@@ -147,7 +163,7 @@ export const listProducts = createServerFn({ method: 'GET' })
       const sold = await db
         .select({
           slug: products.slug,
-          units: sql<number>`coalesce(sum(${orderItems.qty}), 0)::int`,
+          units: sql<number>`coalesce(sum(${orderItems.qty}), 0)`,
         })
         .from(orderItems)
         .innerJoin(orders, eq(orders.id, orderItems.orderId))
@@ -210,8 +226,8 @@ export const listGroupedProducts = createServerFn({ method: 'GET' }).handler(
           name: products.nameMn,
           categorySlug: categories.slug,
           fromPrice: min(productVariants.price),
-          totalStock: sql<number>`coalesce(sum(${productVariants.stockQty}), 0)::int`,
-          variantCount: sql<number>`count(${productVariants.id})::int`,
+          totalStock: sql<number>`coalesce(sum(${productVariants.stockQty}), 0)`,
+          variantCount: sql<number>`count(${productVariants.id})`,
           size: sql<string | null>`min(${productVariants.size})`,
           imageUrl: sql<string | null>`(
             select ${productImages.url}

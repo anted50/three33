@@ -1,14 +1,14 @@
 import { and, eq, inArray } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '~/db'
+import { atomic, type Statement } from '~/db/atomic'
 import { barberSaleLines, barberSales, products, productVariants, services } from '~/db/schema'
 import { badRequest } from '../../api/errors'
 import { email, mungu, phone } from '../../api/input'
 import type { Staff } from '../../api/staff'
 import { assertWorksAt } from '../barber-locations'
-import type { Tx } from '../db'
 import { generateRef } from '../refs'
-import { finalizeIfCovered } from './finalize'
+import { finalizeSale, isCovered } from './finalize'
 import { getSale } from './queries'
 import { assertAvailable } from './stock'
 
@@ -58,22 +58,25 @@ interface ResolvedLine {
 }
 
 export async function createSale(staff: Staff, barberId: string, input: z.infer<typeof saleInput>) {
-  const saleId = await db.transaction((tx) => insertSale(tx, staff, barberId, input, null))
+  const { saleId, statements } = await prepareSale(staff, barberId, input, null)
+  await atomic(statements)
   return getSale(barberId, saleId)
 }
 
-/** Shared with appointment checkout, which passes the appointment and the
- * booking fee already paid as credit. */
-export async function insertSale(
-  tx: Tx,
+/**
+ * Validates a sale and returns the statements that write it, for the caller's
+ * batch. Shared with appointment checkout, which passes the appointment and
+ * the booking fee already paid as credit, and puts its own guard in front.
+ */
+export async function prepareSale(
   staff: Staff,
   barberId: string,
   input: z.infer<typeof saleInput>,
   link: { appointmentId: string; credit: number } | null,
-): Promise<string> {
-  await assertWorksAt(barberId, [input.locationId], tx)
-  const lines = await resolveLines(tx, barberId, input.lines)
-  await assertAvailable(tx, lines.map((l) => ({ variantId: l.variantId, qty: l.qty, sku: l.skuSnapshot })))
+): Promise<{ saleId: string; statements: Statement[] }> {
+  await assertWorksAt(barberId, [input.locationId], db)
+  const lines = await resolveLines(barberId, input.lines)
+  await assertAvailable(db, lines.map((l) => ({ variantId: l.variantId, qty: l.qty, sku: l.skuSnapshot })))
 
   const lineTotal = (l: ResolvedLine) => l.unitAmount * l.qty
   const total = lines.reduce((sum, l) => sum + lineTotal(l), 0)
@@ -84,13 +87,17 @@ export async function insertSale(
     throw badRequest('The services cannot total less than the booking fee already paid')
   }
 
-  const [sale] = await tx
-    .insert(barberSales)
-    .values({
+  const saleId = crypto.randomUUID()
+  const appointmentId = link?.appointmentId ?? null
+  const rows = lines.map((line, i) => ({ ...line, id: crypto.randomUUID(), saleId, sortOrder: i }))
+
+  const statements: Statement[] = [
+    db.insert(barberSales).values({
+      id: saleId,
       saleNo: generateRef('SL'),
       barberId,
       locationId: input.locationId,
-      appointmentId: link?.appointmentId ?? null,
+      appointmentId,
       total,
       credit,
       note: input.note ?? null,
@@ -98,20 +105,23 @@ export async function insertSale(
       customerPhone: input.customerPhone ?? null,
       customerEmail: input.customerEmail ?? null,
       createdBy: staff.userId,
-    })
-    .returning({ id: barberSales.id })
-
-  await tx.insert(barberSaleLines).values(lines.map((line, i) => ({ ...line, saleId: sale!.id, sortOrder: i })))
+    }),
+    db.insert(barberSaleLines).values(rows),
+  ]
 
   // Nothing due (a free cut, or fully covered by the fee): closed at once.
-  await finalizeIfCovered(tx, sale!.id, staff.userId)
-  return sale!.id
+  if (isCovered({ total, credit }, 0)) {
+    const stockLines = rows.flatMap((r) => (r.variantId ? [{ id: r.id, variantId: r.variantId, qty: r.qty, sku: r.skuSnapshot }] : []))
+    statements.push(...finalizeSale({ id: saleId, appointmentId }, stockLines, staff.userId))
+  }
+
+  return { saleId, statements }
 }
 
-async function resolveLines(tx: Tx, barberId: string, lines: SaleLineInput[]): Promise<ResolvedLine[]> {
+async function resolveLines(barberId: string, lines: SaleLineInput[]): Promise<ResolvedLine[]> {
   const variantIds = lines.flatMap((l) => ('variantId' in l ? [l.variantId] : []))
   const listed = variantIds.length
-    ? await tx
+    ? await db
         .select({ id: productVariants.id, sku: productVariants.sku, size: productVariants.size, price: productVariants.price, name: products.nameEn })
         .from(productVariants)
         .innerJoin(products, eq(products.id, productVariants.productId))
@@ -120,7 +130,7 @@ async function resolveLines(tx: Tx, barberId: string, lines: SaleLineInput[]): P
 
   const serviceIds = [...new Set(lines.flatMap((l) => ('serviceId' in l && l.serviceId ? [l.serviceId] : [])))]
   if (serviceIds.length) {
-    const own = await tx.select({ id: services.id }).from(services).where(and(inArray(services.id, serviceIds), eq(services.barberId, barberId)))
+    const own = await db.select({ id: services.id }).from(services).where(and(inArray(services.id, serviceIds), eq(services.barberId, barberId)))
     if (own.length !== serviceIds.length) throw badRequest('A line refers to a service that is not yours')
   }
 

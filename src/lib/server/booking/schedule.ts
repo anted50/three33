@@ -1,6 +1,7 @@
 import { and, asc, eq, gte, inArray, lt } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '~/db'
+import { atomic } from '~/db/atomic'
 import { barberDaysOff, barberShifts } from '~/db/schema'
 import { badRequest } from '../api/errors'
 import { clockTime, isoDate } from '../api/input'
@@ -42,19 +43,16 @@ export async function applySchedule(barberId: string, input: z.infer<typeof sche
   const shiftLocations = [...plan.values()].flatMap((p) => (p.kind === 'shifts' ? p.shifts.map((s) => s.locationId) : []))
   await assertWorksAt(barberId, shiftLocations)
 
-  await db.transaction(async (tx) => {
-    await tx
-      .delete(barberShifts)
-      .where(and(eq(barberShifts.barberId, barberId), inArray(localDay(barberShifts.startsAt), days)))
-    await tx.delete(barberDaysOff).where(and(eq(barberDaysOff.barberId, barberId), inArray(barberDaysOff.day, days)))
+  const shifts = [...plan.values()].flatMap((p) => (p.kind === 'shifts' ? p.shifts : []))
+  const off = [...plan.entries()].flatMap(([day, p]) => (p.kind === 'off' ? [{ barberId, day, note: p.note }] : []))
 
-    const shifts = [...plan.values()].flatMap((p) => (p.kind === 'shifts' ? p.shifts : []))
-    if (shifts.length > 0) {
-      await tx.insert(barberShifts).values(shifts.map((s) => ({ ...s, barberId })))
-    }
-    const off = [...plan.entries()].flatMap(([day, p]) => (p.kind === 'off' ? [{ barberId, day, note: p.note }] : []))
-    if (off.length > 0) await tx.insert(barberDaysOff).values(off)
-  })
+  // The day is replaced as a whole, in one batch: never half old, half new.
+  await atomic([
+    db.delete(barberShifts).where(and(eq(barberShifts.barberId, barberId), inArray(localDay(barberShifts.startsAt), days))),
+    db.delete(barberDaysOff).where(and(eq(barberDaysOff.barberId, barberId), inArray(barberDaysOff.day, days))),
+    shifts.length > 0 && db.insert(barberShifts).values(shifts.map((s) => ({ ...s, barberId }))),
+    off.length > 0 && db.insert(barberDaysOff).values(off),
+  ])
 
   return getSchedule(barberId, days[0]!, days.at(-1)!)
 }

@@ -1,5 +1,6 @@
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import { db } from '~/db'
+import { atomic, exists, guard, type Statement } from '~/db/atomic'
 import {
   cartItems,
   inventoryLedger,
@@ -8,6 +9,8 @@ import {
   payments,
   productVariants,
 } from '~/db/schema'
+import { isGuardFailure } from '../api/db-errors'
+import { inBackground } from '../background'
 import { getProvider } from '../payments/registry'
 import { sendOrderReceipt } from './receipt'
 import { assertTransition } from './state'
@@ -35,7 +38,7 @@ export const MIN_CHECK_INTERVAL_MS = 2_500
 /**
  * Asks the order's payment provider whether it is paid and, if so, settles it:
  * flips the status, decrements stock, and writes the inventory ledger — all in
- * one transaction.
+ * one atomic D1 batch.
  *
  * This is the ONLY function that marks an order paid. Every provider's
  * callback route and the reconciliation sweep all come through here, which is
@@ -104,30 +107,20 @@ export async function settleOrder(orderNo: string): Promise<SettleOutcome> {
   }
   if (result.outcome === 'refunded') return 'already_settled'
 
+  // Checked here for the clear answer; re-checked by the batch's guard,
+  // because a concurrent settle may win between this read and the write.
+  assertTransition(order.status, 'paid')
+
   try {
-    await db.transaction(async (tx) => {
-      // Re-read under the transaction: a concurrent settle may have won since
-      // the status check above.
-      const [current] = await tx
-        .select({ status: orders.status })
-        .from(orders)
-        .where(eq(orders.id, order.id))
-        .for('update')
-        .limit(1)
-
-      if (!current || current.status !== 'pending_payment') {
-        throw new AlreadySettled()
-      }
-
-      assertTransition(current.status, 'paid')
-
-      await markPaid(tx, order, payment.id, {
+    await atomic([
+      orderStillPending(order.id),
+      ...(await markPaid(order, payment.id, {
         paymentId: result.providerPaymentId,
         rawCallback: result.raw,
-      })
-    })
+      })),
+    ])
   } catch (error) {
-    if (error instanceof AlreadySettled) return 'already_settled'
+    if (isGuardFailure(error, ALREADY_SETTLED)) return 'already_settled'
     throw error
   }
 
@@ -138,87 +131,111 @@ export async function settleOrder(orderNo: string): Promise<SettleOutcome> {
    * is a background side effect of a payment that already happened, not a
    * step it should wait through.
    */
-  void sendOrderReceipt(orderNo)
+  inBackground(`receipt ${orderNo}`, sendOrderReceipt(orderNo))
 
   return 'settled'
 }
 
-type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
+/** The guard code for "this order is no longer pending_payment". */
+export const ALREADY_SETTLED = 'ALREADY_SETTLED'
+
+/**
+ * Batch guard: the order is still pending_payment. Goes first in any batch
+ * built from markPaid — it is what used to be the row lock.
+ */
+export function orderStillPending(orderId: string): Statement {
+  return guard(
+    exists(
+      db
+        .select({ id: orders.id })
+        .from(orders)
+        .where(and(eq(orders.id, orderId), eq(orders.status, 'pending_payment'))),
+    ),
+    ALREADY_SETTLED,
+  )
+}
 
 /**
  * The paid half of settlement: flips the payment and the order, decrements
  * stock, writes the inventory ledger and clears the bought lines from the cart.
  *
- * Runs inside the caller's transaction, which must already hold the order row
- * locked and have checked it is still pending_payment. settleOrder gets here
- * once the provider confirms; a manually recorded admin sale (card reader,
- * cash) gets here directly, the money having been taken at the counter.
+ * Returns the statements rather than running them: the caller puts them in
+ * one batch behind orderStillPending(), which is what makes it safe to race.
+ * settleOrder gets here once the provider confirms; a manually recorded admin
+ * sale (card reader, cash) gets here directly, the money having been taken at
+ * the counter.
  */
 export async function markPaid(
-  tx: Tx,
   order: { id: string; cartId: string | null },
   paymentRowId: string,
   settlement: { paymentId: string | null; rawCallback: unknown },
-) {
+  /**
+   * The order's lines, when the caller is inserting them in the same batch
+   * (a manual admin sale) and they cannot be read yet. Otherwise read here —
+   * order lines never change after checkout, so reading them before the batch
+   * is safe.
+   */
+  knownLines?: ReadonlyArray<{ variantId: string | null; qty: number }>,
+): Promise<Statement[]> {
+  const lines =
+    knownLines ??
+    (await db
+      .select({ variantId: orderItems.variantId, qty: orderItems.qty })
+      .from(orderItems)
+      .where(eq(orderItems.orderId, order.id)))
+
+  const now = new Date()
+
   /**
    * The idempotency guard. If a callback and the reconcile sweep both get
-   * here, the second insert violates payments_payment_id_key and this
-   * transaction rolls back — leaving exactly one settlement.
+   * this far, the second batch trips orderStillPending — or, failing that,
+   * payments_payment_id_key — and rolls back, leaving exactly one settlement.
    */
-  await tx
-    .update(payments)
-    .set({ status: 'paid', ...settlement, paidAt: new Date() })
-    .where(eq(payments.id, paymentRowId))
-
-  const lines = await tx
-    .select({ variantId: orderItems.variantId, qty: orderItems.qty })
-    .from(orderItems)
-    .where(eq(orderItems.orderId, order.id))
+  const statements: Statement[] = [
+    db
+      .update(payments)
+      .set({ status: 'paid', ...settlement, paidAt: now })
+      .where(eq(payments.id, paymentRowId)),
+  ]
 
   for (const line of lines) {
     if (!line.variantId) continue
 
-    // Lock, then decrement. The guard in the WHERE clause means a race
-    // that would oversell updates zero rows rather than going negative.
-    const updated = await tx
-      .update(productVariants)
-      .set({ stockQty: sql`${productVariants.stockQty} - ${line.qty}` })
-      .where(
-        and(
-          eq(productVariants.id, line.variantId),
-          sql`${productVariants.stockQty} >= ${line.qty}`,
+    statements.push(
+      // The guard in the WHERE clause means a sale that would oversell
+      // updates zero rows rather than going negative...
+      db
+        .update(productVariants)
+        .set({ stockQty: sql`${productVariants.stockQty} - ${line.qty}` })
+        .where(
+          and(
+            eq(productVariants.id, line.variantId),
+            sql`${productVariants.stockQty} >= ${line.qty}`,
+          ),
         ),
-      )
-      .returning({ id: productVariants.id })
-
-    if (updated.length === 0) {
       /**
-       * Paid, but we cannot ship what we do not have. Settling anyway and
-       * flagging it beats refusing the payment the customer already made —
-       * so the stock movement is recorded as a manual adjustment for an
+       * ...and the ledger row reads changes() to record which happened.
+       * Paid, but we cannot ship what we do not have: settling anyway and
+       * flagging it beats refusing the payment the customer already made, so
+       * a short line is recorded as a zero-delta manual adjustment for an
        * admin to resolve.
        */
-      await tx.insert(inventoryLedger).values({
-        variantId: line.variantId,
-        delta: 0,
-        reason: 'manual_adjustment',
-        orderId: order.id,
-      })
-      continue
-    }
-
-    await tx.insert(inventoryLedger).values({
-      variantId: line.variantId,
-      delta: -line.qty,
-      reason: 'order_paid',
-      orderId: order.id,
-    })
+      db.insert(inventoryLedger).select(sql`
+        select
+          ${crypto.randomUUID()},
+          ${line.variantId},
+          case when changes() > 0 then ${-line.qty} else 0 end,
+          case when changes() > 0 then 'order_paid' else 'manual_adjustment' end,
+          ${order.id},
+          null,
+          ${now.getTime()}
+      `),
+    )
   }
 
-  await tx
-    .update(orders)
-    .set({ status: 'paid' })
-    .where(eq(orders.id, order.id))
+  statements.push(
+    db.update(orders).set({ status: 'paid' }).where(eq(orders.id, order.id)),
+  )
 
   /**
    * NOW the cart is emptied — not at checkout.
@@ -239,15 +256,17 @@ export async function markPaid(
     .filter((id): id is string => id !== null)
 
   if (order.cartId && boughtVariantIds.length > 0) {
-    await tx
-      .delete(cartItems)
-      .where(
-        and(
-          eq(cartItems.cartId, order.cartId),
-          inArray(cartItems.variantId, boughtVariantIds),
+    statements.push(
+      db
+        .delete(cartItems)
+        .where(
+          and(
+            eq(cartItems.cartId, order.cartId),
+            inArray(cartItems.variantId, boughtVariantIds),
+          ),
         ),
-      )
+    )
   }
-}
 
-class AlreadySettled extends Error {}
+  return statements
+}

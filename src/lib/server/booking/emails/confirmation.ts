@@ -55,7 +55,7 @@ export async function sendConfirmation(appointmentId: string, opts: { force?: bo
   }
 }
 
-/** Fire-and-forget after a confirming transaction: the booking is already
+/** Fire-and-forget after the confirming batch: the booking is already
  * real, and a mail hiccup must not turn into an error for the caller. */
 export function sendConfirmationInBackground(appointmentId: string) {
   void sendConfirmation(appointmentId).catch((error) => {

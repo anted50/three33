@@ -1,10 +1,14 @@
-import { and, eq, isNull, lt, or } from 'drizzle-orm'
+import { and, eq, isNull, lt, ne, or } from 'drizzle-orm'
 import { db } from '~/db'
+import { atomic, changed, retryOnGuard } from '~/db/atomic'
 import { barberSalePayments, barberSales } from '~/db/schema'
+import { isGuardFailure } from '../../api/db-errors'
 import { conflict, notFound } from '../../api/errors'
 import { getQpayProvider } from '../../payments/qpay'
 import { creditSalePayment } from '../ledger'
-import { finalizeIfCovered } from './finalize'
+import { finalizeSale, isCovered, saleUnchanged } from './finalize'
+import { amounts } from './queries'
+import { undeductedLines } from './stock'
 
 /**
  * QPay's side of POS payments. QPay is the only method we can confirm by API,
@@ -28,8 +32,8 @@ async function loadPayment(paymentId: string, barberId?: string) {
 
 /**
  * Asks QPay whether a pending payment has landed and, if so, marks it paid,
- * writes the ledger and closes the sale if it is now covered — one
- * transaction. Idempotent: the status guard lets exactly one caller win.
+ * writes the ledger and closes the sale if it is now covered — one atomic
+ * batch. Idempotent: the status guard lets exactly one caller win.
  * `barberId` scopes it for the barber API; the public callback omits it.
  */
 export async function checkSalePayment(paymentId: string, barberId?: string) {
@@ -53,24 +57,44 @@ export async function checkSalePayment(paymentId: string, barberId?: string) {
   const result = await getQpayProvider().checkInvoice(payment.qpayInvoiceId, payment.amount)
   if (result.outcome !== 'paid') return { status: payment.status, checked: true, outcome: result.outcome }
 
-  await db.transaction(async (tx) => {
-    const updated = await tx
-      .update(barberSalePayments)
-      .set({ status: 'paid', paidAt: new Date(), qpayPaymentId: result.providerPaymentId, rawCallback: result.raw })
-      .where(and(eq(barberSalePayments.id, paymentId), eq(barberSalePayments.status, 'pending')))
-      .returning({ id: barberSalePayments.id })
-    if (updated.length === 0) return
-    await creditSalePayment(tx, {
-      barberId: owner,
-      saleId: payment.saleId,
-      salePaymentId: paymentId,
-      method: 'qpay',
-      amount: payment.amount,
-      actorId: null,
+  try {
+    await retryOnGuard('SALE_CHANGED', async () => {
+      const [sale] = await db.select().from(barberSales).where(eq(barberSales.id, payment.saleId)).limit(1)
+      if (!sale) throw notFound('Sale')
+      const others = await db
+        .select({ amount: barberSalePayments.amount, status: barberSalePayments.status })
+        .from(barberSalePayments)
+        .where(and(eq(barberSalePayments.saleId, payment.saleId), ne(barberSalePayments.id, paymentId)))
+      const { paid, pending } = amounts({ total: 0, credit: 0 }, others)
+      // A payment can land on a sale that is no longer open; it is still real
+      // money and is still credited — the sale just isn't closed by it.
+      const covered = sale.status === 'open' && isCovered(sale, paid + payment.amount)
+
+      await atomic([
+        saleUnchanged(payment.saleId, { status: sale.status, paid, pending }, paymentId),
+        // Exactly one caller moves it out of pending; the rest stop here.
+        db
+          .update(barberSalePayments)
+          .set({ status: 'paid', paidAt: new Date(), qpayPaymentId: result.providerPaymentId, rawCallback: result.raw })
+          .where(and(eq(barberSalePayments.id, paymentId), eq(barberSalePayments.status, 'pending'))),
+        changed('PAYMENT_NOT_PENDING'),
+        ...(await creditSalePayment({
+          barberId: owner,
+          saleId: payment.saleId,
+          salePaymentId: paymentId,
+          method: 'qpay',
+          amount: payment.amount,
+          actorId: null,
+          paidBefore: paid,
+        })),
+        // The customer has paid: stock can't refuse it now (stock.ts, lenient).
+        ...(covered ? finalizeSale(sale, await undeductedLines(payment.saleId), null, { strictStock: false }) : []),
+      ])
     })
-    // The customer has paid: stock can't refuse it now (stock.ts, lenient).
-    await finalizeIfCovered(tx, payment.saleId, null, { strictStock: false })
-  })
+  } catch (error) {
+    // Someone else (the callback, a poll, the sweep) settled it first.
+    if (!isGuardFailure(error, 'PAYMENT_NOT_PENDING')) throw error
+  }
   return { status: 'paid' as const, checked: true, outcome: result.outcome }
 }
 

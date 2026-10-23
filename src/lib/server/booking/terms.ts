@@ -55,24 +55,21 @@ export async function ratesFor(barberId: string, ex: Executor) {
   }
 }
 
-export async function addTerms(
-  barberId: string,
-  input: TermsInput,
-  createdBy: string,
-  ex: Executor = db,
-) {
-  const [row] = await ex
-    .insert(barberTerms)
-    .values({
-      barberId,
-      serviceCutBps: input.serviceCutBps,
-      productCommissionBps: input.productCommissionBps,
-      rentAmount: input.rentAmount,
-      rentPeriod: input.rentAmount > 0 ? input.rentPeriod : null,
-      rentStartsOn: input.rentAmount > 0 ? input.rentStartsOn : null,
-      effectiveFrom: input.effectiveFrom ? new Date(input.effectiveFrom) : new Date(),
-      createdBy,
-    })
-    .returning()
+/** The barber_terms row for `input` — for addTerms, or a caller's own batch. */
+export function termsRow(barberId: string, input: TermsInput, createdBy: string): typeof barberTerms.$inferInsert {
+  return {
+    barberId,
+    serviceCutBps: input.serviceCutBps,
+    productCommissionBps: input.productCommissionBps,
+    rentAmount: input.rentAmount,
+    rentPeriod: input.rentAmount > 0 ? input.rentPeriod : null,
+    rentStartsOn: input.rentAmount > 0 ? input.rentStartsOn : null,
+    effectiveFrom: input.effectiveFrom ? new Date(input.effectiveFrom) : new Date(),
+    createdBy,
+  }
+}
+
+export async function addTerms(barberId: string, input: TermsInput, createdBy: string) {
+  const [row] = await db.insert(barberTerms).values(termsRow(barberId, input, createdBy)).returning()
   return row!
 }

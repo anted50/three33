@@ -20,7 +20,7 @@ import {
  * yields no working links.
  *
  * Deliberately imports no database. The comparison below is the part worth
- * testing, and it should be testable without a Postgres connection.
+ * testing, and it should be testable without a database.
  */
 
 /** 24 bytes of base64url — the same size as the cart's session token. */

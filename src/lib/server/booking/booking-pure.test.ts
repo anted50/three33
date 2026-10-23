@@ -4,7 +4,7 @@ import { allocate, splitPayment } from './ledger-split'
 import { saleSplit } from './reports/revenue-math'
 import { planSchedule } from './schedule-plan'
 import { addDays, atLocal, datesBetween, isoWeekday, localDateOf } from './time'
-import { findPgViolation, apiErrorFromDb } from '../api/db-errors'
+import { apiErrorFromDb, findDbViolation, isUniqueViolation } from '../api/db-errors'
 
 const t = (hhmm: string, date = '2026-09-29') => atLocal(date, hhmm)
 const hhmm = (d: Date) =>
@@ -168,12 +168,31 @@ describe('saleSplit', () => {
 })
 
 describe('db errors', () => {
-  it('finds a violation wrapped by drizzle, for either driver', () => {
-    const pglite = { cause: { code: '23P01', constraint: 'appointments_no_overlap' } }
-    const postgres = { cause: { code: '23505', constraint_name: 'users_email_key' } }
-    expect(findPgViolation(pglite)).toEqual({ sqlstate: '23P01', constraint: 'appointments_no_overlap' })
-    expect(apiErrorFromDb(pglite)).toMatchObject({ status: 409, code: 'TIME_TAKEN' })
-    expect(apiErrorFromDb(postgres)).toMatchObject({ status: 409, code: 'EMAIL_TAKEN' })
+  // Messages as D1 reports them, wrapped the way Drizzle wraps them.
+  const d1 = (message: string) => new Error('Failed query: insert ...', { cause: new Error(`D1_ERROR: ${message}: SQLITE_CONSTRAINT`) })
+
+  it('maps the overlap triggers and known unique columns to stable codes', () => {
+    expect(findDbViolation(d1('appointments_no_overlap'))).toEqual({ kind: 'trigger', target: 'appointments_no_overlap' })
+    expect(apiErrorFromDb(d1('appointments_no_overlap'))).toMatchObject({ status: 409, code: 'TIME_TAKEN' })
+    expect(apiErrorFromDb(d1('UNIQUE constraint failed: users.email'))).toMatchObject({ status: 409, code: 'EMAIL_TAKEN' })
+    expect(
+      apiErrorFromDb(d1('UNIQUE constraint failed: barber_terms.barber_id, barber_terms.effective_from')),
+    ).toMatchObject({ code: 'TERMS_EXIST' })
+  })
+
+  it('uses a batch guard code as the API error code', () => {
+    expect(apiErrorFromDb(d1('guard:SALE_NOT_OPEN'))).toMatchObject({ status: 409, code: 'SALE_NOT_OPEN' })
+  })
+
+  it('falls back by kind, and ignores errors that are not violations', () => {
+    expect(apiErrorFromDb(d1('UNIQUE constraint failed: carts.session_token'))).toMatchObject({ status: 409, code: 'CONFLICT' })
+    expect(apiErrorFromDb(d1('CHECK constraint failed: users_role_check'))).toMatchObject({ status: 400, code: 'INVALID' })
+    expect(apiErrorFromDb(d1('FOREIGN KEY constraint failed'))).toMatchObject({ status: 409, code: 'IN_USE' })
     expect(apiErrorFromDb(new Error('boom'))).toBeNull()
+  })
+
+  it('matches unique violations by exact column list', () => {
+    expect(isUniqueViolation(d1('UNIQUE constraint failed: products.slug'), 'products.slug')).toBe(true)
+    expect(isUniqueViolation(d1('UNIQUE constraint failed: products.slug'), 'categories.slug')).toBe(false)
   })
 })

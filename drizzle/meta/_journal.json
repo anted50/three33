@@ -1,82 +1,19 @@
 {
   "version": "7",
-  "dialect": "postgresql",
+  "dialect": "sqlite",
   "entries": [
     {
       "idx": 0,
-      "version": "7",
-      "when": 1785729863908,
-      "tag": "0000_overconfident_jubilee",
+      "version": "6",
+      "when": 1792751285681,
+      "tag": "0000_baseline",
       "breakpoints": true
     },
     {
       "idx": 1,
-      "version": "7",
-      "when": 1785732053343,
-      "tag": "0001_fantastic_magneto",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1787384700000,
-      "tag": "0002_brave_gatekeeper",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "7",
-      "when": 1787480356559,
-      "tag": "0003_abandoned_spirit",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "7",
-      "when": 1787574841002,
-      "tag": "0004_giant_onslaught",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "7",
-      "when": 1787902052323,
-      "tag": "0005_wise_mantis",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "7",
-      "when": 1790495299633,
-      "tag": "0006_booking",
-      "breakpoints": true
-    },
-    {
-      "idx": 7,
-      "version": "7",
-      "when": 1790499189711,
-      "tag": "0007_booking_pos",
-      "breakpoints": true
-    },
-    {
-      "idx": 8,
-      "version": "7",
-      "when": 1790500508736,
-      "tag": "0008_booking_pos_products",
-      "breakpoints": true
-    },
-    {
-      "idx": 9,
-      "version": "7",
-      "when": 1790592325113,
-      "tag": "0009_storepay_generalize_payment_columns",
-      "breakpoints": true
-    },
-    {
-      "idx": 10,
-      "version": "7",
-      "when": 1790687951037,
-      "tag": "0010_admin_invoices",
+      "version": "6",
+      "when": 1792751286006,
+      "tag": "0001_constraints",
       "breakpoints": true
     }
   ]

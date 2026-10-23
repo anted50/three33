@@ -1,7 +1,8 @@
-import { and, eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { db } from '~/db'
+import { atomic, changed, exists } from '~/db/atomic'
 import { barberSalePayments, barberSales } from '~/db/schema'
-import { conflict, notFound } from '../../api/errors'
+import { conflict } from '../../api/errors'
 import { getSale } from './queries'
 import { cancelSalePayment } from './settle'
 
@@ -18,24 +19,33 @@ export async function voidSale(barberId: string, saleId: string) {
     await cancelSalePayment(p.id, barberId)
   }
 
-  await db.transaction(async (tx) => {
-    const [locked] = await tx
-      .select({ status: barberSales.status })
-      .from(barberSales)
-      .where(and(eq(barberSales.id, saleId), eq(barberSales.barberId, barberId)))
-      .for('update')
-      .limit(1)
-    if (!locked) throw notFound('Sale')
-    if (locked.status !== 'open') throw conflict('SALE_CLOSED', `Sale is ${locked.status}`)
+  const [paid] = await db
+    .select({ id: barberSalePayments.id })
+    .from(barberSalePayments)
+    .where(and(eq(barberSalePayments.saleId, saleId), eq(barberSalePayments.status, 'paid')))
+    .limit(1)
+  if (paid) throw conflict('HAS_PAYMENTS', 'Money was already taken for this sale; it cannot be voided')
 
-    const [paid] = await tx
-      .select({ id: barberSalePayments.id })
-      .from(barberSalePayments)
-      .where(and(eq(barberSalePayments.saleId, saleId), eq(barberSalePayments.status, 'paid')))
-      .limit(1)
-    if (paid) throw conflict('HAS_PAYMENTS', 'Money was already taken for this sale; it cannot be voided')
-
-    await tx.update(barberSales).set({ status: 'void', voidedAt: new Date() }).where(eq(barberSales.id, saleId))
-  })
+  // Both conditions again, in the update itself: a payment may have landed
+  // since they were read (a QPay invoice paid at the last second).
+  await atomic([
+    db
+      .update(barberSales)
+      .set({ status: 'void', voidedAt: new Date() })
+      .where(
+        and(
+          eq(barberSales.id, saleId),
+          eq(barberSales.barberId, barberId),
+          eq(barberSales.status, 'open'),
+          sql`not ${exists(
+            db
+              .select({ id: barberSalePayments.id })
+              .from(barberSalePayments)
+              .where(and(eq(barberSalePayments.saleId, saleId), eq(barberSalePayments.status, 'paid'))),
+          )}`,
+        ),
+      ),
+    changed('HAS_PAYMENTS'),
+  ])
   return getSale(barberId, saleId)
 }

@@ -1,63 +1,40 @@
 # Uppercut Deluxe Mongolia
 
 E-commerce storefront for the Mongolian Uppercut Deluxe distributor.
-TanStack Start (SSR + server functions, one deploy) · PostgreSQL + Drizzle · QPay.
+TanStack Start (SSR + server functions) on Cloudflare Workers · D1 + Drizzle · QPay.
 
 ## Prerequisites
 
 - **Node 22 LTS** — `winget install OpenJS.NodeJS.LTS`
-- **Docker Desktop** — `winget install Docker.DockerDesktop` (needs WSL2 + a reboot)
 
-Both must be on `PATH`; open a new terminal after installing.
+That's all. The database is Cloudflare D1, and locally wrangler runs it as a
+SQLite file under `.wrangler/state` — no Docker, no database server. `npm run
+dev` runs the server code inside workerd, the same runtime as production.
 
 ## First run
 
 ```bash
-cp .env.example .env
-```
-
-Then fill in `SESSION_SECRET` and `QPAY_CALLBACK_SECRET` with long random values
-(`openssl rand -base64 48`). The app refuses to boot on a short or missing
-secret — see `src/lib/server/env.ts`.
-
-```bash
-docker compose up -d
-```
-
-Starts Postgres on 5432. That's the only service — there is no object storage,
-because product images are static files in `public/products/`.
-
-```bash
 npm install
-npm run db:generate
-npm run db:migrate
+cp .env.example .dev.vars
+```
+
+`.dev.vars` is what wrangler reads for local config (it falls back to `.env`
+when there is no `.dev.vars`). The mock values in it boot the app; real
+credentials only matter for the integrations you are working on. The two
+`VITE_PUBLIC_POSTHOG_*` lines also go in `.env.development.local` — Vite reads
+`VITE_*` from `.env*` files only, never from `.dev.vars`.
+
+```bash
+npm run db:migrate                       # create the tables in the local D1
+npm run db:seed                          # the real catalogue, placeholder prices
+npm run admin:add -- you@example.com "Your Name"
 npm run dev
 ```
 
-App on http://localhost:3000. The homepage renders the database's current time,
-which is the Phase 0 proof that route → loader → server function → Drizzle →
-Postgres works end to end.
+App on http://localhost:3000. Admin login is an emailed code; without
+`RESEND_API_KEY` the code is printed to the dev server's console instead.
 
-### Running without Docker
-
-Docker isn't installed on the current dev machine, so `DB_DRIVER=pglite` in
-`.env` runs Postgres in-process against `.pglite/`. Same engine, same SQL, same
-migrations — `DB_DRIVER=postgres` switches to Compose whenever it's available.
-
-**Stop the dev server before running `db:migrate` or `db:seed`.** PGlite is a
-single-writer embedded database. Two processes on the same directory do not
-fail cleanly — they corrupt it, and the next read aborts inside the WASM runtime
-with a stack trace that says nothing about the cause. That happened here once;
-the fix was `rm -rf .pglite` and re-running migrate + seed.
-
-`src/lib/server/pglite-guard.ts` now makes the scripts refuse to start while
-something is listening on port 3000, so the failure is a clear message instead
-of a corrupted database. It no-ops under `DB_DRIVER=postgres`.
-
-**This is the main argument for getting Docker up.** PGlite was a stopgap so
-work could start without it; the single-writer limit costs a dev-server restart
-on every schema or seed change, and it has already eaten a database once.
-Compose Postgres has none of these problems.
+Deploying: [docs/deploy-cloudflare.md](docs/deploy-cloudflare.md).
 
 ## Product imagery
 
@@ -85,17 +62,19 @@ gets fixed or the client supplies plain product shots.
 
 | Command | Does |
 |---|---|
-| `npm run dev` | Vite dev server, SSR + HMR |
-| `npm run build` | Production build to `.output/` |
-| `npm start` | Run the built server |
+| `npm run dev` | Vite dev server, SSR in workerd, HMR, local D1 |
+| `npm run build` | Production build to `dist/` (client assets + Worker) |
+| `npm run preview` | Build, then serve the built Worker locally |
+| `npm run deploy` | Build and `wrangler deploy` |
+| `npm run cf-typegen` | Regenerate `worker-configuration.d.ts` after editing `wrangler.jsonc` |
 | `npm run typecheck` | `tsc --noEmit` |
-| `npm test` | Vitest — pricing, money, cookies, order state, QPay callback |
+| `npm test` | Vitest: `unit` (pure functions) and `d1` (database code on a real local D1) |
 | `npm run db:generate` | Generate a migration from `src/db/schema.ts` |
-| `npm run db:migrate` | Apply pending migrations |
-| `npm run db:studio` | Drizzle Studio |
-| `npm run reconcile` | The payment reconciliation sweep (see Scheduled jobs) |
-| `npm run booking:sweep` | The booking hold / POS payment sweep |
-| `npm run cleanup` | Delete expired sessions, OTP codes, carts |
+| `npm run db:migrate` | Apply pending migrations to the local D1 (`db:migrate:remote` for the deployed one) |
+| `npm run db:studio` | Drizzle Studio on the local D1 |
+| `npm run db:seed` | Seed the catalogue into the local D1 |
+| `npm run admin:add -- <email> [name] [--remote]` | Grant admin, locally or on the deployed D1 |
+| `npm run job -- <name> [--url <base>]` | Trigger a scheduled job through its API endpoint |
 | `npm run qpay:ping` | Fetch one QPay token to check credentials. Read-only |
 
 ## Cart and checkout
@@ -137,20 +116,11 @@ npm run build && grep -r "QPAY_PASSWORD" dist/client/
 (list, price/stock/status editing). Desktop-first, since it is used at a desk,
 but it collapses to one column so orders can be checked on a phone.
 
-### The gate is temporary and deliberately awkward
+### Signing in
 
-`ADMIN_TOKEN` is a **shared password, not authentication**. No per-user
-identity, no audit trail of who changed what, no revocation short of rotating
-it for everyone. It exists so admin is usable before Phase 2 auth lands.
-
-Two guards stop it becoming permanent by accident:
-
-- No `ADMIN_TOKEN` set → the admin section does not exist.
-- In production it **refuses to work** unless `ALLOW_TEMP_ADMIN=true`. Shipping
-  a shared password should take a deliberate act.
-
-When real auth lands, delete `admin/gate-internal.ts` and `admin/gate.ts` and
-switch to `users.role === 'admin'`. Do not keep this as a fallback.
+Admins sign in with a one-time code sent to their email (`otp_codes`, then a
+`sessions` row) — there is no password and no signup. An account becomes an
+admin only through `npm run admin:add`. See [docs/email-otp.md](docs/email-otp.md).
 
 ### Two layers of check, on purpose
 
@@ -166,7 +136,7 @@ This is the thing the deleted Go layer used to enforce for free.
 Read [`src/lib/server/README.md`](src/lib/server/README.md) before adding a
 server function. The short version:
 
-- **Money is mungu** (₮ × 100), `BIGINT`, integers only, via `~/lib/money`.
+- **Money is mungu** (₮ × 100), integer columns, integers only, via `~/lib/money`.
   Conversion to tugrik happens at display and at the QPay boundary, nowhere else.
 - **Every server function validates input with zod.** There is no second service
   behind this one re-checking anything.
@@ -174,6 +144,9 @@ server function. The short version:
   artefacts.
 - **Sessions are database rows**, not JWTs. The cookie holds a token; the DB
   holds its SHA-256 hash.
+- **No `db.transaction()`.** D1 has no interactive transactions. Writes that
+  must land together go through one atomic batch, with `guard()` re-checking
+  what a row lock used to protect — see [`src/db/atomic.ts`](src/db/atomic.ts).
 
 ## QPay: what the credentials actually are
 
@@ -235,40 +208,40 @@ Open items with the client, both blocking parts of checkout:
 
 ## Scheduled jobs
 
-Three, run by the server process itself on timers by default — no host cron,
-no cron service, no `pg_cron`. Deploying the app is enough. Each can also be
-triggered from outside over HTTP with a bearer token, and run by hand. Full
-detail in [docs/scheduled-jobs.md](docs/scheduled-jobs.md); the in-process
-schedule lives in the `JOBS` array in `server/index.mjs`.
+Three, run by Cloudflare Cron Triggers (`triggers.crons` in `wrangler.jsonc`,
+dispatched by `src/server.ts`) — nothing to set up beyond deploying. Each can
+also be triggered over HTTP with a bearer token. Full detail in
+[docs/scheduled-jobs.md](docs/scheduled-jobs.md).
 
 | Job | Every | What it does |
 |---|---|---|
-| `reconcile` | 1 hour | Settles orders whose payment callback never arrived (QPay and StorePay); cancels lapsed invoices with the provider and expires them |
+| `reconcile` | hourly, at :07 | Settles orders whose payment callback never arrived (QPay and StorePay); cancels lapsed invoices with the provider and expires them |
 | `booking-sweep` | 5 minutes | Deletes unpaid booking holds past their deadline; checks POS QPay payments whose callback never came |
-| `cleanup` | 24 hours | Deletes expired sessions, OTP codes and guest carts, and prunes `checkout_attempts` |
+| `cleanup` | daily, 03:17 Ulaanbaatar | Deletes expired sessions, OTP codes and guest carts, and prunes `checkout_attempts` |
 
 | Way in | How |
 |---|---|
-| In-process timers | default; set `SCHEDULED_JOBS=off` to disable |
-| External scheduler | `POST /api/v1/jobs/<job>` with `Authorization: Bearer $JOBS_API_TOKEN` |
-| By hand | `npm run reconcile`, `npm run booking:sweep`, `npm run cleanup` |
+| Cron Triggers | default, once deployed |
+| External scheduler / by hand | `POST /api/v1/jobs/<job>` with `Authorization: Bearer $JOBS_API_TOKEN` — or `npm run job -- <job>` |
 
 Dropped callbacks are a when, not an if, and `reconcile` is the only thing that
 cancels an abandoned invoice with the provider. If you change how this app is
-deployed — or turn the timers off — check that something is still running it.
+deployed, check that something is still running it.
 
 ## Layout
 
 ```
 src/
-  db/            schema.ts (single source of truth) + connection
+  server.ts      the Worker entry: fetch (TanStack Start) + scheduled (cron)
+  db/            schema.ts (single source of truth), the D1 client, atomic.ts
   lib/
     money.ts     mungu arithmetic — the only place ₮ conversion happens
     server/      server-only code, organised by domain; see its README
-  routes/        file-based routes; storefront + /admin
+  routes/        file-based routes; storefront, /admin and /api/v1
   styles/
-scripts/         seed, job wrappers, provider checks — run outside the request cycle
-drizzle/         generated migrations, committed
+scripts/         seed, admin, job trigger, provider checks — run outside the Worker
+drizzle/         generated D1 migrations (plus hand-written triggers), committed
+wrangler.jsonc   the Worker: bindings, cron triggers, vars
 ```
 
 ## Status

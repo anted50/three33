@@ -1,8 +1,9 @@
 import { createServerFn } from '@tanstack/react-start'
-import { getRequestIP } from '@tanstack/react-start/server'
+import { getRequestHeader } from '@tanstack/react-start/server'
 import { and, count, eq, gt, inArray } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '~/db'
+import { atomic } from '~/db/atomic'
 import {
   checkoutAttempts,
   orderItems,
@@ -12,6 +13,7 @@ import {
   products,
 } from '~/db/schema'
 import { currentCart } from '../cart/internal'
+import { clientIp } from '../client-ip'
 import { computeTotals } from '../cart/pricing'
 import { loadShippingRates } from '../settings'
 import {
@@ -116,7 +118,7 @@ export const createOrder = createServerFn({ method: 'POST' })
       throw new Error('Таны сагс хоосон байна')
     }
 
-    const ip = getRequestIP({ xForwardedFor: true }) ?? null
+    const ip = clientIp(getRequestHeader)
 
     const record = (
       outcome: 'created' | 'reused' | 'rate_limited' | 'invoice_failed',
@@ -136,17 +138,16 @@ export const createOrder = createServerFn({ method: 'POST' })
 
     /**
      * Price the cart before anything else, because the fingerprint that decides
-     * "same basket?" includes the total. Prices are read under a row lock so
-     * two tabs checking out the last unit cannot both be told it is available;
-     * the loser waits here and fails the stock check.
+     * "same basket?" includes the total.
      *
-     * The lock is released when this transaction commits, before the QPay call.
-     * That is fine: nothing is reserved at this stage even in the old code, and
-     * settle.ts re-checks stock under its own guard when money actually lands.
+     * A plain read — D1 has no row locks, and none is needed: nothing is
+     * reserved at this stage, so two tabs both being told the last unit is
+     * available only means both can be invoiced. settle.ts decides who gets
+     * it, with a conditional decrement when money actually lands.
      */
-    const { pricedLines, totals } = await db.transaction(async (tx) => {
+    const { pricedLines, totals } = await (async () => {
       const variantIds = cart.lines.map((l) => l.variantId)
-      const locked = await tx
+      const locked = await db
         .select({
           id: productVariants.id,
           price: productVariants.price,
@@ -159,7 +160,6 @@ export const createOrder = createServerFn({ method: 'POST' })
         .from(productVariants)
         .innerJoin(products, eq(products.id, productVariants.productId))
         .where(inArray(productVariants.id, variantIds))
-        .for('update', { of: productVariants })
 
       const byId = new Map(locked.map((v) => [v.id, v]))
 
@@ -175,7 +175,7 @@ export const createOrder = createServerFn({ method: 'POST' })
         }
         return {
           variantId: variant.id,
-          // Authoritative price, read under lock.
+          // Authoritative price, from the database, not the browser.
           unitPrice: variant.price,
           qty: line.qty,
           sku: variant.sku,
@@ -184,7 +184,7 @@ export const createOrder = createServerFn({ method: 'POST' })
       })
 
       return { pricedLines: priced, totals: computeTotals(priced, rates) }
-    })
+    })()
 
     if (!availableProviders().includes(data.method)) {
       throw new Error('Энэ төлбөрийн сонголт одоогоор боломжгүй байна')
@@ -247,46 +247,40 @@ export const createOrder = createServerFn({ method: 'POST' })
       links: invoice.links,
     }
 
-    let orderId: string
+    const orderId = crypto.randomUUID()
     try {
-      orderId = await db.transaction(async (tx) => {
-        const [created] = await tx
-          .insert(orders)
-          .values({
-            orderNo,
-            cartId,
-            status: 'pending_payment',
-            subtotal: totals.subtotal,
-            shippingFee: totals.shippingFee,
-            total,
-            contactPhone: data.phone,
-            note: null,
-            expiresAt,
-            accessTokenHash: hash,
-            shippingAddressSnapshot: {
-              name: null,
-              phone: data.phone,
-              email: data.email || null,
-              address: data.address,
-            },
-          })
-          .returning({ id: orders.id })
-
-        if (!created) throw new Error('Захиалга үүсгэж чадсангүй')
-
-        await tx.insert(orderItems).values(
+      await atomic([
+        db.insert(orders).values({
+          id: orderId,
+          orderNo,
+          cartId,
+          status: 'pending_payment',
+          subtotal: totals.subtotal,
+          shippingFee: totals.shippingFee,
+          total,
+          contactPhone: data.phone,
+          note: null,
+          expiresAt,
+          accessTokenHash: hash,
+          shippingAddressSnapshot: {
+            name: null,
+            phone: data.phone,
+            email: data.email || null,
+            address: data.address,
+          },
+        }),
+        db.insert(orderItems).values(
           pricedLines.map((line) => ({
-            orderId: created.id,
+            orderId,
             variantId: line.variantId,
             skuSnapshot: line.sku,
             nameSnapshot: line.name,
             unitPrice: line.unitPrice,
             qty: line.qty,
           })),
-        )
-
-        await tx.insert(payments).values({
-          orderId: created.id,
+        ),
+        db.insert(payments).values({
+          orderId,
           provider: data.method,
           invoiceId: invoice.invoiceId,
           amount: total,
@@ -297,10 +291,8 @@ export const createOrder = createServerFn({ method: 'POST' })
            * instantly instead of calling the provider again on every refresh.
            */
           invoicePayload,
-        })
-
-        return created.id
-      })
+        }),
+      ])
     } catch (error) {
       /**
        * An invoice now exists at the provider for an order that does not

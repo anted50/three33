@@ -11,6 +11,8 @@ import {
   sql,
 } from 'drizzle-orm'
 import { db } from '~/db'
+import { atomic, changed, exists, guard } from '~/db/atomic'
+import { isGuardFailure } from '../api/db-errors'
 import {
   inventoryLedger,
   orderItems,
@@ -24,9 +26,6 @@ import {
 import { assertAdminSession } from './auth-internal'
 import { slugify } from '~/lib/slugify'
 import { sizeSuffix } from '~/lib/product-name'
-
-/** The handle drizzle hands a `db.transaction` callback. */
-type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
 
 /**
  * Server-only admin internals. Never imported from a route — see
@@ -69,6 +68,15 @@ function fillDays(
   return days
 }
 
+/**
+ * The UTC calendar day of a timestamp column, as 'YYYY-MM-DD' — the buckets
+ * the dashboard's month (also UTC, see monthStart) is counted in. Columns hold
+ * epoch milliseconds; strftime wants seconds.
+ */
+function utcDay(column: typeof orders.createdAt) {
+  return sql<string>`strftime('%Y-%m-%d', ${column} / 1000, 'unixepoch')`
+}
+
 export async function dashboard() {
   await assertAdmin()
 
@@ -83,7 +91,7 @@ export async function dashboard() {
 
   const [revenue] = await db
     .select({
-      total: sql<number>`coalesce(sum(${orders.total}), 0)::bigint`,
+      total: sql<number>`coalesce(sum(${orders.total}), 0)`,
       orders: count(orders.id),
     })
     .from(orders)
@@ -92,12 +100,12 @@ export async function dashboard() {
   /** Daily revenue, for the bar sparkline on the sales card. */
   const salesByDay = await db
     .select({
-      day: sql<string>`to_char(${orders.createdAt}, 'YYYY-MM-DD')`,
-      value: sql<number>`coalesce(sum(${orders.total}), 0)::bigint`,
+      day: utcDay(orders.createdAt),
+      value: sql<number>`coalesce(sum(${orders.total}), 0)`,
     })
     .from(orders)
     .where(earnedThisMonth)
-    .groupBy(sql`to_char(${orders.createdAt}, 'YYYY-MM-DD')`)
+    .groupBy(utcDay(orders.createdAt))
 
   /**
    * "Customers" counts distinct phone numbers, not user accounts — checkout is
@@ -106,19 +114,19 @@ export async function dashboard() {
    */
   const [customers] = await db
     .select({
-      n: sql<number>`count(distinct ${orders.contactPhone})::int`,
+      n: sql<number>`count(distinct ${orders.contactPhone})`,
     })
     .from(orders)
     .where(earnedThisMonth)
 
   const customersByDay = await db
     .select({
-      day: sql<string>`to_char(${orders.createdAt}, 'YYYY-MM-DD')`,
-      value: sql<number>`count(distinct ${orders.contactPhone})::int`,
+      day: utcDay(orders.createdAt),
+      value: sql<number>`count(distinct ${orders.contactPhone})`,
     })
     .from(orders)
     .where(earnedThisMonth)
-    .groupBy(sql`to_char(${orders.createdAt}, 'YYYY-MM-DD')`)
+    .groupBy(utcDay(orders.createdAt))
 
   const [pending] = await db
     .select({ n: count(orders.id) })
@@ -146,7 +154,7 @@ export async function dashboard() {
         limit 1
       )`,
       lines: sql<number>`(
-        select count(*)::int from ${orderItems}
+        select count(*) from ${orderItems}
         where ${orderItems.orderId} = ${orders.id}
       )`,
     })
@@ -172,8 +180,8 @@ export async function dashboard() {
   const best = await db
     .select({
       name: orderItems.nameSnapshot,
-      units: sql<number>`sum(${orderItems.qty})::int`,
-      revenue: sql<number>`sum(${orderItems.unitPrice} * ${orderItems.qty})::bigint`,
+      units: sql<number>`sum(${orderItems.qty})`,
+      revenue: sql<number>`sum(${orderItems.unitPrice} * ${orderItems.qty})`,
     })
     .from(orderItems)
     .innerJoin(orders, eq(orders.id, orderItems.orderId))
@@ -263,7 +271,7 @@ function ordersQuery(where: ReturnType<typeof ordersWhereClause>) {
       address: orders.shippingAddressSnapshot,
       // Join + aggregate rather than a correlated subquery: the subquery form
       // returned 0 for every row here, and this is clearer besides.
-      items: sql<number>`coalesce(sum(${orderItems.qty}), 0)::int`,
+      items: sql<number>`coalesce(sum(${orderItems.qty}), 0)`,
     })
     .from(orders)
     .leftJoin(orderItems, eq(orderItems.orderId, orders.id))
@@ -371,9 +379,9 @@ export async function listProducts() {
       name: products.nameMn,
       status: products.status,
       category: categories.nameMn,
-      variants: sql<number>`count(${productVariants.id})::int`,
-      stock: sql<number>`coalesce(sum(${productVariants.stockQty}), 0)::int`,
-      minPrice: sql<number>`coalesce(min(${productVariants.price}), 0)::bigint`,
+      variants: sql<number>`count(${productVariants.id})`,
+      stock: sql<number>`coalesce(sum(${productVariants.stockQty}), 0)`,
+      minPrice: sql<number>`coalesce(min(${productVariants.price}), 0)`,
     })
     .from(products)
     .leftJoin(productVariants, eq(productVariants.productId, products.id))
@@ -592,51 +600,46 @@ export interface NewProductInput {
 /**
  * A product with no variant has nothing a shopper can add to cart, so
  * registration always creates its variants alongside the product row —
- * same transaction, so a failed variant insert never leaves a stub product
+ * one atomic batch, so a failed variant insert never leaves a stub product
  * hanging around in the catalogue.
  */
 export async function insertProduct(input: NewProductInput) {
   await assertAdmin()
 
-  return db.transaction(async (tx) => {
-    const [product] = await tx
-      .insert(products)
-      .values({
-        slug: input.slug,
-        nameMn: input.nameMn,
-        nameEn: input.nameEn,
-        descriptionMn: input.descriptionMn,
-        categoryId: input.categoryId,
-        brandLine: input.brandLine,
-        status: input.status,
-      })
-      .returning({ id: products.id })
+  const productId = crypto.randomUUID()
 
-    if (!product) throw new Error('Бүтээгдэхүүн үүсгэж чадсангүй')
-
-    await tx.insert(productVariants).values(
+  await atomic([
+    db.insert(products).values({
+      id: productId,
+      slug: input.slug,
+      nameMn: input.nameMn,
+      nameEn: input.nameEn,
+      descriptionMn: input.descriptionMn,
+      categoryId: input.categoryId,
+      brandLine: input.brandLine,
+      status: input.status,
+    }),
+    db.insert(productVariants).values(
       input.variants.map((variant) => ({
-        productId: product.id,
+        productId,
         sku: variant.sku,
         size: variant.size,
         price: variant.price,
         stockQty: variant.stockQty,
       })),
-    )
-
-    if (input.images.length > 0) {
-      await tx.insert(productImages).values(
+    ),
+    input.images.length > 0 &&
+      db.insert(productImages).values(
         input.images.map((image, i) => ({
-          productId: product.id,
+          productId,
           url: image.url,
           alt: image.alt,
           sortOrder: i,
         })),
-      )
-    }
+      ),
+  ])
 
-    return { slug: input.slug }
-  })
+  return { slug: input.slug }
 }
 
 /**
@@ -652,38 +655,34 @@ export async function insertVariant(
 ) {
   await assertAdmin()
 
-  return db.transaction(async (tx) => {
-    const [product] = await tx
-      .select({ id: products.id })
-      .from(products)
-      .where(eq(products.slug, slug))
-      .limit(1)
+  const [product] = await db
+    .select({ id: products.id })
+    .from(products)
+    .where(eq(products.slug, slug))
+    .limit(1)
 
-    if (!product) throw new Error('Бүтээгдэхүүн олдсонгүй')
+  if (!product) throw new Error('Бүтээгдэхүүн олдсонгүй')
 
-    const [created] = await tx
-      .insert(productVariants)
-      .values({
-        productId: product.id,
-        sku: variant.sku,
-        size: variant.size,
-        price: variant.price,
-        stockQty: variant.stockQty,
-      })
-      .returning({ id: productVariants.id })
+  const id = crypto.randomUUID()
 
-    if (!created) throw new Error('Хувилбар үүсгэж чадсангүй')
-
-    if (variant.stockQty > 0) {
-      await tx.insert(inventoryLedger).values({
-        variantId: created.id,
+  await atomic([
+    db.insert(productVariants).values({
+      id,
+      productId: product.id,
+      sku: variant.sku,
+      size: variant.size,
+      price: variant.price,
+      stockQty: variant.stockQty,
+    }),
+    variant.stockQty > 0 &&
+      db.insert(inventoryLedger).values({
+        variantId: id,
         delta: variant.stockQty,
         reason: 'restock',
-      })
-    }
+      }),
+  ])
 
-    return { id: created.id }
-  })
+  return { id }
 }
 
 /**
@@ -699,41 +698,56 @@ export async function insertVariant(
 export async function removeVariant(variantId: string) {
   await assertAdmin()
 
-  return db.transaction(async (tx) => {
-    const [variant] = await tx
-      .select({ id: productVariants.id, productId: productVariants.productId })
-      .from(productVariants)
-      .where(eq(productVariants.id, variantId))
-      .limit(1)
+  const [variant] = await db
+    .select({ id: productVariants.id, productId: productVariants.productId })
+    .from(productVariants)
+    .where(eq(productVariants.id, variantId))
+    .limit(1)
 
-    if (!variant) throw new Error('Хувилбар олдсонгүй')
+  if (!variant) throw new Error('Хувилбар олдсонгүй')
 
-    const [sold] = await tx
-      .select({ id: orderItems.id })
-      .from(orderItems)
-      .where(eq(orderItems.variantId, variantId))
-      .limit(1)
+  const [sold] = await db
+    .select({ id: orderItems.id })
+    .from(orderItems)
+    .where(eq(orderItems.variantId, variantId))
+    .limit(1)
 
-    if (sold) {
-      throw new Error(
-        'Энэ хувилбараар захиалга орсон тул устгах боломжгүй — идэвхгүй болгоно уу',
-      )
-    }
+  if (sold) throw new Error(VARIANT_SOLD_MESSAGE)
 
-    const [siblings] = await tx
-      .select({ value: count(productVariants.id) })
-      .from(productVariants)
-      .where(eq(productVariants.productId, variant.productId))
+  const [siblings] = await db
+    .select({ value: count(productVariants.id) })
+    .from(productVariants)
+    .where(eq(productVariants.productId, variant.productId))
 
-    // No row at all counts as no siblings, which earns the same refusal.
-    if ((siblings?.value ?? 0) <= 1) {
-      throw new Error('Бүтээгдэхүүнд ядаж нэг хувилбар байх ёстой')
-    }
+  // No row at all counts as no siblings, which earns the same refusal.
+  if ((siblings?.value ?? 0) <= 1) throw new Error(LAST_VARIANT_MESSAGE)
 
-    await tx.delete(productVariants).where(eq(productVariants.id, variantId))
+  try {
+    // Both checks again, atomically with the delete: an order or another
+    // delete may have landed since they were read.
+    await atomic([
+      guard(sql`not ${exists(db.select({ id: orderItems.id }).from(orderItems).where(eq(orderItems.variantId, variantId)))}`, 'VARIANT_SOLD'),
+      hasSiblings(variant.productId),
+      db.delete(productVariants).where(eq(productVariants.id, variantId)),
+    ])
+  } catch (error) {
+    if (isGuardFailure(error, 'VARIANT_SOLD')) throw new Error(VARIANT_SOLD_MESSAGE)
+    if (isGuardFailure(error, 'LAST_VARIANT')) throw new Error(LAST_VARIANT_MESSAGE)
+    throw error
+  }
 
-    return { ok: true as const }
-  })
+  return { ok: true as const }
+}
+
+const VARIANT_SOLD_MESSAGE = 'Энэ хувилбараар захиалга орсон тул устгах боломжгүй — идэвхгүй болгоно уу'
+const LAST_VARIANT_MESSAGE = 'Бүтээгдэхүүнд ядаж нэг хувилбар байх ёстой'
+
+/** Batch guard: the product still has more than one variant. */
+function hasSiblings(productId: string) {
+  return guard(
+    sql`(select count(*) from ${productVariants} where ${productVariants.productId} = ${productId}) > 1`,
+    'LAST_VARIANT',
+  )
 }
 
 /**
@@ -755,59 +769,68 @@ export async function removeVariant(variantId: string) {
 export async function splitVariantIntoProduct(variantId: string) {
   await assertAdmin()
 
-  return db.transaction(async (tx) => {
-    const [variant] = await tx
-      .select({
-        id: productVariants.id,
-        productId: productVariants.productId,
-        sku: productVariants.sku,
-        size: productVariants.size,
-      })
-      .from(productVariants)
-      .where(eq(productVariants.id, variantId))
-      .limit(1)
+  const [variant] = await db
+    .select({
+      id: productVariants.id,
+      productId: productVariants.productId,
+      sku: productVariants.sku,
+      size: productVariants.size,
+    })
+    .from(productVariants)
+    .where(eq(productVariants.id, variantId))
+    .limit(1)
 
-    if (!variant) throw new Error('Хувилбар олдсонгүй')
+  if (!variant) throw new Error('Хувилбар олдсонгүй')
 
-    const [parent] = await tx
-      .select({
-        id: products.id,
-        slug: products.slug,
-        nameMn: products.nameMn,
-        nameEn: products.nameEn,
-        descriptionMn: products.descriptionMn,
-        descriptionEn: products.descriptionEn,
-        categoryId: products.categoryId,
-        brandLine: products.brandLine,
-        status: products.status,
-      })
-      .from(products)
-      .where(eq(products.id, variant.productId))
-      .limit(1)
+  const [parent] = await db
+    .select({
+      id: products.id,
+      slug: products.slug,
+      nameMn: products.nameMn,
+      nameEn: products.nameEn,
+      descriptionMn: products.descriptionMn,
+      descriptionEn: products.descriptionEn,
+      categoryId: products.categoryId,
+      brandLine: products.brandLine,
+      status: products.status,
+    })
+    .from(products)
+    .where(eq(products.id, variant.productId))
+    .limit(1)
 
-    if (!parent) throw new Error('Бүтээгдэхүүн олдсонгүй')
+  if (!parent) throw new Error('Бүтээгдэхүүн олдсонгүй')
 
-    const [siblings] = await tx
-      .select({ value: count(productVariants.id) })
-      .from(productVariants)
-      .where(eq(productVariants.productId, parent.id))
+  const [siblings] = await db
+    .select({ value: count(productVariants.id) })
+    .from(productVariants)
+    .where(eq(productVariants.productId, parent.id))
 
-    if ((siblings?.value ?? 0) <= 1) {
-      throw new Error(
-        'Ганц хувилбартай бүтээгдэхүүнийг салгах шаардлагагүй — энэ нь өөрөө тусдаа бараа',
-      )
-    }
+  if ((siblings?.value ?? 0) <= 1) throw new Error(SPLIT_SINGLE_MESSAGE)
 
-    // The size is what tells the two listings apart; SKU is the fallback for
-    // variants that carry no size at all.
-    const suffix = variant.size?.trim() || variant.sku
+  // The size is what tells the two listings apart; SKU is the fallback for
+  // variants that carry no size at all.
+  const suffix = variant.size?.trim() || variant.sku
 
-    const base = slugify(`${parent.slug}-${suffix}`) || slugify(variant.sku)
-    const slug = await uniqueProductSlug(tx, base)
+  const base = slugify(`${parent.slug}-${suffix}`) || slugify(variant.sku)
+  const slug = await uniqueProductSlug(base)
 
-    const [created] = await tx
-      .insert(products)
-      .values({
+  const images = await db
+    .select({
+      url: productImages.url,
+      alt: productImages.alt,
+      sortOrder: productImages.sortOrder,
+    })
+    .from(productImages)
+    .where(eq(productImages.productId, parent.id))
+    .orderBy(asc(productImages.sortOrder))
+
+  const productId = crypto.randomUUID()
+
+  try {
+    await atomic([
+      hasSiblings(parent.id),
+      db.insert(products).values({
+        id: productId,
         slug,
         // sizeSuffix keeps a parent already named after the size ("… 30g")
         // from becoming "… 30g 30g".
@@ -818,52 +841,47 @@ export async function splitVariantIntoProduct(variantId: string) {
         categoryId: parent.categoryId,
         brandLine: parent.brandLine,
         status: parent.status,
-      })
-      .returning({ id: products.id })
+      }),
+      images.length > 0 &&
+        db.insert(productImages).values(
+          images.map((image, i) => ({
+            productId,
+            url: image.url,
+            alt: image.alt,
+            sortOrder: i,
+          })),
+        ),
+      // Scoped to the parent it was read under, so a variant moved elsewhere
+      // in the meantime is not silently re-parented again.
+      db
+        .update(productVariants)
+        .set({ productId })
+        .where(and(eq(productVariants.id, variantId), eq(productVariants.productId, parent.id))),
+      changed('VARIANT_MOVED'),
+    ])
+  } catch (error) {
+    if (isGuardFailure(error, 'LAST_VARIANT')) throw new Error(SPLIT_SINGLE_MESSAGE)
+    if (isGuardFailure(error, 'VARIANT_MOVED')) throw new Error('Хувилбар энэ хооронд өөрчлөгдсөн байна')
+    throw error
+  }
 
-    if (!created) throw new Error('Бүтээгдэхүүн үүсгэж чадсангүй')
-
-    const images = await tx
-      .select({
-        url: productImages.url,
-        alt: productImages.alt,
-        sortOrder: productImages.sortOrder,
-      })
-      .from(productImages)
-      .where(eq(productImages.productId, parent.id))
-      .orderBy(asc(productImages.sortOrder))
-
-    if (images.length > 0) {
-      await tx.insert(productImages).values(
-        images.map((image, i) => ({
-          productId: created.id,
-          url: image.url,
-          alt: image.alt,
-          sortOrder: i,
-        })),
-      )
-    }
-
-    await tx
-      .update(productVariants)
-      .set({ productId: created.id })
-      .where(eq(productVariants.id, variantId))
-
-    return { slug }
-  })
+  return { slug }
 }
+
+const SPLIT_SINGLE_MESSAGE =
+  'Ганц хувилбартай бүтээгдэхүүнийг салгах шаардлагагүй — энэ нь өөрөө тусдаа бараа'
 
 /**
  * Finds a free slug near `base`, appending -2, -3 … until one is unused. The
  * split button names the new product itself, so it cannot lean on the admin to
  * resolve a collision the way the create form does.
  */
-async function uniqueProductSlug(tx: Tx, base: string): Promise<string> {
+async function uniqueProductSlug(base: string): Promise<string> {
   const seed = base || 'product'
 
   for (let attempt = 1; attempt <= 50; attempt++) {
     const candidate = attempt === 1 ? seed : `${seed}-${attempt}`
-    const [taken] = await tx
+    const [taken] = await db
       .select({ id: products.id })
       .from(products)
       .where(eq(products.slug, candidate))
@@ -886,30 +904,26 @@ export async function replaceProductImages(
 ) {
   await assertAdmin()
 
-  await db.transaction(async (tx) => {
-    const [product] = await tx
-      .select({ id: products.id })
-      .from(products)
-      .where(eq(products.slug, slug))
-      .limit(1)
+  const [product] = await db
+    .select({ id: products.id })
+    .from(products)
+    .where(eq(products.slug, slug))
+    .limit(1)
 
-    if (!product) throw new Error('Бүтээгдэхүүн олдсонгүй')
+  if (!product) throw new Error('Бүтээгдэхүүн олдсонгүй')
 
-    await tx.delete(productImages).where(eq(productImages.productId, product.id))
-
-    if (images.length > 0) {
-      await tx.insert(productImages).values(
+  await atomic([
+    db.delete(productImages).where(eq(productImages.productId, product.id)),
+    images.length > 0 &&
+      db.insert(productImages).values(
         images.map((image, i) => ({
           productId: product.id,
           url: image.url,
           alt: image.alt,
           sortOrder: i,
         })),
-      )
-    }
-  })
-
-  return { ok: true as const }
+      ),
+  ])
 }
 
 export interface ProductUpdate {

@@ -2,6 +2,7 @@ import { createHash, randomBytes } from 'node:crypto'
 import { and, eq, gt, gte, inArray, lte, or } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '~/db'
+import { atomic } from '~/db/atomic'
 import { appointmentPayments, appointmentServices, appointments, barberLocations, barberShifts, barbers, services } from '~/db/schema'
 import { ApiError, badRequest, conflict, notFound } from '../../api/errors'
 import { email, phone } from '../../api/input'
@@ -79,45 +80,41 @@ export async function createOnlineBooking(input: z.infer<typeof onlineBookingInp
   const expiresAt = new Date(Date.now() + HOLD_MS)
   const bookingNo = generateRef('BK')
 
-  const { appointmentId, paymentId } = await db.transaction(async (tx) => {
-    const [appointment] = await tx
-      .insert(appointments)
-      .values({
-        bookingNo,
-        locationId: input.locationId,
-        barberId: barber.id,
-        source: 'online',
-        status: 'pending',
-        startsAt,
-        endsAt,
-        blockedUntil,
-        bufferMinutes: barber.bufferMinutes,
-        total,
-        bookingFee: fee,
-        expiresAt,
-        customerName: input.customerName,
-        customerPhone: input.customerPhone,
-        customerEmail: input.customerEmail,
-        note: input.note ?? null,
-        accessTokenHash: createHash('sha256').update(token).digest('hex'),
-      })
-      .returning({ id: appointments.id })
-    await tx.insert(appointmentServices).values(
+  const appointmentId = crypto.randomUUID()
+  const paymentId = crypto.randomUUID()
+  await atomic([
+    db.insert(appointments).values({
+      id: appointmentId,
+      bookingNo,
+      locationId: input.locationId,
+      barberId: barber.id,
+      source: 'online',
+      status: 'pending',
+      startsAt,
+      endsAt,
+      blockedUntil,
+      bufferMinutes: barber.bufferMinutes,
+      total,
+      bookingFee: fee,
+      expiresAt,
+      customerName: input.customerName,
+      customerPhone: input.customerPhone,
+      customerEmail: input.customerEmail,
+      note: input.note ?? null,
+      accessTokenHash: createHash('sha256').update(token).digest('hex'),
+    }),
+    db.insert(appointmentServices).values(
       ordered.map((s, i) => ({
-        appointmentId: appointment!.id,
+        appointmentId,
         serviceId: s.id,
         nameSnapshot: s.nameEn,
         priceSnapshot: s.price,
         durationMinutesSnapshot: s.durationMinutes,
         sortOrder: i,
       })),
-    )
-    const [payment] = await tx
-      .insert(appointmentPayments)
-      .values({ appointmentId: appointment!.id, kind: 'booking_fee', method: 'qpay', amount: fee })
-      .returning({ id: appointmentPayments.id })
-    return { appointmentId: appointment!.id, paymentId: payment!.id }
-  })
+    ),
+    db.insert(appointmentPayments).values({ id: paymentId, appointmentId, kind: 'booking_fee', method: 'qpay', amount: fee }),
+  ])
 
   const invoice = await issueFeeInvoice(appointmentId, paymentId, bookingNo, fee)
   return { bookingNo, token, expiresAt, total, bookingFee: fee, dueAtShop: total - fee, invoice }
@@ -155,7 +152,7 @@ async function assertNoLiveHold(customerPhone: string, customerEmail: string) {
   if (live) throw conflict('HOLD_EXISTS', 'You already have a booking waiting for payment')
 }
 
-/** Outside the transaction; if QPay won't issue, the hold is removed again. */
+/** After the hold is written; if QPay won't issue, the hold is removed again. */
 async function issueFeeInvoice(appointmentId: string, paymentId: string, bookingNo: string, fee: number) {
   try {
     const invoice = await getQpayProvider().createInvoice({
@@ -172,10 +169,10 @@ async function issueFeeInvoice(appointmentId: string, paymentId: string, booking
     return payload
   } catch (error) {
     console.error(`QPay fee invoice failed for ${bookingNo}`, error)
-    await db.transaction(async (tx) => {
-      await tx.delete(appointmentPayments).where(eq(appointmentPayments.id, paymentId))
-      await tx.delete(appointments).where(and(eq(appointments.id, appointmentId), eq(appointments.status, 'pending')))
-    })
+    await atomic([
+      db.delete(appointmentPayments).where(eq(appointmentPayments.id, paymentId)),
+      db.delete(appointments).where(and(eq(appointments.id, appointmentId), eq(appointments.status, 'pending'))),
+    ])
     throw new ApiError(502, 'QPAY_UNAVAILABLE', 'Payment could not be started; please try again')
   }
 }

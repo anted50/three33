@@ -54,8 +54,7 @@ writeFileSync(
 console.log(`wrote ${out} — open it and toggle your OS light/dark setting`)
 
 /*
- * Importing the receipt module pulls in ~/db, which opens a connection pool
- * (or a PGlite instance) that nothing here closes. Without this the script
- * renders its file and then sits there forever.
+ * Explicit, so nothing a dependency left open (a timer, a socket) can keep
+ * the script alive after the file is written.
  */
 process.exit(0)

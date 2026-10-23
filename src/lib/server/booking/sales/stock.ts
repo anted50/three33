@@ -1,7 +1,9 @@
 import { and, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
+import { db } from '~/db'
+import { changed, type Statement } from '~/db/atomic'
 import { barberSaleLines, inventoryLedger, productVariants } from '~/db/schema'
 import { conflict } from '../../api/errors'
-import type { Executor, Tx } from '../db'
+import type { Executor } from '../db'
 
 /**
  * Stock for POS product lines, by the shop's own rules: never reserved while
@@ -45,43 +47,68 @@ export async function assertAvailable(
   }
 }
 
-/**
- * Deducts stock for every product line not yet deducted, inside the
- * transaction that closes the sale.
- *
- *   strict   the money isn't taken yet (cash / pos / transfer entry): a
- *            shortfall throws OUT_OF_STOCK and the whole payment rolls back
- *   lenient  QPay already took the money: like online settlement, record a
- *            zero-delta 'manual_adjustment' for the owner to resolve rather
- *            than refuse a payment the customer has made
- */
-export async function deductStock(tx: Tx, saleId: string, actorId: string | null, strict: boolean) {
-  const lines = await tx
+/** A product line whose stock has not been taken yet. */
+export interface StockLine {
+  id: string
+  variantId: string
+  qty: number
+  sku: string | null
+}
+
+/** The sale's product lines still waiting for their stock. */
+export async function undeductedLines(saleId: string): Promise<StockLine[]> {
+  const rows = await db
     .select({ id: barberSaleLines.id, variantId: barberSaleLines.variantId, qty: barberSaleLines.qty, sku: barberSaleLines.skuSnapshot })
     .from(barberSaleLines)
     .where(and(eq(barberSaleLines.saleId, saleId), isNotNull(barberSaleLines.variantId), isNull(barberSaleLines.inventoryLedgerId)))
+  return rows.map((r) => ({ ...r, variantId: r.variantId! }))
+}
 
-  for (const line of lines) {
-    const variantId = line.variantId!
+/**
+ * Statements deducting stock for `lines`, for the batch that closes the sale.
+ *
+ *   strict   the money isn't taken yet (cash / pos / transfer entry): a
+ *            shortfall aborts the batch with OUT_OF_STOCK, so the payment is
+ *            not recorded either
+ *   lenient  QPay already took the money: like online settlement, record a
+ *            zero-delta 'manual_adjustment' for the owner to resolve rather
+ *            than refuse a payment the customer has made
+ *
+ * Each line gets its ledger row's id up front, so the same batch can point
+ * the sale line at it.
+ */
+export function deductStock(lines: StockLine[], actorId: string | null, strict: boolean): Statement[] {
+  return lines.flatMap((line) => {
+    const movementId = crypto.randomUUID()
     // The guard in WHERE makes a race that would oversell update nothing.
-    const taken = await tx
+    const take = db
       .update(productVariants)
       .set({ stockQty: sql`${productVariants.stockQty} - ${line.qty}` })
-      .where(and(eq(productVariants.id, variantId), sql`${productVariants.stockQty} >= ${line.qty}`))
-      .returning({ id: productVariants.id })
+      .where(and(eq(productVariants.id, line.variantId), sql`${productVariants.stockQty} >= ${line.qty}`))
 
-    if (taken.length === 0 && strict) {
-      throw conflict('OUT_OF_STOCK', `${line.sku ?? 'A product'} is out of stock`, { sku: line.sku })
-    }
+    const record = strict
+      ? [
+          changed('OUT_OF_STOCK'),
+          db.insert(inventoryLedger).values({ id: movementId, variantId: line.variantId, delta: -line.qty, reason: 'pos_sale', actorId }),
+        ]
+      : [
+          // changes() is still the decrement's: nothing ran in between.
+          db.insert(inventoryLedger).select(sql`
+            select
+              ${movementId},
+              ${line.variantId},
+              case when changes() > 0 then ${-line.qty} else 0 end,
+              case when changes() > 0 then 'pos_sale' else 'manual_adjustment' end,
+              null,
+              ${actorId},
+              ${Date.now()}
+          `),
+        ]
 
-    const [movement] = await tx
-      .insert(inventoryLedger)
-      .values(
-        taken.length > 0
-          ? { variantId, delta: -line.qty, reason: 'pos_sale', actorId }
-          : { variantId, delta: 0, reason: 'manual_adjustment', actorId },
-      )
-      .returning({ id: inventoryLedger.id })
-    await tx.update(barberSaleLines).set({ inventoryLedgerId: movement!.id }).where(eq(barberSaleLines.id, line.id))
-  }
+    return [
+      take,
+      ...record,
+      db.update(barberSaleLines).set({ inventoryLedgerId: movementId }).where(eq(barberSaleLines.id, line.id)),
+    ]
+  })
 }

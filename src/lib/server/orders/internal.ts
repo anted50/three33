@@ -9,7 +9,7 @@ import { readCheckoutToken, verifyOrderToken } from './access'
  * Same bundling boundary as cart/internal.ts, for the same reason. A module
  * that exports anything other than server functions stays in the client graph,
  * and with it everything it imports — here that would be node:crypto and, via
- * `~/db`, the whole postgres driver. The build fails outright when that
+ * `~/db`, the database client. The build fails outright when that
  * happens ("performance is not exported by __vite-browser-external"), which is
  * the polite version of shipping the database client to the browser.
  *

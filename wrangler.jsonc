@@ -36,6 +36,20 @@
   },
 
   /**
+   * The database. Code reaches it as `env.DB` (src/db/index.ts).
+   * No database_id yet: the first `wrangler deploy` creates the database and
+   * wrangler writes the id back here — commit that change. Locally, wrangler
+   * keeps a SQLite file under .wrangler/state.
+   */
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "three33",
+      "migrations_dir": "drizzle"
+    }
+  ],
+
+  /**
    * Non-secret configuration. VITE_PUBLIC_* are NOT read from here for the
    * browser — Vite bakes them into the client bundle at build time from the
    * build machine's environment / .env.

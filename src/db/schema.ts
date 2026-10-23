@@ -1,39 +1,73 @@
-import { sql } from 'drizzle-orm'
+import { sql, type SQL } from 'drizzle-orm'
 import {
-  bigint,
-  boolean,
+  type AnySQLiteColumn,
   check,
-  date,
   index,
   integer,
-  jsonb,
-  pgEnum,
-  pgTable,
   primaryKey,
+  sqliteTable,
   text,
-  timestamp,
   uniqueIndex,
-  uuid,
-} from 'drizzle-orm/pg-core'
+} from 'drizzle-orm/sqlite-core'
 
 /**
  * MONEY RULE: every amount column is BIGINT holding *mungu* (tugrik x 100).
  * Never a float, never a numeric. Conversion to/from display and to/from the
  * QPay API happens in exactly one place: src/lib/money.ts.
  */
-const money = (name: string) => bigint(name, { mode: 'number' })
+const money = (name: string) => integer(name, { mode: 'number' })
 
-const id = () => uuid('id').primaryKey().defaultRandom()
-const createdAt = () =>
-  timestamp('created_at', { withTimezone: true }).notNull().defaultNow()
+/**
+ * D1 is SQLite, so the Postgres types this schema was written against are
+ * spelled differently but mean the same thing:
+ *
+ *   uuid         -> text, generated in JS (crypto.randomUUID) at insert
+ *   timestamptz  -> integer milliseconds since the epoch, read back as Date
+ *   jsonb        -> text holding JSON, parsed on read
+ *   boolean      -> integer 0/1, read back as boolean
+ *   date         -> text 'YYYY-MM-DD' (it already was, in string mode)
+ *   enum         -> text plus a CHECK constraint listing the values
+ *
+ * Generating ids in JS rather than in the database is not just a quirk:
+ * batched writes (src/db/atomic.ts) need a row's id before the batch runs,
+ * so a later statement in the same batch can reference it.
+ */
+const id = () =>
+  text('id')
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID())
+
+const timestamp = (name: string) => integer(name, { mode: 'timestamp_ms' })
+
+/** SQL default for a timestamp column: now, in milliseconds. */
+const NOW_MS = sql`(cast(unixepoch('subsec') * 1000 as integer))`
+
+const createdAt = () => timestamp('created_at').notNull().default(NOW_MS)
+
+/**
+ * A text column restricted to a fixed set of values — SQLite has no enum type.
+ * Called like the pgEnum it replaces (`orderStatus('status')`), and keeps
+ * `.enumValues` for the inferred types at the bottom of this file. The values
+ * are enforced by a CHECK constraint per column (`oneOf`), not just by
+ * TypeScript, so imported or hand-written rows cannot smuggle in a typo.
+ */
+function sqliteEnum<const T extends readonly [string, ...string[]]>(values: T) {
+  return Object.assign((name: string) => text(name, { enum: values }), {
+    enumValues: values,
+  })
+}
+
+function oneOf(column: AnySQLiteColumn, values: readonly string[]): SQL {
+  return sql`${column} in (${sql.raw(values.map((v) => `'${v}'`).join(', '))})`
+}
 
 // ---------------------------------------------------------------------------
 // Enums
 // ---------------------------------------------------------------------------
 
-export const userRole = pgEnum('user_role', ['customer', 'admin'])
+export const userRole = sqliteEnum(['customer', 'admin'])
 
-export const productStatus = pgEnum('product_status', [
+export const productStatus = sqliteEnum([
   'draft',
   'active',
   'archived',
@@ -48,7 +82,7 @@ export const productStatus = pgEnum('product_status', [
  *                    └─> cancelled          (customer or admin)
  *   paid|processing|shipped|delivered ──> refunded
  */
-export const orderStatus = pgEnum('order_status', [
+export const orderStatus = sqliteEnum([
   'pending_payment',
   'paid',
   'processing',
@@ -59,7 +93,7 @@ export const orderStatus = pgEnum('order_status', [
   'refunded',
 ])
 
-export const paymentStatus = pgEnum('payment_status', [
+export const paymentStatus = sqliteEnum([
   'pending',
   'paid',
   'failed',
@@ -67,14 +101,14 @@ export const paymentStatus = pgEnum('payment_status', [
   'refunded',
 ])
 
-export const reviewStatus = pgEnum('review_status', [
+export const reviewStatus = sqliteEnum([
   'pending',
   'approved',
   'rejected',
 ])
 
 /** Why stock moved. Every change to product_variants.stock_qty writes one row. */
-export const inventoryReason = pgEnum('inventory_reason', [
+export const inventoryReason = sqliteEnum([
   'order_paid',
   'order_cancelled',
   'order_refunded',
@@ -89,7 +123,7 @@ export const inventoryReason = pgEnum('inventory_reason', [
 
 /**
  * Shape of orders.shipping_address_snapshot. Typed here rather than cast at
- * each read: a jsonb column is `unknown` by default, and TanStack Start refuses
+ * each read: a JSON column is `unknown` by default, and TanStack Start refuses
  * to serialise `unknown` across the server-function boundary.
  */
 export interface ShippingAddress {
@@ -131,7 +165,7 @@ export interface InvoicePayload {
   }>
 }
 
-export const users = pgTable(
+export const users = sqliteTable(
   'users',
   {
     id: id(),
@@ -139,10 +173,13 @@ export const users = pgTable(
     phone: text('phone'),
     name: text('name').notNull(),
     role: userRole('role').notNull().default('customer'),
-    emailVerifiedAt: timestamp('email_verified_at', { withTimezone: true }),
+    emailVerifiedAt: timestamp('email_verified_at'),
     createdAt: createdAt(),
   },
-  (t) => [uniqueIndex('users_email_key').on(t.email)],
+  (t) => [
+    uniqueIndex('users_email_key').on(t.email),
+    check('users_role_check', oneOf(t.role, userRole.enumValues)),
+  ],
 )
 
 /**
@@ -150,14 +187,14 @@ export const users = pgTable(
  * immediately. `id` is the SHA-256 hash of the token held in the httpOnly
  * cookie, never the token itself, so a DB dump yields no usable logins.
  */
-export const sessions = pgTable(
+export const sessions = sqliteTable(
   'sessions',
   {
     id: text('id').primaryKey(),
-    userId: uuid('user_id')
+    userId: text('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    expiresAt: timestamp('expires_at').notNull(),
     userAgent: text('user_agent'),
     ip: text('ip'),
     createdAt: createdAt(),
@@ -171,7 +208,7 @@ export const sessions = pgTable(
  * account exists for it, so the lookup at verification time goes through
  * email the same way the request did.
  */
-export const otpCodes = pgTable(
+export const otpCodes = sqliteTable(
   'otp_codes',
   {
     id: id(),
@@ -179,19 +216,19 @@ export const otpCodes = pgTable(
     /** SHA-256 of the 6-digit code, never the code itself — same reasoning as
      * sessions.id. */
     codeHash: text('code_hash').notNull(),
-    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    expiresAt: timestamp('expires_at').notNull(),
     attempts: integer('attempts').notNull().default(0),
-    consumedAt: timestamp('consumed_at', { withTimezone: true }),
+    consumedAt: timestamp('consumed_at'),
     createdAt: createdAt(),
   },
   (t) => [index('otp_codes_email_idx').on(t.email)],
 )
 
-export const addresses = pgTable(
+export const addresses = sqliteTable(
   'addresses',
   {
     id: id(),
-    userId: uuid('user_id')
+    userId: text('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     district: text('district').notNull(), // düüreg
@@ -199,7 +236,7 @@ export const addresses = pgTable(
     line1: text('line1').notNull(),
     line2: text('line2'),
     phone: text('phone').notNull(),
-    isDefault: boolean('is_default').notNull().default(false),
+    isDefault: integer('is_default', { mode: 'boolean' }).notNull().default(false),
   },
   (t) => [index('addresses_user_id_idx').on(t.userId)],
 )
@@ -208,7 +245,7 @@ export const addresses = pgTable(
 // Catalog
 // ---------------------------------------------------------------------------
 
-export const categories = pgTable(
+export const categories = sqliteTable(
   'categories',
   {
     id: id(),
@@ -220,7 +257,7 @@ export const categories = pgTable(
   (t) => [uniqueIndex('categories_slug_key').on(t.slug)],
 )
 
-export const products = pgTable(
+export const products = sqliteTable(
   'products',
   {
     id: id(),
@@ -229,7 +266,7 @@ export const products = pgTable(
     nameEn: text('name_en').notNull(),
     descriptionMn: text('description_mn'),
     descriptionEn: text('description_en'),
-    categoryId: uuid('category_id').references(() => categories.id, {
+    categoryId: text('category_id').references(() => categories.id, {
       onDelete: 'set null',
     }),
     brandLine: text('brand_line'), // e.g. "Deluxe Pomade", "Featherweight"
@@ -240,14 +277,15 @@ export const products = pgTable(
     uniqueIndex('products_slug_key').on(t.slug),
     index('products_category_id_idx').on(t.categoryId),
     index('products_status_idx').on(t.status),
+    check('products_status_check', oneOf(t.status, productStatus.enumValues)),
   ],
 )
 
-export const productVariants = pgTable(
+export const productVariants = sqliteTable(
   'product_variants',
   {
     id: id(),
-    productId: uuid('product_id')
+    productId: text('product_id')
       .notNull()
       .references(() => products.id, { onDelete: 'cascade' }),
     sku: text('sku').notNull(),
@@ -260,7 +298,7 @@ export const productVariants = pgTable(
     price: money('price').notNull(),
     compareAtPrice: money('compare_at_price'), // strike-through "was" price
     stockQty: integer('stock_qty').notNull().default(0),
-    isActive: boolean('is_active').notNull().default(true),
+    isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
   },
   (t) => [
     uniqueIndex('product_variants_sku_key').on(t.sku),
@@ -268,11 +306,11 @@ export const productVariants = pgTable(
   ],
 )
 
-export const productImages = pgTable(
+export const productImages = sqliteTable(
   'product_images',
   {
     id: id(),
-    productId: uuid('product_id')
+    productId: text('product_id')
       .notNull()
       .references(() => products.id, { onDelete: 'cascade' }),
     url: text('url').notNull(),
@@ -286,13 +324,13 @@ export const productImages = pgTable(
 // Cart
 // ---------------------------------------------------------------------------
 
-export const carts = pgTable(
+export const carts = sqliteTable(
   'carts',
   {
     id: id(),
-    userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
+    userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
     sessionToken: text('session_token').notNull(), // guest cart cookie
-    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    expiresAt: timestamp('expires_at').notNull(),
     createdAt: createdAt(),
   },
   (t) => [
@@ -301,14 +339,14 @@ export const carts = pgTable(
   ],
 )
 
-export const cartItems = pgTable(
+export const cartItems = sqliteTable(
   'cart_items',
   {
     id: id(),
-    cartId: uuid('cart_id')
+    cartId: text('cart_id')
       .notNull()
       .references(() => carts.id, { onDelete: 'cascade' }),
-    variantId: uuid('variant_id')
+    variantId: text('variant_id')
       .notNull()
       .references(() => productVariants.id, { onDelete: 'cascade' }),
     qty: integer('qty').notNull(),
@@ -325,12 +363,12 @@ export const cartItems = pgTable(
 // Orders
 // ---------------------------------------------------------------------------
 
-export const orders = pgTable(
+export const orders = sqliteTable(
   'orders',
   {
     id: id(),
     orderNo: text('order_no').notNull(), // human-facing, also QPay sender_invoice_no
-    userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+    userId: text('user_id').references(() => users.id, { onDelete: 'set null' }),
     /**
      * The cart this order was checked out from. Not decoration: it is how a
      * browser with only a cart cookie finds its way back to an unpaid invoice,
@@ -338,13 +376,13 @@ export const orders = pgTable(
      * where no cookie exists. Nulled rather than cascaded — losing the cart
      * must never take the order with it.
      */
-    cartId: uuid('cart_id').references(() => carts.id, { onDelete: 'set null' }),
+    cartId: text('cart_id').references(() => carts.id, { onDelete: 'set null' }),
     status: orderStatus('status').notNull().default('pending_payment'),
     subtotal: money('subtotal').notNull(),
     shippingFee: money('shipping_fee').notNull(),
     total: money('total').notNull(),
     /** Frozen copy — editing the address book must not rewrite past orders. */
-    shippingAddressSnapshot: jsonb('shipping_address_snapshot')
+    shippingAddressSnapshot: text('shipping_address_snapshot', { mode: 'json' })
       .$type<ShippingAddress>()
       .notNull(),
     contactPhone: text('contact_phone').notNull(),
@@ -356,7 +394,7 @@ export const orders = pgTable(
      * cancels the invoice at QPay. A number living in only one of them is how
      * an "expired" order stays payable for three more days.
      */
-    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    expiresAt: timestamp('expires_at').notNull(),
     /**
      * SHA-256 of the token that lets a browser see this order — same reasoning
      * as sessions.id. Order numbers are short and guessable by design (people
@@ -377,17 +415,18 @@ export const orders = pgTable(
     index('orders_pending_expires_idx')
       .on(t.expiresAt)
       .where(sql`status = 'pending_payment'`),
+    check('orders_status_check', oneOf(t.status, orderStatus.enumValues)),
   ],
 )
 
-export const orderItems = pgTable(
+export const orderItems = sqliteTable(
   'order_items',
   {
     id: id(),
-    orderId: uuid('order_id')
+    orderId: text('order_id')
       .notNull()
       .references(() => orders.id, { onDelete: 'cascade' }),
-    variantId: uuid('variant_id').references(() => productVariants.id, {
+    variantId: text('variant_id').references(() => productVariants.id, {
       onDelete: 'set null',
     }),
     skuSnapshot: text('sku_snapshot').notNull(),
@@ -403,11 +442,11 @@ export const orderItems = pgTable(
   ],
 )
 
-export const payments = pgTable(
+export const payments = sqliteTable(
   'payments',
   {
     id: id(),
-    orderId: uuid('order_id')
+    orderId: text('order_id')
       .notNull()
       .references(() => orders.id, { onDelete: 'cascade' }),
     provider: text('provider').notNull().default('qpay'),
@@ -421,9 +460,9 @@ export const payments = pgTable(
      * Stored so reloading the payment page re-renders instantly instead of
      * calling the provider again on every refresh.
      */
-    invoicePayload: jsonb('invoice_payload').$type<InvoicePayload>(),
-    rawCallback: jsonb('raw_callback'),
-    paidAt: timestamp('paid_at', { withTimezone: true }),
+    invoicePayload: text('invoice_payload', { mode: 'json' }).$type<InvoicePayload>(),
+    rawCallback: text('raw_callback', { mode: 'json' }),
+    paidAt: timestamp('paid_at'),
     /**
      * Last time we spent a provider settlement check on this invoice. The
      * payment page polls, and every poll used to be one call to the provider —
@@ -431,7 +470,7 @@ export const payments = pgTable(
      * hitting the endpoint deliberately. settleOrder reads this to refuse to
      * ask again within a couple of seconds.
      */
-    lastCheckedAt: timestamp('last_checked_at', { withTimezone: true }),
+    lastCheckedAt: timestamp('last_checked_at'),
     createdAt: createdAt(),
   },
   (t) => [
@@ -447,6 +486,7 @@ export const payments = pgTable(
       .where(sql`payment_id is not null`),
     index('payments_order_id_idx').on(t.orderId),
     index('payments_invoice_id_idx').on(t.invoiceId),
+    check('payments_status_check', oneOf(t.status, paymentStatus.enumValues)),
   ],
 )
 
@@ -457,13 +497,13 @@ export const payments = pgTable(
  * Everything else — payment, settlement, stock, expiry — is the ordinary
  * order pipeline.
  */
-export const adminInvoices = pgTable(
+export const adminInvoices = sqliteTable(
   'admin_invoices',
   {
-    orderId: uuid('order_id')
+    orderId: text('order_id')
       .primaryKey()
       .references(() => orders.id, { onDelete: 'cascade' }),
-    createdBy: uuid('created_by').references(() => users.id, {
+    createdBy: text('created_by').references(() => users.id, {
       onDelete: 'set null',
     }),
     createdAt: createdAt(),
@@ -482,15 +522,15 @@ export const adminInvoices = pgTable(
  *
  * Append-only. Never updated, never read on the happy path except to count.
  */
-export const checkoutAttempts = pgTable(
+export const checkoutAttempts = sqliteTable(
   'checkout_attempts',
   {
     id: id(),
     /** Null behind a proxy that strips it; the phone limit still applies. */
     ip: text('ip'),
     phone: text('phone').notNull(),
-    cartId: uuid('cart_id').references(() => carts.id, { onDelete: 'set null' }),
-    orderId: uuid('order_id').references(() => orders.id, {
+    cartId: text('cart_id').references(() => carts.id, { onDelete: 'set null' }),
+    orderId: text('order_id').references(() => orders.id, {
       onDelete: 'set null',
     }),
     /** created | reused | rate_limited | invoice_failed */
@@ -507,18 +547,18 @@ export const checkoutAttempts = pgTable(
 // Reviews & inventory
 // ---------------------------------------------------------------------------
 
-export const reviews = pgTable(
+export const reviews = sqliteTable(
   'reviews',
   {
     id: id(),
-    productId: uuid('product_id')
+    productId: text('product_id')
       .notNull()
       .references(() => products.id, { onDelete: 'cascade' }),
-    userId: uuid('user_id')
+    userId: text('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     /** Gate: only orders that reached `delivered` may leave a review. */
-    orderId: uuid('order_id')
+    orderId: text('order_id')
       .notNull()
       .references(() => orders.id, { onDelete: 'cascade' }),
     rating: integer('rating').notNull(), // 1..5, checked in the server function
@@ -533,12 +573,13 @@ export const reviews = pgTable(
       t.orderId,
     ),
     index('reviews_product_id_status_idx').on(t.productId, t.status),
+    check('reviews_status_check', oneOf(t.status, reviewStatus.enumValues)),
   ],
 )
 
 /**
  * Append-only audit of every stock movement. `product_variants.stock_qty` is the
- * fast read; this is the explanation. Written in the same transaction as the
+ * fast read; this is the explanation. Written in the same atomic batch as the
  * stock change, always.
  */
 /**
@@ -546,29 +587,32 @@ export const reviews = pgTable(
  * fee. Values are stored as text and parsed by the module that owns each key
  * (see lib/server/settings.ts), so adding a knob needs no migration.
  */
-export const settings = pgTable('settings', {
+export const settings = sqliteTable('settings', {
   key: text('key').primaryKey(),
   value: text('value').notNull(),
 })
 
-export const inventoryLedger = pgTable(
+export const inventoryLedger = sqliteTable(
   'inventory_ledger',
   {
     id: id(),
-    variantId: uuid('variant_id')
+    variantId: text('variant_id')
       .notNull()
       .references(() => productVariants.id, { onDelete: 'cascade' }),
     delta: integer('delta').notNull(), // negative = sold, positive = restocked
     reason: inventoryReason('reason').notNull(),
-    orderId: uuid('order_id').references(() => orders.id, {
+    orderId: text('order_id').references(() => orders.id, {
       onDelete: 'set null',
     }),
-    actorId: uuid('actor_id').references(() => users.id, {
+    actorId: text('actor_id').references(() => users.id, {
       onDelete: 'set null',
     }),
     createdAt: createdAt(),
   },
-  (t) => [index('inventory_ledger_variant_id_idx').on(t.variantId)],
+  (t) => [
+    index('inventory_ledger_variant_id_idx').on(t.variantId),
+    check('inventory_ledger_reason_check', oneOf(t.reason, inventoryReason.enumValues)),
+  ],
 )
 
 // ---------------------------------------------------------------------------
@@ -601,7 +645,7 @@ export const inventoryLedger = pgTable(
 // ends the moment the owner deactivates the barber.
 // ---------------------------------------------------------------------------
 
-export const appointmentSource = pgEnum('appointment_source', [
+export const appointmentSource = sqliteEnum([
   'online', // customer booked on the site and paid the fee
   'barber', // barber entered it: phone call, walk-in, extra job after hours
 ])
@@ -614,7 +658,7 @@ export const appointmentSource = pgEnum('appointment_source', [
  *
  * Barber-entered bookings start at `booked`.
  */
-export const appointmentStatus = pgEnum('appointment_status', [
+export const appointmentStatus = sqliteEnum([
   'pending',
   'booked',
   'completed',
@@ -622,7 +666,7 @@ export const appointmentStatus = pgEnum('appointment_status', [
   'no_show',
 ])
 
-export const appointmentEventKind = pgEnum('appointment_event_kind', [
+export const appointmentEventKind = sqliteEnum([
   'created',
   'rescheduled',
   'updated',
@@ -632,7 +676,7 @@ export const appointmentEventKind = pgEnum('appointment_event_kind', [
   'completed',
 ])
 
-export const appointmentPaymentKind = pgEnum('appointment_payment_kind', [
+export const appointmentPaymentKind = sqliteEnum([
   'booking_fee', // online, up front
   'balance', // at the shop: total - booking_fee, possibly split
 ])
@@ -642,18 +686,18 @@ export const appointmentPaymentKind = pgEnum('appointment_payment_kind', [
  * bank_transfer arrive in the shop's main account; cash stays in the barber's
  * hand and is owed back (barber_ledger 'cash_collected').
  */
-export const paymentMethod = pgEnum('payment_method', [
+export const paymentMethod = sqliteEnum([
   'qpay',
   'cash',
   'pos',
   'bank_transfer',
 ])
 
-export const rentPeriod = pgEnum('rent_period', ['weekly', 'biweekly', 'monthly'])
-export const rentStatus = pgEnum('rent_status', ['due', 'paid', 'waived'])
-export const rentPaidVia = pgEnum('rent_paid_via', ['direct', 'payout'])
+export const rentPeriod = sqliteEnum(['weekly', 'biweekly', 'monthly'])
+export const rentStatus = sqliteEnum(['due', 'paid', 'waived'])
+export const rentPaidVia = sqliteEnum(['direct', 'payout'])
 
-export const barberLedgerKind = pgEnum('barber_ledger_kind', [
+export const barberLedgerKind = sqliteEnum([
   'service_share', // + barber's share of an appointment payment
   'product_commission', // + commission on an in-store sale they rang up
   'cash_collected', // − cash the barber holds and must hand back
@@ -663,7 +707,7 @@ export const barberLedgerKind = pgEnum('barber_ledger_kind', [
   'adjustment', // ± owner correction, note required
 ])
 
-export const locations = pgTable(
+export const locations = sqliteTable(
   'locations',
   {
     id: id(),
@@ -673,14 +717,14 @@ export const locations = pgTable(
     address: text('address').notNull(),
     phone: text('phone'),
     mapLink: text('map_link'),
-    isActive: boolean('is_active').notNull().default(true),
+    isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
     sortOrder: integer('sort_order').notNull().default(0),
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex('locations_slug_key').on(t.slug)],
 )
 
-export const barbers = pgTable(
+export const barbers = sqliteTable(
   'barbers',
   {
     id: id(),
@@ -700,10 +744,10 @@ export const barbers = pgTable(
     /** The barber's login, created by the owner with this row. Signing in to
      * /barber (email code only) requires this link and is_active; users.role
      * plays no part. Null = the owner manages this barber, no login. */
-    userId: uuid('user_id').references(() => users.id, {
+    userId: text('user_id').references(() => users.id, {
       onDelete: 'set null',
     }),
-    isActive: boolean('is_active').notNull().default(true),
+    isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
     sortOrder: integer('sort_order').notNull().default(0),
     createdAt: createdAt(),
   },
@@ -720,14 +764,14 @@ export const barbers = pgTable(
  * it. The same haircut at another branch is another row with its own price;
  * there is no override logic and no owner-defined catalog.
  */
-export const services = pgTable(
+export const services = sqliteTable(
   'services',
   {
     id: id(),
-    barberId: uuid('barber_id')
+    barberId: text('barber_id')
       .notNull()
       .references(() => barbers.id, { onDelete: 'cascade' }),
-    locationId: uuid('location_id')
+    locationId: text('location_id')
       .notNull()
       .references(() => locations.id, { onDelete: 'cascade' }),
     nameEn: text('name_en').notNull(),
@@ -736,7 +780,7 @@ export const services = pgTable(
     descriptionMn: text('description_mn'),
     price: money('price').notNull(),
     durationMinutes: integer('duration_minutes').notNull(),
-    isActive: boolean('is_active').notNull().default(true),
+    isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
     sortOrder: integer('sort_order').notNull().default(0),
     createdAt: createdAt(),
   },
@@ -755,20 +799,21 @@ export const services = pgTable(
  * minus appointments, so a booking outside every shift (overtime) takes
  * nothing from the plan, and editing a shift never touches a booking.
  *
- * + EXCLUDE (no overlapping shifts per barber) in the migration's SQL.
+ * + no overlapping shifts per barber: a trigger in the D1 migrations, the
+ *   SQLite stand-in for the Postgres EXCLUDE constraint this used to be.
  */
-export const barberShifts = pgTable(
+export const barberShifts = sqliteTable(
   'barber_shifts',
   {
     id: id(),
-    barberId: uuid('barber_id')
+    barberId: text('barber_id')
       .notNull()
       .references(() => barbers.id, { onDelete: 'cascade' }),
-    locationId: uuid('location_id')
+    locationId: text('location_id')
       .notNull()
       .references(() => locations.id, { onDelete: 'cascade' }),
-    startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
-    endsAt: timestamp('ends_at', { withTimezone: true }).notNull(),
+    startsAt: timestamp('starts_at').notNull(),
+    endsAt: timestamp('ends_at').notNull(),
     createdAt: createdAt(),
   },
   (t) => [
@@ -785,11 +830,11 @@ export const barberShifts = pgTable(
  * effective_from <= now, and past ledger rows keep the rate they were earned
  * under.
  */
-export const barberTerms = pgTable(
+export const barberTerms = sqliteTable(
   'barber_terms',
   {
     id: id(),
-    barberId: uuid('barber_id')
+    barberId: text('barber_id')
       .notNull()
       .references(() => barbers.id, { onDelete: 'restrict' }),
     /** Shop's cut of service payments, in basis points: 3000 = 30%. Integer
@@ -802,11 +847,9 @@ export const barberTerms = pgTable(
     rentAmount: money('rent_amount').notNull().default(0),
     rentPeriod: rentPeriod('rent_period'),
     /** First due date; later ones are this + n × period. */
-    rentStartsOn: date('rent_starts_on'),
-    effectiveFrom: timestamp('effective_from', {
-      withTimezone: true,
-    }).notNull(),
-    createdBy: uuid('created_by').references(() => users.id, {
+    rentStartsOn: text('rent_starts_on'),
+    effectiveFrom: timestamp('effective_from').notNull(),
+    createdBy: text('created_by').references(() => users.id, {
       onDelete: 'set null',
     }),
     createdAt: createdAt(),
@@ -824,6 +867,7 @@ export const barberTerms = pgTable(
       'barber_terms_rent_check',
       sql`${t.rentAmount} = 0 or (${t.rentAmount} > 0 and ${t.rentPeriod} is not null and ${t.rentStartsOn} is not null)`,
     ),
+    check('barber_terms_rent_period_check', oneOf(t.rentPeriod, rentPeriod.enumValues)),
   ],
 )
 
@@ -832,22 +876,22 @@ export const barberTerms = pgTable(
  * Paid either directly (owner confirms) or out of a payout (a
  * 'rent_deduction' ledger row points here).
  */
-export const rentCharges = pgTable(
+export const rentCharges = sqliteTable(
   'rent_charges',
   {
     id: id(),
-    barberId: uuid('barber_id')
+    barberId: text('barber_id')
       .notNull()
       .references(() => barbers.id, { onDelete: 'restrict' }),
     /** Frozen from the terms: changing the rent never rewrites a bill. */
     amount: money('amount').notNull(),
-    dueOn: date('due_on').notNull(),
+    dueOn: text('due_on').notNull(),
     status: rentStatus('status').notNull().default('due'),
     paidVia: rentPaidVia('paid_via'),
-    confirmedBy: uuid('confirmed_by').references(() => users.id, {
+    confirmedBy: text('confirmed_by').references(() => users.id, {
       onDelete: 'set null',
     }),
-    confirmedAt: timestamp('confirmed_at', { withTimezone: true }),
+    confirmedAt: timestamp('confirmed_at'),
     note: text('note'),
     createdAt: createdAt(),
   },
@@ -860,6 +904,8 @@ export const rentCharges = pgTable(
       'rent_charges_paid_check',
       sql`${t.status} <> 'paid' or ${t.paidVia} is not null`,
     ),
+    check('rent_charges_status_check', oneOf(t.status, rentStatus.enumValues)),
+    check('rent_charges_paid_via_check', oneOf(t.paidVia, rentPaidVia.enumValues)),
   ],
 )
 
@@ -870,27 +916,27 @@ export const rentCharges = pgTable(
  * what the no-overlap constraint uses — so a barber changing their buffer
  * later can't create a clash with bookings that already exist.
  *
- * + EXCLUDE (no overlapping appointments per barber, except cancelled) in the
- *   migration's SQL. Pending holds count, so nobody can take a slot someone
- *   else is paying for.
+ * + no overlapping appointments per barber, except cancelled: a trigger in the
+ *   D1 migrations (it was an EXCLUDE constraint on Postgres). Pending holds
+ *   count, so nobody can take a slot someone else is paying for.
  */
-export const appointments = pgTable(
+export const appointments = sqliteTable(
   'appointments',
   {
     id: id(),
     bookingNo: text('booking_no').notNull(), // short, read aloud, like order_no
-    locationId: uuid('location_id')
+    locationId: text('location_id')
       .notNull()
       .references(() => locations.id, { onDelete: 'restrict' }),
-    barberId: uuid('barber_id')
+    barberId: text('barber_id')
       .notNull()
       .references(() => barbers.id, { onDelete: 'restrict' }),
     source: appointmentSource('source').notNull(),
     status: appointmentStatus('status').notNull(),
-    startsAt: timestamp('starts_at', { withTimezone: true }).notNull(),
+    startsAt: timestamp('starts_at').notNull(),
     /** starts_at + the sum of the line durations. */
-    endsAt: timestamp('ends_at', { withTimezone: true }).notNull(),
-    blockedUntil: timestamp('blocked_until', { withTimezone: true }).notNull(),
+    endsAt: timestamp('ends_at').notNull(),
+    blockedUntil: timestamp('blocked_until').notNull(),
     /** The barber's buffer when booked; a reschedule keeps it. */
     bufferMinutes: integer('buffer_minutes').notNull(),
     /** Sum of line prices, frozen. */
@@ -898,21 +944,19 @@ export const appointments = pgTable(
     /** Paid online, frozen. Due at the shop = total − booking_fee. */
     bookingFee: money('booking_fee').notNull(),
     /** How long an unpaid hold lives. Null once confirmed-by-barber. */
-    expiresAt: timestamp('expires_at', { withTimezone: true }),
-    confirmedAt: timestamp('confirmed_at', { withTimezone: true }),
+    expiresAt: timestamp('expires_at'),
+    confirmedAt: timestamp('confirmed_at'),
     /** The barber who entered it. Null for online bookings, which the fee
      * confirmed. */
-    confirmedBy: uuid('confirmed_by').references(() => users.id, {
+    confirmedBy: text('confirmed_by').references(() => users.id, {
       onDelete: 'set null',
     }),
     /** Set once the confirmation email has gone out, so a QPay callback and
      * the sweep confirming the same booking can't send it twice. */
-    confirmationSentAt: timestamp('confirmation_sent_at', {
-      withTimezone: true,
-    }),
+    confirmationSentAt: timestamp('confirmation_sent_at'),
     /** Emergency flag: on the barber's call list until rescheduled or
      * cancelled. */
-    needsRescheduleAt: timestamp('needs_reschedule_at', { withTimezone: true }),
+    needsRescheduleAt: timestamp('needs_reschedule_at'),
     customerName: text('customer_name').notNull(),
     customerPhone: text('customer_phone').notNull(),
     customerEmail: text('customer_email'),
@@ -961,18 +1005,20 @@ export const appointments = pgTable(
       'appointments_barber_check',
       sql`${t.source} <> 'barber' or (${t.bookingFee} = 0 and ${t.expiresAt} is null)`,
     ),
+    check('appointments_source_check', oneOf(t.source, appointmentSource.enumValues)),
+    check('appointments_status_check', oneOf(t.status, appointmentStatus.enumValues)),
   ],
 )
 
 /** Lines of an appointment, frozen — editing a service never changes them. */
-export const appointmentServices = pgTable(
+export const appointmentServices = sqliteTable(
   'appointment_services',
   {
     id: id(),
-    appointmentId: uuid('appointment_id')
+    appointmentId: text('appointment_id')
       .notNull()
       .references(() => appointments.id, { onDelete: 'cascade' }),
-    serviceId: uuid('service_id').references(() => services.id, {
+    serviceId: text('service_id').references(() => services.id, {
       onDelete: 'set null',
     }),
     nameSnapshot: text('name_snapshot').notNull(),
@@ -992,23 +1038,26 @@ export const appointmentServices = pgTable(
 /** Append-only history. The appointment row holds the current state; this
  * holds how it got there — every move, by whom, from when to when. Holds
  * write nothing here; 'created' is written when the booking is confirmed. */
-export const appointmentEvents = pgTable(
+export const appointmentEvents = sqliteTable(
   'appointment_events',
   {
     id: id(),
-    appointmentId: uuid('appointment_id')
+    appointmentId: text('appointment_id')
       .notNull()
       .references(() => appointments.id, { onDelete: 'cascade' }),
     kind: appointmentEventKind('kind').notNull(),
-    fromStartsAt: timestamp('from_starts_at', { withTimezone: true }),
-    toStartsAt: timestamp('to_starts_at', { withTimezone: true }),
-    actorId: uuid('actor_id').references(() => users.id, {
+    fromStartsAt: timestamp('from_starts_at'),
+    toStartsAt: timestamp('to_starts_at'),
+    actorId: text('actor_id').references(() => users.id, {
       onDelete: 'set null',
     }),
     note: text('note'),
     createdAt: createdAt(),
   },
-  (t) => [index('appointment_events_appointment_id_idx').on(t.appointmentId)],
+  (t) => [
+    index('appointment_events_appointment_id_idx').on(t.appointmentId),
+    check('appointment_events_kind_check', oneOf(t.kind, appointmentEventKind.enumValues)),
+  ],
 )
 
 /**
@@ -1016,11 +1065,11 @@ export const appointmentEvents = pgTable(
  * possibly split). Mirrors `payments`, but for appointments, so the shop's
  * tables stay untouched.
  */
-export const appointmentPayments = pgTable(
+export const appointmentPayments = sqliteTable(
   'appointment_payments',
   {
     id: id(),
-    appointmentId: uuid('appointment_id')
+    appointmentId: text('appointment_id')
       .notNull()
       .references(() => appointments.id, { onDelete: 'restrict' }),
     kind: appointmentPaymentKind('kind').notNull(),
@@ -1029,14 +1078,14 @@ export const appointmentPayments = pgTable(
     status: paymentStatus('status').notNull().default('pending'),
     qpayInvoiceId: text('qpay_invoice_id'),
     qpayPaymentId: text('qpay_payment_id'),
-    invoicePayload: jsonb('invoice_payload').$type<InvoicePayload>(),
-    rawCallback: jsonb('raw_callback'),
+    invoicePayload: text('invoice_payload', { mode: 'json' }).$type<InvoicePayload>(),
+    rawCallback: text('raw_callback', { mode: 'json' }),
     /** Who took it at the shop. Null for the online fee. */
-    receivedByUserId: uuid('received_by_user_id').references(() => users.id, {
+    receivedByUserId: text('received_by_user_id').references(() => users.id, {
       onDelete: 'set null',
     }),
-    paidAt: timestamp('paid_at', { withTimezone: true }),
-    lastCheckedAt: timestamp('last_checked_at', { withTimezone: true }),
+    paidAt: timestamp('paid_at'),
+    lastCheckedAt: timestamp('last_checked_at'),
     createdAt: createdAt(),
   },
   (t) => [
@@ -1063,6 +1112,9 @@ export const appointmentPayments = pgTable(
       'appointment_payments_paid_check',
       sql`${t.status} <> 'paid' or ${t.paidAt} is not null`,
     ),
+    check('appointment_payments_status_check', oneOf(t.status, paymentStatus.enumValues)),
+    check('appointment_payments_kind_check', oneOf(t.kind, appointmentPaymentKind.enumValues)),
+    check('appointment_payments_method_check', oneOf(t.method, paymentMethod.enumValues)),
   ],
 )
 
@@ -1072,16 +1124,16 @@ export const appointmentPayments = pgTable(
  * order is an in-store sale iff it has a row here. Written together with the
  * order's first payment — see the in-store flows.
  */
-export const inStoreSales = pgTable(
+export const inStoreSales = sqliteTable(
   'in_store_sales',
   {
-    orderId: uuid('order_id')
+    orderId: text('order_id')
       .primaryKey()
       .references(() => orders.id, { onDelete: 'cascade' }),
-    barberId: uuid('barber_id')
+    barberId: text('barber_id')
       .notNull()
       .references(() => barbers.id, { onDelete: 'restrict' }),
-    locationId: uuid('location_id')
+    locationId: text('location_id')
       .notNull()
       .references(() => locations.id, { onDelete: 'restrict' }),
     createdAt: createdAt(),
@@ -1094,14 +1146,14 @@ export const inStoreSales = pgTable(
 /**
  * Append-only. A barber's balance = sum(amount): positive means the shop owes
  * the barber, negative means the barber owes the shop (usually cash they
- * hold). Written in the same transaction as the money it records, like
+ * hold). Written in the same atomic batch as the money it records, like
  * inventory_ledger.
  */
-export const barberLedger = pgTable(
+export const barberLedger = sqliteTable(
   'barber_ledger',
   {
     id: id(),
-    barberId: uuid('barber_id')
+    barberId: text('barber_id')
       .notNull()
       .references(() => barbers.id, { onDelete: 'restrict' }),
     kind: barberLedgerKind('kind').notNull(),
@@ -1111,23 +1163,23 @@ export const barberLedger = pgTable(
      * change. */
     rateBps: integer('rate_bps'),
     amount: money('amount').notNull(),
-    appointmentPaymentId: uuid('appointment_payment_id').references(
+    appointmentPaymentId: text('appointment_payment_id').references(
       () => appointmentPayments.id,
       { onDelete: 'restrict' },
     ),
     /** A shop payment on an in-store sale (product commission, cash). */
-    paymentId: uuid('payment_id').references(() => payments.id, {
+    paymentId: text('payment_id').references(() => payments.id, {
       onDelete: 'restrict',
     }),
-    rentChargeId: uuid('rent_charge_id').references(() => rentCharges.id, {
+    rentChargeId: text('rent_charge_id').references(() => rentCharges.id, {
       onDelete: 'restrict',
     }),
     /** A payment taken through the barber's POS (0007). */
-    salePaymentId: uuid('sale_payment_id').references(
+    salePaymentId: text('sale_payment_id').references(
       () => barberSalePayments.id,
       { onDelete: 'restrict' },
     ),
-    actorId: uuid('actor_id').references(() => users.id, {
+    actorId: text('actor_id').references(() => users.id, {
       onDelete: 'set null',
     }),
     note: text('note'),
@@ -1161,6 +1213,7 @@ export const barberLedger = pgTable(
       'barber_ledger_rent_check',
       sql`${t.kind} <> 'rent_deduction' or ${t.rentChargeId} is not null`,
     ),
+    check('barber_ledger_kind_check', oneOf(t.kind, barberLedgerKind.enumValues)),
   ],
 )
 
@@ -1176,13 +1229,13 @@ export const barberLedger = pgTable(
 
 /** Where a barber may work: owner-managed. Services and shifts can only be
  * placed at a location in this set. */
-export const barberLocations = pgTable(
+export const barberLocations = sqliteTable(
   'barber_locations',
   {
-    barberId: uuid('barber_id')
+    barberId: text('barber_id')
       .notNull()
       .references(() => barbers.id, { onDelete: 'cascade' }),
-    locationId: uuid('location_id')
+    locationId: text('location_id')
       .notNull()
       .references(() => locations.id, { onDelete: 'cascade' }),
     createdAt: createdAt(),
@@ -1199,21 +1252,21 @@ export const barberLocations = pgTable(
  * off (a row here), or unknown (neither — the barber hasn't decided).
  * A day is never both: the schedule API replaces a day as a whole.
  */
-export const barberDaysOff = pgTable(
+export const barberDaysOff = sqliteTable(
   'barber_days_off',
   {
-    barberId: uuid('barber_id')
+    barberId: text('barber_id')
       .notNull()
       .references(() => barbers.id, { onDelete: 'cascade' }),
     /** Local date in Ulaanbaatar time. */
-    day: date('day').notNull(),
+    day: text('day').notNull(),
     note: text('note'),
     createdAt: createdAt(),
   },
   (t) => [primaryKey({ columns: [t.barberId, t.day] })],
 )
 
-export const barberSaleStatus = pgEnum('barber_sale_status', [
+export const barberSaleStatus = sqliteEnum([
   'open', // lines set, waiting for payments to add up
   'paid', // payments cover total − credit
   'void', // abandoned by the barber before it was paid
@@ -1227,18 +1280,18 @@ export const barberSaleStatus = pgEnum('barber_sale_status', [
  * An appointment checkout is a sale with appointment_id set and `credit` = the
  * booking fee already paid online, so the customer is only asked for the rest.
  */
-export const barberSales = pgTable(
+export const barberSales = sqliteTable(
   'barber_sales',
   {
     id: id(),
     saleNo: text('sale_no').notNull(),
-    barberId: uuid('barber_id')
+    barberId: text('barber_id')
       .notNull()
       .references(() => barbers.id, { onDelete: 'restrict' }),
-    locationId: uuid('location_id')
+    locationId: text('location_id')
       .notNull()
       .references(() => locations.id, { onDelete: 'restrict' }),
-    appointmentId: uuid('appointment_id').references(() => appointments.id, {
+    appointmentId: text('appointment_id').references(() => appointments.id, {
       onDelete: 'restrict',
     }),
     status: barberSaleStatus('status').notNull().default('open'),
@@ -1250,11 +1303,11 @@ export const barberSales = pgTable(
     customerName: text('customer_name'),
     customerPhone: text('customer_phone'),
     customerEmail: text('customer_email'),
-    createdBy: uuid('created_by').references(() => users.id, {
+    createdBy: text('created_by').references(() => users.id, {
       onDelete: 'set null',
     }),
-    paidAt: timestamp('paid_at', { withTimezone: true }),
-    voidedAt: timestamp('voided_at', { withTimezone: true }),
+    paidAt: timestamp('paid_at'),
+    voidedAt: timestamp('voided_at'),
     createdAt: createdAt(),
   },
   (t) => [
@@ -1276,18 +1329,19 @@ export const barberSales = pgTable(
       'barber_sales_paid_check',
       sql`${t.status} <> 'paid' or ${t.paidAt} is not null`,
     ),
+    check('barber_sales_status_check', oneOf(t.status, barberSaleStatus.enumValues)),
   ],
 )
 
-export const barberSaleLines = pgTable(
+export const barberSaleLines = sqliteTable(
   'barber_sale_lines',
   {
     id: id(),
-    saleId: uuid('sale_id')
+    saleId: text('sale_id')
       .notNull()
       .references(() => barberSales.id, { onDelete: 'cascade' }),
     /** The barber's service it came from, if any. Name and amount are free. */
-    serviceId: uuid('service_id').references(() => services.id, {
+    serviceId: text('service_id').references(() => services.id, {
       onDelete: 'set null',
     }),
     /**
@@ -1296,12 +1350,12 @@ export const barberSaleLines = pgTable(
      * deducted when the sale is paid. Set null if the owner later removes
      * the variant; the sku snapshot keeps the line readable.
      */
-    variantId: uuid('variant_id').references(() => productVariants.id, {
+    variantId: text('variant_id').references(() => productVariants.id, {
       onDelete: 'set null',
     }),
     skuSnapshot: text('sku_snapshot'),
     /** The stock movement this line caused, once the sale is paid. */
-    inventoryLedgerId: uuid('inventory_ledger_id').references(
+    inventoryLedgerId: text('inventory_ledger_id').references(
       () => inventoryLedger.id,
       { onDelete: 'set null' },
     ),
@@ -1329,11 +1383,11 @@ export const barberSaleLines = pgTable(
  * and bank_transfer are recorded as paid on entry, on the barber's word —
  * that money lands where no API can see it.
  */
-export const barberSalePayments = pgTable(
+export const barberSalePayments = sqliteTable(
   'barber_sale_payments',
   {
     id: id(),
-    saleId: uuid('sale_id')
+    saleId: text('sale_id')
       .notNull()
       .references(() => barberSales.id, { onDelete: 'restrict' }),
     method: paymentMethod('method').notNull(),
@@ -1341,13 +1395,13 @@ export const barberSalePayments = pgTable(
     status: paymentStatus('status').notNull().default('pending'),
     qpayInvoiceId: text('qpay_invoice_id'),
     qpayPaymentId: text('qpay_payment_id'),
-    invoicePayload: jsonb('invoice_payload').$type<InvoicePayload>(),
-    rawCallback: jsonb('raw_callback'),
-    receivedByUserId: uuid('received_by_user_id').references(() => users.id, {
+    invoicePayload: text('invoice_payload', { mode: 'json' }).$type<InvoicePayload>(),
+    rawCallback: text('raw_callback', { mode: 'json' }),
+    receivedByUserId: text('received_by_user_id').references(() => users.id, {
       onDelete: 'set null',
     }),
-    paidAt: timestamp('paid_at', { withTimezone: true }),
-    lastCheckedAt: timestamp('last_checked_at', { withTimezone: true }),
+    paidAt: timestamp('paid_at'),
+    lastCheckedAt: timestamp('last_checked_at'),
     createdAt: createdAt(),
   },
   (t) => [
@@ -1365,8 +1419,29 @@ export const barberSalePayments = pgTable(
       'barber_sale_payments_paid_check',
       sql`${t.status} <> 'paid' or ${t.paidAt} is not null`,
     ),
+    check('barber_sale_payments_status_check', oneOf(t.status, paymentStatus.enumValues)),
+    check('barber_sale_payments_method_check', oneOf(t.method, paymentMethod.enumValues)),
   ],
 )
+
+// ---------------------------------------------------------------------------
+// Batch guards — not data.
+// ---------------------------------------------------------------------------
+
+/**
+ * Inserting into this table always fails: a trigger (see the D1 migration
+ * that creates it) aborts with the inserted `code` as the error message.
+ *
+ * It is how a D1 batch says "stop". D1 has no interactive transactions, so
+ * the row locks this app used to take (SELECT ... FOR UPDATE, then decide,
+ * then write) cannot exist. Instead the condition the lock protected is
+ * re-checked as the batch's first statement — insert a code here unless the
+ * condition still holds — and if it no longer does, the whole batch rolls
+ * back with that code. See guard() in src/db/atomic.ts.
+ */
+export const batchGuards = sqliteTable('batch_guards', {
+  code: text('code').notNull(),
+})
 
 // ---------------------------------------------------------------------------
 // Inferred types — import these instead of redeclaring shapes.

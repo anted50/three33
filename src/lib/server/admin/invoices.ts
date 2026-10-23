@@ -1,5 +1,7 @@
 import { asc, desc, eq, inArray } from 'drizzle-orm'
 import { db } from '~/db'
+import { atomic } from '~/db/atomic'
+import { inBackground } from '../background'
 import {
   adminInvoices,
   orderItems,
@@ -62,19 +64,19 @@ export async function issueAdminInvoice(
   const name = input.name || null
 
   /**
-   * Catalog lines are checked against stock now, under a row lock, so the
-   * admin hears "only 2 left" before a customer is asked to pay. Nothing is
-   * reserved — as with web checkout, stock moves when the money lands, and
-   * settle.ts re-checks it then.
+   * Catalog lines are checked against stock now, so the admin hears "only 2
+   * left" before a customer is asked to pay. Nothing is reserved — as with web
+   * checkout, stock moves when the money lands, and settle.ts's conditional
+   * decrement decides it then.
    */
   const variantLines = input.lines.flatMap((line) =>
     line.kind === 'variant' ? [line] : [],
   )
 
-  const snapshots = await db.transaction(async (tx) => {
+  const snapshots = await (async () => {
     if (variantLines.length === 0) return new Map<string, { sku: string; name: string }>()
 
-    const locked = await tx
+    const locked = await db
       .select({
         id: productVariants.id,
         sku: productVariants.sku,
@@ -85,7 +87,6 @@ export async function issueAdminInvoice(
       .from(productVariants)
       .innerJoin(products, eq(products.id, productVariants.productId))
       .where(inArray(productVariants.id, variantLines.map((l) => l.variantId)))
-      .for('update', { of: productVariants })
 
     const byId = new Map(locked.map((v) => [v.id, v]))
 
@@ -100,7 +101,7 @@ export async function issueAdminInvoice(
         return [line.variantId, { sku: variant.sku, name: label }]
       }),
     )
-  })
+  })()
 
   const total = invoiceTotal(input.lines)
   if (total <= 0) throw new Error('Нийт дүн 0-ээс их байх ёстой')
@@ -139,89 +140,76 @@ export async function issueAdminInvoice(
         })
       : null
 
+  const orderId = crypto.randomUUID()
+  const paymentId = crypto.randomUUID()
+
+  const items = input.lines.map((line) => {
+    if (line.kind === 'variant') {
+      const snap = snapshots.get(line.variantId)!
+      return {
+        orderId,
+        variantId: line.variantId,
+        skuSnapshot: snap.sku,
+        nameSnapshot: snap.name,
+        unitPrice: line.unitPrice,
+        qty: line.qty,
+      }
+    }
+    return {
+      orderId,
+      variantId: null,
+      skuSnapshot: CUSTOM_SKU,
+      nameSnapshot: line.name,
+      unitPrice: line.unitPrice,
+      qty: line.qty,
+    }
+  })
+
   try {
-    await db.transaction(async (tx) => {
-      const [created] = await tx
-        .insert(orders)
-        .values({
-          orderNo,
-          cartId: null,
-          status: 'pending_payment',
-          subtotal: total,
-          shippingFee: 0,
-          total,
-          contactPhone: phone ?? '',
-          note: input.note || null,
-          expiresAt,
-          accessTokenHash: hash,
-          shippingAddressSnapshot: { name, phone: phone ?? '', email },
-        })
-        .returning({ id: orders.id })
-
-      if (!created) throw new Error('Нэхэмжлэх үүсгэж чадсангүй')
-
-      await tx.insert(orderItems).values(
-        input.lines.map((line) => {
-          if (line.kind === 'variant') {
-            const snap = snapshots.get(line.variantId)!
-            return {
-              orderId: created.id,
-              variantId: line.variantId,
-              skuSnapshot: snap.sku,
-              nameSnapshot: snap.name,
-              unitPrice: line.unitPrice,
-              qty: line.qty,
+    await atomic([
+      db.insert(orders).values({
+        id: orderId,
+        orderNo,
+        cartId: null,
+        status: 'pending_payment',
+        subtotal: total,
+        shippingFee: 0,
+        total,
+        contactPhone: phone ?? '',
+        note: input.note || null,
+        expiresAt,
+        accessTokenHash: hash,
+        shippingAddressSnapshot: { name, phone: phone ?? '', email },
+      }),
+      db.insert(orderItems).values(items),
+      db.insert(payments).values({
+        id: paymentId,
+        orderId,
+        provider: input.method,
+        invoiceId: invoice?.invoiceId ?? null,
+        amount: total,
+        status: 'pending',
+        invoicePayload: invoice
+          ? {
+              qrText: invoice.qrText,
+              qrImage: invoice.qrImage,
+              shortUrl: invoice.shortUrl,
+              links: invoice.links,
             }
-          }
-          return {
-            orderId: created.id,
-            variantId: null,
-            skuSnapshot: CUSTOM_SKU,
-            nameSnapshot: line.name,
-            unitPrice: line.unitPrice,
-            qty: line.qty,
-          }
-        }),
-      )
-
-      const [payment] = await tx
-        .insert(payments)
-        .values({
-          orderId: created.id,
-          provider: input.method,
-          invoiceId: invoice?.invoiceId ?? null,
-          amount: total,
-          status: 'pending',
-          invoicePayload: invoice
-            ? {
-                qrText: invoice.qrText,
-                qrImage: invoice.qrImage,
-                shortUrl: invoice.shortUrl,
-                links: invoice.links,
-              }
-            : null,
-        })
-        .returning({ id: payments.id })
-
-      await tx.insert(adminInvoices).values({
-        orderId: created.id,
-        createdBy: adminId,
-      })
-
+          : null,
+      }),
+      db.insert(adminInvoices).values({ orderId, createdBy: adminId }),
       /**
        * A manual sale was paid at the counter before it was entered, so it
-       * settles here, in the same transaction that wrote it — stock and the
-       * ledger move exactly as they would for a QPay payment. The order number
-       * stands in for a provider payment id, keeping payments_payment_id_key
+       * settles here, in the same batch that wrote it — stock and the ledger
+       * move exactly as they would for a QPay payment. The order number stands
+       * in for a provider payment id, keeping payments_payment_id_key
        * meaningful.
        */
-      if (!invoice) {
-        await markPaid(tx, { id: created.id, cartId: null }, payment!.id, {
-          paymentId: `manual:${orderNo}`,
-          rawCallback: null,
-        })
-      }
-    })
+      ...(invoice
+        ? []
+        : await markPaid({ id: orderId, cartId: null }, paymentId, { paymentId: `manual:${orderNo}`, rawCallback: null }, items)),
+    ])
   } catch (error) {
     // A live invoice with no order behind it: cancel it so nobody can pay it.
     if (provider && invoice) {
@@ -238,7 +226,7 @@ export async function issueAdminInvoice(
   }
 
   // Same background receipt settleOrder sends once a provider confirms.
-  if (!invoice) void sendOrderReceipt(orderNo)
+  if (!invoice) inBackground(`receipt ${orderNo}`, sendOrderReceipt(orderNo))
 
   return { orderNo }
 }

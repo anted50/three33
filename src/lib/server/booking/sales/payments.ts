@@ -1,6 +1,7 @@
 import { and, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '~/db'
+import { atomic, retryOnGuard } from '~/db/atomic'
 import { barberSalePayments, barberSales } from '~/db/schema'
 import { ApiError, badRequest, conflict, notFound } from '../../api/errors'
 import { mungu } from '../../api/input'
@@ -10,9 +11,9 @@ import { signCallbackToken } from '../../payments/callback-token'
 import { getQpayProvider } from '../../payments/qpay'
 import { creditSalePayment } from '../ledger'
 import { invoiceRef } from '../refs'
-import { finalizeIfCovered } from './finalize'
+import { finalizeSale, isCovered, saleUnchanged } from './finalize'
 import { amounts, getSale } from './queries'
-import { assertStock } from './stock'
+import { assertStock, undeductedLines } from './stock'
 
 /**
  * Taking money for a sale. Any mix of methods, as long as the total never
@@ -34,62 +35,65 @@ export async function addPayment(staff: Staff, barberId: string, saleId: string,
     throw badRequest('QPay can only charge whole tugrik')
   }
 
-  const paymentId = await db.transaction(async (tx) => {
-    const [sale] = await tx
+  const paymentId = crypto.randomUUID()
+
+  // Re-read and rebuilt if another payment lands on the sale in between.
+  await retryOnGuard('SALE_CHANGED', async () => {
+    const [sale] = await db
       .select()
       .from(barberSales)
       .where(and(eq(barberSales.id, saleId), eq(barberSales.barberId, barberId)))
-      .for('update')
       .limit(1)
     if (!sale) throw notFound('Sale')
     if (sale.status !== 'open') throw conflict('SALE_CLOSED', `Sale is ${sale.status}`)
 
-    const existing = await tx
+    const existing = await db
       .select({ amount: barberSalePayments.amount, status: barberSalePayments.status })
       .from(barberSalePayments)
       .where(eq(barberSalePayments.saleId, saleId))
     // Before any money: a QPay invoice for goods that aren't there would take
     // money we then can't honour.
-    await assertStock(tx, saleId)
+    await assertStock(db, saleId)
 
-    const { remaining } = amounts(sale, existing)
+    const { paid, pending, remaining } = amounts(sale, existing)
     if (input.amount > remaining) {
       throw conflict('AMOUNT_TOO_HIGH', 'More than what is left to pay', { remaining })
     }
 
     const manual = input.method !== 'qpay'
-    const now = new Date()
-    const [payment] = await tx
-      .insert(barberSalePayments)
-      .values({
+    const covered = manual && isCovered(sale, paid + input.amount)
+
+    await atomic([
+      saleUnchanged(saleId, { status: sale.status, paid, pending }, paymentId),
+      db.insert(barberSalePayments).values({
+        id: paymentId,
         saleId,
         method: input.method,
         amount: input.amount,
         status: manual ? 'paid' : 'pending',
-        paidAt: manual ? now : null,
+        paidAt: manual ? new Date() : null,
         receivedByUserId: staff.userId,
-      })
-      .returning({ id: barberSalePayments.id })
-
-    if (manual) {
-      await creditSalePayment(tx, {
-        barberId,
-        saleId,
-        salePaymentId: payment!.id,
-        method: input.method,
-        amount: input.amount,
-        actorId: staff.userId,
-      })
-      await finalizeIfCovered(tx, saleId, staff.userId)
-    }
-    return payment!.id
+      }),
+      ...(!manual
+        ? []
+        : await creditSalePayment({
+          barberId,
+          saleId,
+          salePaymentId: paymentId,
+          method: input.method,
+          amount: input.amount,
+          actorId: staff.userId,
+          paidBefore: paid,
+        })),
+      ...(covered ? finalizeSale(sale, await undeductedLines(saleId), staff.userId) : []),
+    ])
   })
 
   if (input.method === 'qpay') await issueInvoice(paymentId, saleId, input.amount)
   return getSale(barberId, saleId)
 }
 
-/** Outside the transaction: a slow bank API must not hold the sale's lock. */
+/** After the payment row is written: a slow bank API must not sit inside the write. */
 async function issueInvoice(paymentId: string, saleId: string, amount: number) {
   const [sale] = await db.select({ saleNo: barberSales.saleNo }).from(barberSales).where(eq(barberSales.id, saleId)).limit(1)
   try {

@@ -1,7 +1,10 @@
 import { eq } from 'drizzle-orm'
 import { db } from '~/db'
 import { orders, payments } from '~/db/schema'
+import { atomic } from '~/db/atomic'
+import { isGuardFailure } from '../api/db-errors'
 import { getProvider } from '../payments/registry'
+import { ALREADY_SETTLED, orderStillPending } from './settle'
 import { assertTransition } from './state'
 
 /**
@@ -61,29 +64,29 @@ export async function expireCheckout(
     }
   }
 
-  return db.transaction(async (tx) => {
-    // Re-read under the transaction: a settlement may have won the race while
-    // we were talking to QPay, in which case the order is paid and must stay so.
-    const [current] = await tx
-      .select({ status: orders.status })
-      .from(orders)
-      .where(eq(orders.id, orderId))
-      .for('update')
-      .limit(1)
+  // Re-checked as the batch's first statement: a settlement may have won the
+  // race while we were talking to the provider, in which case the order is
+  // paid and must stay so.
+  const [current] = await db
+    .select({ status: orders.status })
+    .from(orders)
+    .where(eq(orders.id, orderId))
+    .limit(1)
 
-    if (!current || current.status !== 'pending_payment') return false
+  if (!current || current.status !== 'pending_payment') return false
 
-    assertTransition(current.status, to)
+  assertTransition(current.status, to)
 
-    await tx.update(orders).set({ status: to }).where(eq(orders.id, orderId))
+  try {
+    await atomic([
+      orderStillPending(orderId),
+      db.update(orders).set({ status: to }).where(eq(orders.id, orderId)),
+      payment && db.update(payments).set({ status: 'expired' }).where(eq(payments.id, payment.id)),
+    ])
+  } catch (error) {
+    if (isGuardFailure(error, ALREADY_SETTLED)) return false
+    throw error
+  }
 
-    if (payment) {
-      await tx
-        .update(payments)
-        .set({ status: 'expired' })
-        .where(eq(payments.id, payment.id))
-    }
-
-    return true
-  })
+  return true
 }

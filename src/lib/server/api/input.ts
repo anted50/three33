@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { clientIp } from '../client-ip'
 import { badRequest } from './errors'
 
 /**
@@ -36,10 +37,9 @@ export function readId(params: Record<string, string>, key: string): string {
 
 /** Client IP and user agent, recorded on new sessions. */
 export function requestMeta(request: Request) {
-  const forwarded = request.headers.get('x-forwarded-for')
   return {
     userAgent: request.headers.get('user-agent'),
-    ip: forwarded ? forwarded.split(',')[0]!.trim() : null,
+    ip: clientIp((name) => request.headers.get(name)),
   }
 }
 

@@ -9,8 +9,8 @@ import { settleOrder } from './settle'
  *
  * Exists for the orders where no request ever came — dropped callback,
  * customer closed the tab, provider retry exhausted — so it cannot wait for
- * one. It runs on a clock (server/index.mjs) or from outside through
- * POST /api/v1/jobs/reconcile; scripts/reconcile.ts is the command-line way in.
+ * one. It runs on a Cron Trigger (src/server.ts) or from outside through
+ * POST /api/v1/jobs/reconcile (`npm run job -- reconcile`).
  *
  * Safe to run concurrently with a live callback, or with itself: both paths go
  * through settleOrder, and payments_payment_id_key lets exactly one of them win.

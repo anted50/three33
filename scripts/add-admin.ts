@@ -4,57 +4,31 @@
  * into an account that already exists. See docs/email-otp.md.
  *
  * Usage:
- *   npm run admin:add you@three33barber.com "Your Name"
+ *   npm run admin:add -- you@three33barber.com "Your Name"            local D1
+ *   npm run admin:add -- you@three33barber.com "Your Name" --remote   deployed D1
  *
  * Idempotent: promotes the user if the email already exists (updating the
- * name if one is given), otherwise creates it with role='admin'.
+ * name if one is given), otherwise creates it with role='admin'. One upsert,
+ * run through wrangler, so --remote uses your own `wrangler login`.
  */
-import { eq } from 'drizzle-orm'
-import { assertNoDevServer } from '~/lib/server/pglite-guard'
-import { users } from '~/db/schema'
+import { d1Execute, literal } from './lib/wrangler-d1'
 
-// Before importing ~/db — see scripts/migrate.ts.
-await assertNoDevServer()
-const { db } = await import('~/db')
+const args = process.argv.slice(2)
+const remote = args.includes('--remote')
+const [email, name] = args.filter((a) => a !== '--remote')
 
-async function main() {
-  const [email, name] = process.argv.slice(2)
-
-  if (!email || !email.includes('@')) {
-    console.error('Usage: npm run admin:add <email> [name]')
-    process.exit(1)
-  }
-
-  const normalised = email.trim().toLowerCase()
-
-  const [existing] = await db
-    .select({ id: users.id, role: users.role, name: users.name })
-    .from(users)
-    .where(eq(users.email, normalised))
-    .limit(1)
-
-  if (existing) {
-    await db
-      .update(users)
-      .set({ role: 'admin', ...(name ? { name } : {}) })
-      .where(eq(users.id, existing.id))
-    console.log(
-      `admin:add: promoted ${normalised} (was role=${existing.role}) to admin`,
-    )
-    return
-  }
-
-  await db.insert(users).values({
-    email: normalised,
-    name: name ?? normalised,
-    role: 'admin',
-  })
-  console.log(`admin:add: created ${normalised} as admin`)
+if (!email || !/^[^\s@']+@[^\s@']+$/.test(email)) {
+  console.error('Usage: npm run admin:add -- <email> [name] [--remote]')
+  process.exit(1)
 }
 
-main()
-  .then(() => process.exit(0))
-  .catch((error) => {
-    console.error('admin:add: failed', error)
-    process.exit(1)
-  })
+const normalised = email.trim().toLowerCase()
+
+d1Execute(
+  `insert into users (id, email, name, role)
+   values (${literal(crypto.randomUUID())}, ${literal(normalised)}, ${literal(name ?? normalised)}, 'admin')
+   on conflict (email) do update set role = 'admin'${name ? `, name = ${literal(name)}` : ''}`,
+  { remote },
+)
+
+console.log(`admin:add: ${normalised} is an admin (${remote ? 'remote' : 'local'} D1)`)

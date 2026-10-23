@@ -1,6 +1,7 @@
 /**
  * Seeds the real Uppercut Deluxe catalogue from packing list #SO0341156
- * (Three33 barbershop, 24 June 2026). Idempotent — safe to re-run.
+ * (Three33 barbershop, 24 June 2026), into the LOCAL D1 (`npm run db:seed`).
+ * Idempotent — safe to re-run.
  *
  * Stock quantities are the actual quantities received.
  *
@@ -14,7 +15,7 @@
 import { existsSync } from 'node:fs'
 import { eq } from 'drizzle-orm'
 import { tugrikToMungu } from '~/lib/money'
-import { assertNoDevServer } from '~/lib/server/pglite-guard'
+import { useLocalD1 } from './lib/local-d1'
 import {
   categories,
   productImages,
@@ -24,8 +25,8 @@ import {
 
 export const PRICES_ARE_PLACEHOLDERS = true
 
-// Before importing ~/db — see scripts/migrate.ts.
-await assertNoDevServer()
+// Before importing ~/db, which builds its client from the binding at load.
+const local = await useLocalD1()
 const { db } = await import('~/db')
 
 const CATEGORIES = [
@@ -385,6 +386,7 @@ async function main() {
 }
 
 main()
+  .then(() => local.dispose())
   .then(() => process.exit(0))
   .catch((error) => {
     console.error('seed: failed', error)

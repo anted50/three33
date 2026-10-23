@@ -4,7 +4,7 @@ import type { OrderStatus } from '~/db/schema'
  * The order state machine. Pure, so the rules are readable in one place and
  * testable without a database.
  *
- * The database does not enforce these — Postgres only knows the enum. Every
+ * The database does not enforce these — its CHECK only knows the values. Every
  * status write goes through assertTransition.
  */
 const TRANSITIONS: Record<OrderStatus, readonly OrderStatus[]> = {

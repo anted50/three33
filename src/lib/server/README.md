@@ -16,7 +16,7 @@ conventions only work if they are written down.
 
 2. **Every server function validates its input with zod.** No exceptions, not
    even for "internal" calls or a single `id` parameter. This folder is the only
-   line of defence between the browser and Postgres.
+   line of defence between the browser and the database.
 
    ```ts
    export const addToCart = createServerFn({ method: 'POST' })

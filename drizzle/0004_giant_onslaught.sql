@@ -1,1 +1,0 @@
-CREATE INDEX "order_items_variant_id_idx" ON "order_items" USING btree ("variant_id");

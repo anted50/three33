@@ -47,7 +47,7 @@ export function generateSku(nameEn: string, size: string): string {
  * Two variants of one product routinely abbreviate to the same code: a colour
  * and a scent both leave the size blank, and a 30g tin and a 30ml tube both
  * reduce to "30". SKUs are unique across the whole catalogue, so without this
- * the form fills in a duplicate and the save fails on a Postgres constraint
+ * the form fills in a duplicate and the save fails on a unique constraint
  * the admin never saw coming.
  */
 export function uniqueSku(

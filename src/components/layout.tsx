@@ -51,6 +51,9 @@ export function Header() {
                 </div>
 
                 <div className="header__actions">
+                    <Link to="/booking" className="header__book">
+                        Цаг захиалах
+                    </Link>
                     <button
                         type="button"
                         className="icon-btn header__searchbtn"

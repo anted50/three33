@@ -1726,3 +1726,541 @@
   gap: 8px;
   margin-top: 12px;
 }
+
+/* --------------------------------------------------------------- booking */
+
+/*
+ * Цаг захиалга, Хуваарь, Үйлчилгээ — the barber's booking pages, built from
+ * the shell's existing cards, tables, badges and fields. These rules are only
+ * the layouts those pages add: a list with a detail panel, the week grid, and
+ * small segmented filters. bka- prefixed so nothing here restyles the rest.
+ */
+
+.bka-split {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+/* The detail panel reads first on a narrow screen: it's what was just tapped.
+   The schedule form is different — the week comes first, the form after. */
+.bka-split > .bka-side {
+  order: -1;
+}
+
+.bka-split--schedule > .bka-side {
+  order: 0;
+}
+
+@media (min-width: 1200px) {
+  .bka-split {
+    grid-template-columns: minmax(0, 1fr) 360px;
+  }
+
+  /* Two date fields and three time ranges side by side need the room —
+     a 12-hour browser locale adds AM/PM to every time field. */
+  .bka-split--schedule {
+    grid-template-columns: minmax(0, 1fr) 420px;
+  }
+
+  .bka-split > .bka-side {
+    order: 0;
+    position: sticky;
+    top: 16px;
+  }
+}
+
+.bka-split > .adm__card {
+  margin-bottom: 0;
+}
+
+.bka-side {
+  margin-bottom: 0;
+}
+
+.bka-side--empty {
+  display: none;
+}
+
+@media (min-width: 1200px) {
+  .bka-side--empty {
+    display: block;
+  }
+}
+
+.bka-side__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.bka-side__head h2 {
+  font-size: 15px;
+}
+
+.bka-side__name {
+  font-size: 18px;
+}
+
+.bka-side__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px var(--gutter) var(--gutter);
+  border-top: 1px solid var(--border);
+}
+
+.bka-side__actions .btn {
+  width: 100%;
+  min-height: 42px;
+}
+
+.bka-danger {
+  color: var(--danger);
+  border-color: #fecaca;
+}
+
+.bka-note {
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 8px 0 12px;
+}
+
+.bka-ok {
+  color: var(--ok);
+  font-size: 13px;
+  margin: 8px var(--gutter);
+}
+
+.bka-side .error {
+  margin: 8px var(--gutter);
+}
+
+.adm__pad.bka-side .error,
+.adm__pad.bka-side .bka-ok {
+  margin-left: 0;
+  margin-right: 0;
+}
+
+/* Segmented filter: Өнөөдөр / 7 хоног / 30 хоног, statuses, Нээх / Хаах. */
+.bka-seg {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  align-self: flex-end;
+}
+
+.bka-seg button {
+  border: 0;
+  border-right: 1px solid var(--border);
+  background: #fff;
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--ink-soft);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.bka-seg button:last-child {
+  border-right: 0;
+}
+
+.bka-seg button[data-active='true'] {
+  background: var(--ink);
+  color: #fff;
+  font-weight: 600;
+}
+
+/* Bookings list: day headings between the rows, the picked row marked like the rail. */
+.bka-dayrow th {
+  background: var(--surface-2);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.bka-dayrow th span {
+  float: right;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.bka-row {
+  cursor: pointer;
+}
+
+.bka-row[data-selected='true'] td {
+  background: #f4f4f5;
+}
+
+.bka-row[data-selected='true'] td:first-child {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.bka-row[data-status='cancelled'] td {
+  color: var(--muted);
+}
+
+.bka-row[data-status='cancelled'] b,
+.bka-row[data-status='cancelled'] .bka-row__name {
+  text-decoration: line-through;
+}
+
+.bka-row__name {
+  color: inherit;
+  font-weight: 600;
+}
+
+/* Detail panel. */
+.bka-when-block {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  padding: 16px var(--gutter);
+  border-bottom: 1px solid var(--border);
+}
+
+.bka-when-block__time {
+  font-size: 16px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.bka-datetile {
+  width: 52px;
+  flex-shrink: 0;
+  border: 1px solid var(--ink);
+  text-align: center;
+  line-height: 1;
+}
+
+.bka-datetile small {
+  display: block;
+  background: var(--ink);
+  color: #fff;
+  font-size: 10px;
+  padding: 3px 0;
+}
+
+.bka-datetile b {
+  display: block;
+  font-size: 22px;
+  padding: 5px 0;
+}
+
+.bka-kv {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  margin: 0;
+  font-size: 13px;
+}
+
+.bka-kv dt,
+.bka-kv dd {
+  margin: 0;
+  padding: 10px var(--gutter);
+  border-bottom: 1px dashed var(--border);
+}
+
+.bka-kv dt {
+  color: var(--muted);
+  padding-right: 0;
+}
+
+.bka-kv dd {
+  text-align: right;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.bka-kv dd a {
+  color: inherit;
+}
+
+/* Dialogs: what else is on the chosen day. */
+.bka-dialog {
+  width: min(640px, 100%);
+}
+
+.bka-dialog .modal__body {
+  overflow-y: auto;
+}
+
+.bka-preview {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+
+.bka-preview__list {
+  list-style: none;
+  padding: 0;
+  margin: 6px 0 0;
+  display: grid;
+  gap: 4px;
+}
+
+.bka-when {
+  grid-template-columns: 1fr 1fr;
+}
+
+/* Services: the table full width, the fee card under it. */
+.bka-stack {
+  display: grid;
+  gap: 16px;
+}
+
+.bka-stack > .adm__card {
+  margin-bottom: 0;
+}
+
+.bka-stack > .bka-side {
+  max-width: 520px;
+}
+
+/* Services table: fixed columns, inputs fill their cell instead of
+   pushing the save button out of the card. */
+@media (min-width: 900px) {
+  .bka-services {
+    table-layout: fixed;
+  }
+
+  .bka-services th:nth-child(1) { width: 20%; }
+  .bka-services th:nth-child(2) { width: 30%; }
+  .bka-services th:nth-child(3) { width: 11%; }
+  .bka-services th:nth-child(4) { width: 12%; }
+  .bka-services th:nth-child(5) { width: 8%; }
+  .bka-services th:nth-child(6) { width: 9%; }
+  .bka-services th:nth-child(7) { width: 10%; }
+}
+
+.bka-services input:not([type='checkbox']) {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.bka-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.adm__table tr[data-inactive='true'] input:not([type='checkbox']) {
+  color: var(--muted);
+}
+
+/* Week grid. */
+.bka-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.bka-legend i {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-right: 6px;
+  vertical-align: -2px;
+  border-radius: 2px;
+}
+
+.bka-legend i[data-kind='window'] {
+  background: #f0fdf4;
+  border: 1px dashed #86efac;
+}
+
+.bka-legend i[data-kind='online'] {
+  background: var(--ink);
+}
+
+.bka-legend i[data-kind='pending'] {
+  border: 1px dashed var(--accent);
+}
+
+.bka-week {
+  display: grid;
+  grid-template-columns: 52px repeat(7, minmax(84px, 1fr));
+  overflow-x: auto;
+}
+
+.bka-week__head {
+  padding: 10px 6px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  border-left: 1px solid var(--border);
+}
+
+.bka-week__head b {
+  display: block;
+  font-size: 16px;
+  color: var(--ink);
+}
+
+.bka-week__head[data-today='true'] b {
+  color: var(--accent);
+}
+
+.bka-week__head[data-closed='true'] {
+  background: var(--surface-2);
+}
+
+.bka-week__corner {
+  border-bottom: 1px solid var(--border);
+}
+
+.bka-week__hours span {
+  display: block;
+  height: var(--hour-px);
+  padding-right: 8px;
+  text-align: right;
+  font-size: 10.5px;
+  color: var(--muted);
+  transform: translateY(-7px);
+}
+
+.bka-week__col {
+  position: relative;
+  height: calc(var(--hours) * var(--hour-px));
+  border-left: 1px solid var(--border);
+  background: repeating-linear-gradient(to bottom, transparent 0 calc(var(--hour-px) - 1px), #f0f0f2 calc(var(--hour-px) - 1px) var(--hour-px));
+}
+
+.bka-week__col[data-closed='true'] {
+  background-color: var(--surface-2);
+}
+
+.bka-win {
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  background: #f0fdf4;
+  border: 1px dashed #86efac;
+  border-radius: 2px;
+}
+
+.bka-win span {
+  position: absolute;
+  bottom: 3px;
+  left: 5px;
+  font-size: 9.5px;
+  color: #15803d;
+}
+
+.bka-win button {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  background: none;
+  color: #15803d;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0.6;
+}
+
+.bka-win button:hover {
+  opacity: 1;
+  color: var(--danger);
+}
+
+.bka-appt {
+  position: absolute;
+  left: 8px;
+  right: 6px;
+  z-index: 1;
+  overflow: hidden;
+  padding: 3px 6px;
+  border-radius: 2px;
+  background: var(--ink);
+  color: #fff;
+  font-size: 10.5px;
+  line-height: 1.3;
+}
+
+.bka-appt b {
+  display: block;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bka-appt span {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.8;
+}
+
+.bka-appt[data-status='pending'] {
+  background: #fff;
+  color: var(--ink);
+  border: 1px dashed var(--accent);
+}
+
+.bka-appt:hover {
+  outline: 2px solid var(--accent);
+}
+
+/* Schedule form. */
+.bka-weekdays {
+  display: flex;
+  gap: 6px;
+}
+
+.bka-weekdays button {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: #fff;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.bka-weekdays button[data-active='true'] {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: #fff;
+  font-weight: 600;
+}
+
+.bka-range {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.bka-range input {
+  flex: 1;
+  min-width: 0;
+}
+
+.bka-when input,
+.bka-range input {
+  padding-left: 10px;
+  padding-right: 6px;
+}

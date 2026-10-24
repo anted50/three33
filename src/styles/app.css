@@ -259,6 +259,27 @@ h3 {
   justify-content: flex-end;
 }
 
+/* Booking is the barber's main business, so it gets the one red control. */
+.header__book {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 12px;
+  margin-right: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  border-radius: var(--radius);
+}
+
+.header__book:hover {
+  background: var(--accent-dark);
+}
+
 /* The count rides the glyph's top-right corner, as it did when centred. */
 .header__actions .badge {
   top: 6px;

@@ -5,10 +5,13 @@ import adminCss from '~/styles/admin.css?url'
 import { adminLogout, checkAdminSession } from '~/lib/server/admin/auth'
 import {
   BoxIcon,
+  CalendarIcon,
   CartIcon,
+  ClockIcon,
   GearIcon,
   GridIcon,
   ReceiptIcon,
+  ScissorsIcon,
   SignOutIcon,
   TagIcon,
   TruckIcon,
@@ -46,6 +49,10 @@ const NAV: Array<{
 }> = [
   // exact, or "Dashboard" stays highlighted on every /admin/* page.
   { to: '/admin', label: 'Хяналтын самбар', icon: GridIcon, exact: true },
+  // Booking first after the dashboard: it's the barber's day, every day.
+  { to: '/admin/bookings', label: 'Цаг захиалга', icon: CalendarIcon },
+  { to: '/admin/schedule', label: 'Хуваарь', icon: ClockIcon },
+  { to: '/admin/services', label: 'Үйлчилгээ', icon: ScissorsIcon },
   { to: '/admin/orders', label: 'Захиалга', icon: CartIcon },
   { to: '/admin/invoices', label: 'Нэхэмжлэх', icon: ReceiptIcon },
   { to: '/admin/products', label: 'Бүтээгдэхүүн', icon: BoxIcon },
@@ -147,6 +154,9 @@ function Crumb() {
   const { location } = useRouter().state
   const path = location.pathname
 
+  if (path.startsWith('/admin/bookings')) return <>Цаг захиалга</>
+  if (path.startsWith('/admin/schedule')) return <>Хуваарь</>
+  if (path.startsWith('/admin/services')) return <>Үйлчилгээ</>
   if (path.startsWith('/admin/orders')) return <>Захиалга</>
   if (path.startsWith('/admin/invoices')) return <>Нэхэмжлэх</>
   if (path.startsWith('/admin/products')) return <>Бүтээгдэхүүн</>

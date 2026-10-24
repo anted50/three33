@@ -109,7 +109,7 @@ Secrets are set with `npx wrangler secret put NAME` and never committed:
 | `RESEND_API_KEY` | for email | unset = no receipts and no admin login codes, silently |
 | `JOBS_API_TOKEN` | no | ≥ 32 chars; enables `POST /api/v1/jobs/*` |
 | `QPAY_EBARIMT_INVOICE_CODE` | no | VAT-enabled invoice code, requested from QPay |
-| `STOREPAY_*` (all seven) | no | StorePay appears at checkout only when every one is set |
+| `STOREPAY_*` (six secrets) | for StorePay | `STOREPAY_BASE_URL` is a var in `wrangler.jsonc`; the other six (`APP_USERNAME`, `APP_PASSWORD`, `USERNAME`, `PASSWORD`, `STORE_ID`, `CALLBACK_SECRET`) are secrets. StorePay appears at checkout only when all seven exist. StorePay has no sandbox, so staging uses the same merchant credentials (its own callback secret) |
 | `MONTHLY_ORDER_GOAL` | no | admin dashboard target, default 100 (a plain var is fine) |
 
 The full list with explanations is [`.env.example`](../.env.example).

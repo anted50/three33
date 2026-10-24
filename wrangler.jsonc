@@ -65,6 +65,9 @@
     "NODE_ENV": "production",
     "APP_URL": "https://three33.uppercut-mn.workers.dev",
     "QPAY_BASE_URL": "https://merchant.qpay.mn/v2",
+    // StorePay installments appear at checkout only once ALL seven STOREPAY_*
+    // values exist: this URL here, the other six as secrets.
+    "STOREPAY_BASE_URL": "https://service.storepay.mn/lend-merchant",
     "EMAIL_FROM": "Three33 Barbershop <noreply@three33barber.com>"
   },
 
@@ -89,6 +92,7 @@
         "NODE_ENV": "production",
         "APP_URL": "https://three33-staging.uppercut-mn.workers.dev",
         "QPAY_BASE_URL": "https://merchant.qpay.mn/v2",
+        "STOREPAY_BASE_URL": "https://service.storepay.mn/lend-merchant",
         "EMAIL_FROM": "Three33 Barbershop <noreply@three33barber.com>"
       },
       // Staging's own database (`three33-staging`, also APAC), so nothing

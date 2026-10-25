@@ -59,6 +59,37 @@ Secrets are per environment: `npx wrangler secret put NAME` for production,
 `npx wrangler secret put NAME --env staging` for staging. Full deploy notes:
 [docs/deploy-cloudflare.md](docs/deploy-cloudflare.md).
 
+## Branches and deploys
+
+```
+feature/xyz ──PR──▶ staging ──auto-deploy──▶ staging.three33barber.com
+                       │
+                       └──PR──▶ production ──auto-deploy──▶ three33barber.com
+```
+
+- **`staging`** — the default branch. Every change lands here first, through a
+  pull request from a `feature/…` or `fix/…` branch.
+- **`production`** — only ever receives a merge from `staging` (or an urgent
+  fix). What is in `production` is what is live.
+
+GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) verifies
+every pull request and push — migrations match the schema, both environments
+build and pass `wrangler deploy --dry-run`, types, tests. A push to `staging`
+or `production` that passes then migrates that environment's D1 and deploys
+its Worker. Both branches are protected: changes arrive through pull requests
+with a passing check.
+
+Before pushing, run the same check locally:
+
+```bash
+npm run verify
+```
+
+Schema changes ship in two steps — a migration runs just before the code that
+needs it, so add first, use, and only remove an old column in a later deploy.
+To undo a bad deploy, `npx wrangler rollback` (code) or D1 Time Travel (data);
+see [docs/deploy-cloudflare.md](docs/deploy-cloudflare.md).
+
 ## Product imagery
 
 Packshots are extracted from the client's Product Bible PDF:
@@ -87,6 +118,7 @@ one renders a text placeholder rather than a wrong photo.
 | `npm run preview` | Build, then serve the built Worker locally |
 | `npm run deploy` | Build and deploy **production** |
 | `npm run deploy:staging` | Build for staging and deploy **staging** |
+| `npm run verify` | What CI runs: build + `wrangler deploy --dry-run` for both environments, types, tests |
 | `npm run cf-typegen` | Regenerate `worker-configuration.d.ts` after editing `wrangler.jsonc` |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm test` | Vitest: `unit` (pure functions) and `d1` (database code on a real local D1); `test:unit` / `test:d1` run one |

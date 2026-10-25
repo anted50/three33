@@ -189,13 +189,15 @@ Admins see every booking. They can:
 Neither of those is held to the schedule; only overlapping another booking
 is refused.
 
-Three tables — `services`, `availability`, `appointments` — and a JSON API,
-with no screens in this app: `/api/v1/public/*` for a booking page,
-`/api/v1/admin/*` (admin session) for the barber. Each route file documents
-itself; conventions are in
-[`src/lib/server/api/README.md`](src/lib/server/api/README.md). The booking
-fee is a setting (`PUT /api/v1/admin/booking-fee`); until it is set, online
-booking is off.
+Screens: `/booking` (service → time → details → QPay fee) and
+`/booking/{bookingNo}` (the customer's booking) for customers;
+`/admin/bookings`, `/admin/schedule` and `/admin/services` (services and the
+booking fee) for admins. Underneath: three tables — `services`,
+`availability`, `appointments` — and the JSON API those pages use,
+`/api/v1/public/*` and `/api/v1/admin/*` (admin session). Each route file
+documents itself; conventions are in
+[`src/lib/server/api/README.md`](src/lib/server/api/README.md). Until a
+booking fee is set, online booking is off.
 
 ## Admin
 

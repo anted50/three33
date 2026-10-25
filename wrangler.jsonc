@@ -22,8 +22,17 @@
 
   "observability": { "enabled": true },
 
-  // Served on https://three33.uppercut-mn.workers.dev — the temporary address
-  // until three33barber.com is attached (then update APP_URL below too).
+  /**
+   * The real domain. Custom domains: Cloudflare creates the DNS records and
+   * certificates itself (the zone is on this account), but refuses a
+   * hostname that already has a DNS record — delete any old record first.
+   * www redirects to the apex (src/server.ts). The workers.dev address still
+   * answers too; set "workers_dev": false to retire it.
+   */
+  "routes": [
+    { "pattern": "three33barber.com", "custom_domain": true },
+    { "pattern": "www.three33barber.com", "custom_domain": true }
+  ],
   "workers_dev": true,
 
   /**
@@ -63,7 +72,7 @@
    */
   "vars": {
     "NODE_ENV": "production",
-    "APP_URL": "https://three33.uppercut-mn.workers.dev",
+    "APP_URL": "https://three33barber.com",
     "QPAY_BASE_URL": "https://merchant.qpay.mn/v2",
     // StorePay installments appear at checkout only once ALL seven STOREPAY_*
     // values exist: this URL here, the other six as secrets.
@@ -88,9 +97,10 @@
   "env": {
     "staging": {
       "name": "three33-staging",
+      "routes": [{ "pattern": "staging.three33barber.com", "custom_domain": true }],
       "vars": {
         "NODE_ENV": "production",
-        "APP_URL": "https://three33-staging.uppercut-mn.workers.dev",
+        "APP_URL": "https://staging.three33barber.com",
         "QPAY_BASE_URL": "https://merchant.qpay.mn/v2",
         "STOREPAY_BASE_URL": "https://service.storepay.mn/lend-merchant",
         "EMAIL_FROM": "Three33 Barbershop <noreply@three33barber.com>"

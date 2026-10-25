@@ -24,6 +24,18 @@ const CRON_JOBS: Record<string, JobName> = {
   '17 19 * * *': 'cleanup',
 }
 
+/**
+ * www.three33barber.com is attached to the Worker only to send people on:
+ * one canonical address keeps cookies, QPay callbacks and search results on
+ * a single host. Permanent, keeping the path and query.
+ */
+function wwwToApex(request: Request): Response | null {
+  const url = new URL(request.url)
+  if (!url.hostname.startsWith('www.')) return null
+  url.hostname = url.hostname.slice(4)
+  return Response.redirect(url.toString(), 301)
+}
+
 async function runScheduled(cron: string): Promise<void> {
   const job = CRON_JOBS[cron]
   if (!job) {
@@ -51,7 +63,7 @@ export default {
   // Not `fetch: handler.fetch` — its second parameter is TanStack's request
   // options, and Workers would pass `env` there. Bindings are read through
   // process.env (nodejs_compat) instead.
-  fetch: (request) => handler.fetch(request),
+  fetch: (request) => wwwToApex(request) ?? handler.fetch(request),
 
   async scheduled(controller, _env, ctx) {
     ctx.waitUntil(runScheduled(controller.cron))

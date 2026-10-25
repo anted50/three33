@@ -39,8 +39,8 @@ App on http://localhost:3000. Admin login is an emailed code; without
 | | Where | Database | Deploy |
 |---|---|---|---|
 | **Local** | http://localhost:3000 | local D1 (`.wrangler/state`) | `npm run dev` |
-| **Staging** | https://three33-staging.uppercut-mn.workers.dev | its own D1 (`three33-staging`) | `npm run deploy:staging` |
-| **Production** | https://three33.uppercut-mn.workers.dev (temporary, until `three33barber.com` is attached) | production D1 | `npm run deploy` |
+| **Staging** | https://staging.three33barber.com | its own D1 (`three33-staging`) | `npm run deploy:staging` |
+| **Production** | https://three33barber.com (`www.` redirects here) | production D1 | `npm run deploy` |
 
 All three are configured in [`wrangler.jsonc`](wrangler.jsonc) — production at
 the top level, staging under `env.staging`. Build a new feature locally, deploy
@@ -304,15 +304,17 @@ wrangler.jsonc   the Workers: bindings, cron triggers, vars — production + env
 
 ## Status
 
-Running on Cloudflare Workers + D1 (this `cloudflare` branch; `main` still
-deploys the older Postgres version to Railway until this branch is merged).
+Running on Cloudflare Workers + D1 from this `cloudflare` branch. `main`
+still holds the older Postgres version that ran on Railway, until this
+branch is merged.
 
-- **Live:** production at https://three33.uppercut-mn.workers.dev, staging at
-  https://three33-staging.uppercut-mn.workers.dev. Admin login, storefront,
-  booking API and the cron jobs work.
-- **Empty on purpose:** the production database has its tables but no
-  products, orders or services yet.
-- **Next:** import the catalogue (and anything else worth keeping) from the
-  Railway Postgres; attach `three33barber.com` and update `APP_URL`; set the
-  booking fee, services and schedule; build a booking page on top of
-  `/api/v1/public/*`.
+- **Live:** production at https://three33barber.com, staging at
+  https://staging.three33barber.com — both Cloudflare Workers custom domains
+  (the `*.workers.dev` addresses still answer too). Storefront, QPay and
+  StorePay checkout, admin and the cron jobs run there.
+- **Data:** the catalogue, settings, admins and the one real order were
+  imported from the Railway Postgres (`npm run import:railway`), into both
+  staging and production.
+- **Next:** set the booking fee, services and schedule; build a booking page
+  on top of `/api/v1/public/*`; retire the Railway services; copy the product
+  images still served from uppercutdeluxe.com into `public/`.

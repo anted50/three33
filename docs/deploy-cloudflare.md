@@ -62,7 +62,7 @@ is the intended state for now — data comes later, from an import into D1.
 ## Staging
 
 A second Worker, `three33-staging`, defined under `env.staging` in
-`wrangler.jsonc`, at https://three33-staging.uppercut-mn.workers.dev.
+`wrangler.jsonc`, at https://staging.three33barber.com.
 
 ```bash
 npm run deploy:staging          # build with CLOUDFLARE_ENV=staging, then deploy
@@ -127,11 +127,17 @@ hourly sweep instead. It also builds the receipt email's "view order" link.
 `EMAIL_FROM` must be an address on a domain verified in Resend (SPF/DKIM);
 Resend rejects an unverified sender outright (`Resend send failed (403)`).
 
-## Custom domain
+## Custom domains
 
-Attach `three33barber.com` to the Worker in the Cloudflare dashboard (Workers
-& Pages → three33 → Settings → Domains & Routes), or with a `routes` entry in
-`wrangler.jsonc`. Then set `APP_URL` to it and deploy.
+`three33barber.com` (with `www.` redirecting to it) is production and
+`staging.three33barber.com` is staging, attached as Workers custom domains in
+`wrangler.jsonc` (`routes` with `"custom_domain": true`). The zone is on the
+same Cloudflare account, so a deploy creates the DNS records and certificates
+itself — but Cloudflare refuses a hostname that already has a DNS record, so
+an old record (say, one pointing at Railway) must be deleted first.
+
+`APP_URL` must match the domain: it builds the QPay and StorePay callback URLs
+and the links in emails. The `www` redirect lives in `src/server.ts`.
 
 ## Scheduled jobs
 

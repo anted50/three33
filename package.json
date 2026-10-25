@@ -12,6 +12,7 @@
     "preview": "npm run build && vite preview",
     "deploy": "npm run build && wrangler deploy",
     "deploy:staging": "node scripts/build.mjs --env staging && wrangler deploy",
+    "verify": "node scripts/build.mjs --env staging && wrangler deploy --dry-run && npm run build && wrangler deploy --dry-run && npm run typecheck && npm test",
     "cf-typegen": "wrangler types --env-file .env.example",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

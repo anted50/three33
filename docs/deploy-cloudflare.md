@@ -89,6 +89,36 @@ npx wrangler secret put NAME --env staging
   `npm run deploy:staging -- --secrets-file staging.secrets.env`, then delete
   the file. Later secret changes go through `secret put --env staging`.
 
+## Continuous deployment
+
+Day to day, nobody runs `npm run deploy`: GitHub Actions does
+(`.github/workflows/ci.yml`). Every pull request and push runs the `verify`
+job; a push to `staging` then runs `db:migrate:staging` + `deploy:staging`, a
+push to `production` runs `db:migrate:remote` + `deploy`.
+
+**Repository secrets** (GitHub → Settings → Secrets and variables → Actions):
+
+| Secret | Value |
+|---|---|
+| `CLOUDFLARE_API_TOKEN` | an API token (below) |
+| `CLOUDFLARE_ACCOUNT_ID` | the account id, `06b445c42dac3deb09b22b471c84787f` |
+| `VITE_PUBLIC_POSTHOG_PROJECT_TOKEN`, `VITE_PUBLIC_POSTHOG_HOST` | PostHog's public values; baked into the client at build time |
+
+**The API token** (Cloudflare dashboard → My Profile → API Tokens → Create
+Token): the "Edit Cloudflare Workers" template, plus **Account → D1 → Edit**
+for migrations, limited to this account and the `three33barber.com` zone. CI
+never sees the app's own secrets — those live on the Workers.
+
+**Before pushing**, `npm run verify` runs exactly what the `verify` job runs.
+To have Cloudflare itself accept a build without making it live,
+`npx wrangler versions upload` uploads an unpublished version with its own
+preview URL.
+
+**Rolling back**: `npx wrangler rollback` (add `--env staging` for staging)
+returns a Worker to its previous version; D1 Time Travel
+(`npx wrangler d1 time-travel restore <db> --timestamp=…`) returns a database
+to any minute in the last 30 days.
+
 ## Configuration
 
 Non-secret values are in `wrangler.jsonc` under `vars`, committed:

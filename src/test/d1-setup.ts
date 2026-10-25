@@ -9,21 +9,9 @@ import { env } from '../node-shims/cloudflare-workers'
  * runs, so the tests exercise the real constraints and triggers.
  *
  * Runs before the test file's imports are evaluated, so ~/db picks this
- * binding up when it builds its client at module load.
+ * binding up when it builds its client at module load. The mock config it
+ * relies on comes from test-env.ts, listed first in vitest.config.ts.
  */
-
-// The modules under test validate their environment at import; these are the
-// mocks from .env.example. Nothing in a D1 test may reach a real provider.
-const TEST_ENV: Record<string, string> = {
-  APP_URL: 'http://localhost:3000',
-  QPAY_BASE_URL: 'http://127.0.0.1:9',
-  QPAY_USERNAME: 'test',
-  QPAY_PASSWORD: 'test',
-  QPAY_INVOICE_CODE: 'TEST',
-  QPAY_CALLBACK_SECRET: 'test-qpay-callback-secret-0123456789abcdef',
-  EMAIL_FROM: 'test@localhost',
-}
-for (const [key, value] of Object.entries(TEST_ENV)) process.env[key] = value
 
 const proxy = await getPlatformProxy<{ DB: D1Database }>({ persist: false, remoteBindings: false, envFiles: [] })
 const d1 = proxy.env.DB

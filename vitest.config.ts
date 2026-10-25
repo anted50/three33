@@ -27,6 +27,8 @@ export default defineConfig({
           environment: 'node',
           include: ['src/**/*.test.ts'],
           exclude: ['src/**/*.d1.test.ts'],
+          // Mock config, so no test depends on the runner's .dev.vars/.env.
+          setupFiles: ['src/test/test-env.ts'],
         },
       },
       {
@@ -35,7 +37,7 @@ export default defineConfig({
           name: 'd1',
           environment: 'node',
           include: ['src/**/*.d1.test.ts'],
-          setupFiles: ['src/test/d1-setup.ts'],
+          setupFiles: ['src/test/test-env.ts', 'src/test/d1-setup.ts'],
           testTimeout: 20_000,
           hookTimeout: 60_000,
         },

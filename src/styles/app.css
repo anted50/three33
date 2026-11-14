@@ -2288,8 +2288,28 @@ button:focus-visible {
   text-decoration: underline;
 }
 
+/* Sign-off on the left, site credit opposite it; the credit drops under the
+   note when the row is too narrow for both. */
+.footer__bottom {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px 24px;
+}
+
 .footer__note {
   color: #71717a;
+}
+
+/* Deliberately dimmer than the note: a credit, not something to read. */
+.footer__credit {
+  color: #3f3f46;
+  white-space: nowrap;
+}
+
+.footer__credit:hover {
+  color: #a1a1aa;
 }
 
 .empty {

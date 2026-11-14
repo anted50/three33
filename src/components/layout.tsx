@@ -1,170 +1,182 @@
-import { useEffect, useState } from 'react'
-import { Link, useLoaderData } from '@tanstack/react-router'
-import type { ReactNode } from 'react'
-import { Logo } from './logo'
-import { SearchBox } from './search-box'
-import { useCartDrawer } from './cart-drawer'
+import { useEffect, useState } from "react";
+import { Link, useLoaderData } from "@tanstack/react-router";
+import type { ReactNode } from "react";
+import { Logo } from "./logo";
+import { SearchBox } from "./search-box";
+import { useCartDrawer } from "./cart-drawer";
 
 interface RootData {
-    cartCount: number
+  cartCount: number;
 }
 
 export function Header() {
-    const data = useLoaderData({ from: '__root__' }) as RootData
-    const { openCart } = useCartDrawer()
+  const data = useLoaderData({ from: "__root__" }) as RootData;
+  const { openCart } = useCartDrawer();
 
-    /**
-     * Mobile search panel.
-     *
-     * Deliberately not closed on navigation: typing in the box navigates on every
-     * keystroke (debounced, with replace), so closing on a location change would
-     * shut the panel on the first letter typed. It closes on Escape, or by
-     * tapping the icon again.
-     */
-    const [searchOpen, setSearchOpen] = useState(false)
+  /**
+   * Mobile search panel.
+   *
+   * Deliberately not closed on navigation: typing in the box navigates on every
+   * keystroke (debounced, with replace), so closing on a location change would
+   * shut the panel on the first letter typed. It closes on Escape, or by
+   * tapping the icon again.
+   */
+  const [searchOpen, setSearchOpen] = useState(false);
 
-    useEffect(() => {
-        if (!searchOpen) return
-        const onKey = (event: KeyboardEvent) => {
-            if (event.key === 'Escape') setSearchOpen(false)
-        }
-        window.addEventListener('keydown', onKey)
-        return () => window.removeEventListener('keydown', onKey)
-    }, [searchOpen])
+  useEffect(() => {
+    if (!searchOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSearchOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [searchOpen]);
 
-    return (
-        <header className="header">
-            <div className="wrap header__bar">
-                {/*
+  return (
+    <header className="header">
+      <div className="wrap header__bar">
+        {/*
           The mark carries no wordmark, so the shop's name has to come from the
           accessible name instead — without it the only link to the homepage
           announces as "link" and the site loses its name in the a11y tree, in
           search results' link context, and to anyone with images off.
         */}
-                <Link to="/" className="logo" aria-label="Three33 Barber — нүүр">
-                    <Logo className="logo__mark" />
-                </Link>
+        <Link to="/" className="logo" aria-label="Three33 Barber — нүүр">
+          <Logo className="logo__mark" />
+        </Link>
 
-                {/* Inline field, desktop only. The panel below covers mobile. */}
-                <div className="header__search">
-                    <SearchBox />
-                </div>
+        {/* Inline field, desktop only. The panel below covers mobile. */}
+        <div className="header__search">
+          <SearchBox />
+        </div>
 
-                <div className="header__actions">
-                    <Link to="/booking" className="header__book">
-                        Цаг захиалах
-                    </Link>
-                    <button
-                        type="button"
-                        className="icon-btn header__searchbtn"
-                        aria-label="Хайх"
-                        aria-expanded={searchOpen}
-                        onClick={() => setSearchOpen((open) => !open)}
-                    >
-                        {searchOpen ? <CloseIcon /> : <SearchIcon />}
-                    </button>
-                    <button
-                        type="button"
-                        className="icon-btn"
-                        aria-label="Сагс"
-                        onClick={openCart}
-                    >
-                        <CartIcon />
-                        {data.cartCount > 0 && (
-                            <span className="badge">{data.cartCount}</span>
-                        )}
-                    </button>
-                </div>
-            </div>
-
-            {searchOpen && (
-                <div className="header__panel">
-                    <div className="wrap">
-                        <SearchBox autoFocus />
-                    </div>
-                </div>
+        <div className="header__actions">
+          <Link to="/booking" className="header__book">
+            Цаг захиалах
+          </Link>
+          <button
+            type="button"
+            className="icon-btn header__searchbtn"
+            aria-label="Хайх"
+            aria-expanded={searchOpen}
+            onClick={() => setSearchOpen((open) => !open)}
+          >
+            {searchOpen ? <CloseIcon /> : <SearchIcon />}
+          </button>
+          <button
+            type="button"
+            className="icon-btn"
+            aria-label="Сагс"
+            onClick={openCart}
+          >
+            <CartIcon />
+            {data.cartCount > 0 && (
+              <span className="badge">{data.cartCount}</span>
             )}
-        </header>
-    )
+          </button>
+        </div>
+      </div>
+
+      {searchOpen && (
+        <div className="header__panel">
+          <div className="wrap">
+            <SearchBox autoFocus />
+          </div>
+        </div>
+      )}
+    </header>
+  );
 }
 
 export function Footer() {
-    return (
-        <footer className="footer">
-            <div className="wrap">
-                <div className="footer__links">
-                    <Link to="/products">Бүтээгдэхүүн</Link>
-                    <a href="tel:+97699141630">Холбоо барих</a>
-                </div>
+  return (
+    <footer className="footer">
+      <div className="wrap">
+        <div className="footer__links">
+          <Link to="/products">Бүтээгдэхүүн</Link>
+          <a href="tel:+97699141630">Холбоо барих</a>
+        </div>
 
-                <div className="footer__cols">
-                    <section className="footer__col">
-                        <h2 className="footer__head">Хаяг</h2>
-                        <p className="footer__body">
-                            Сүхбаатар дүүрэг, 3-р хороо
-                            <br />
-                            UB Central Residence, 1 давхар
-                            <br />
-                            Three33 Barber
-                        </p>
-                    </section>
+        <div className="footer__cols">
+          <section className="footer__col">
+            <h2 className="footer__head">Хаяг</h2>
+            <p className="footer__body">
+              Сүхбаатар дүүрэг, 3-р хороо
+              <br />
+              UB Central Residence, 1 давхар
+              <br />
+              Three33 Barber
+            </p>
+          </section>
 
-                    <section className="footer__col">
-                        <h2 className="footer__head">Холбоо барих</h2>
-                        <p className="footer__body">
-                            {/* Grouped for reading, but the tel: href is unspaced —
+          <section className="footer__col">
+            <h2 className="footer__head">Холбоо барих</h2>
+            <p className="footer__body">
+              {/* Grouped for reading, but the tel: href is unspaced —
                                 a dialler will not parse the pretty form. */}
-                            <a href="tel:+97699141630">+976 9914 1630</a>
-                            <br />
-                            {/* <a href="mailto:three33barber@three33barber.com">
+              <a href="tel:+97699141630">+976 9914 1630</a>
+              <br />
+              {/* <a href="mailto:three33barber@three33barber.com">
                                 three33barber@three33barber.com
                             </a> */}
-                        </p>
-                    </section>
+            </p>
+          </section>
 
-                    <section className="footer__col">
-                        <h2 className="footer__head">Сошиал</h2>
-                        <p className="footer__body">
-                            {/*
+          <section className="footer__col">
+            <h2 className="footer__head">Сошиал</h2>
+            <p className="footer__body">
+              {/*
                               rel="noreferrer" and not just noopener: these leave the
                               site for a social network, and there is no reason to
                               hand it the page the customer came from.
                             */}
-                            {/* <a
+              {/* <a
                                 href="https://www.facebook.com/Three33barber"
                                 target="_blank"
                                 rel="noreferrer"
                             >
                                 Facebook — Three33barber
                             </a> */}
-                            {/* <br /> */}
-                            <a
-                                href="https://www.instagram.com/uppercutdeluxe_mongolia"
-                                target="_blank"
-                                rel="noreferrer"
-                            >
-                                Instagram — uppercutdeluxe_mongolia
-                            </a>
-                        </p>
-                    </section>
-                </div>
+              {/* <br /> */}
+              <a
+                href="https://www.instagram.com/uppercutdeluxe_mongolia"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Instagram — uppercutdeluxe_mongolia
+              </a>
+            </p>
+          </section>
+        </div>
 
-                <p className="footer__note">
-                    Authentic products. Modern grooming. Timeless barber culture.
-                </p>
-            </div>
-        </footer>
-    )
+        <div className="footer__bottom">
+          <p className="footer__note">
+            Authentic products. Modern grooming.
+            <br />
+            Timeless barber culture.
+          </p>
+          <a
+            className="footer__credit"
+            href="https://atelier.mn"
+            target="_blank"
+            rel="noreferrer"
+          >
+            by__atelier.mn
+          </a>
+        </div>
+      </div>
+    </footer>
+  );
 }
 
 export function Page({ children }: { children: ReactNode }) {
-    return (
-        <>
-            <Header />
-            <main>{children}</main>
-            <Footer />
-        </>
-    )
+  return (
+    <>
+      <Header />
+      <main>{children}</main>
+      <Footer />
+    </>
+  );
 }
 
 /**
@@ -176,44 +188,44 @@ export function Page({ children }: { children: ReactNode }) {
  * (17.5 = 20 × 21/24), so the glyphs render at exactly the same size.
  */
 function SearchIcon() {
-    return (
-        <svg width="17.5" height="20" viewBox="0 0 21 24" fill="none" aria-hidden>
-            <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.8" />
-            <path
-                d="m20 20-3.5-3.5"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-            />
-        </svg>
-    )
+  return (
+    <svg width="17.5" height="20" viewBox="0 0 21 24" fill="none" aria-hidden>
+      <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.8" />
+      <path
+        d="m20 20-3.5-3.5"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
 }
 
 function CloseIcon() {
-    return (
-        <svg width="17.5" height="20" viewBox="0 0 21 24" fill="none" aria-hidden>
-            <path
-                d="M6 6l12 12M18 6L6 18"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-            />
-        </svg>
-    )
+  return (
+    <svg width="17.5" height="20" viewBox="0 0 21 24" fill="none" aria-hidden>
+      <path
+        d="M6 6l12 12M18 6L6 18"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
 }
 
 function CartIcon() {
-    return (
-        <svg width="17.5" height="20" viewBox="0 0 21 24" fill="none" aria-hidden>
-            <path
-                d="M3 4h2l2.4 11.2a1 1 0 0 0 1 .8h8.5a1 1 0 0 0 1-.78L20 8H6"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-            />
-            <circle cx="10" cy="20" r="1.4" fill="currentColor" />
-            <circle cx="17" cy="20" r="1.4" fill="currentColor" />
-        </svg>
-    )
+  return (
+    <svg width="17.5" height="20" viewBox="0 0 21 24" fill="none" aria-hidden>
+      <path
+        d="M3 4h2l2.4 11.2a1 1 0 0 0 1 .8h8.5a1 1 0 0 0 1-.78L20 8H6"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="10" cy="20" r="1.4" fill="currentColor" />
+      <circle cx="17" cy="20" r="1.4" fill="currentColor" />
+    </svg>
+  );
 }

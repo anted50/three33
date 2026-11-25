@@ -1,354 +1,199 @@
-# Uppercut Deluxe Mongolia
+# Three33 Barber
 
-E-commerce storefront for the Mongolian Uppercut Deluxe distributor.
-TanStack Start (SSR + server functions) on Cloudflare Workers · D1 + Drizzle · QPay.
+Storefront and barber booking for Three33 Barber (Uppercut Deluxe in Mongolia).
+TanStack Start on Cloudflare Workers, D1 (SQLite) with Drizzle, payments
+through QPay and StorePay.
 
-## Prerequisites
+## Quick start
 
-- **Node 22 LTS** — `winget install OpenJS.NodeJS.LTS`
-
-That's all. The database is Cloudflare D1, and locally wrangler runs it as a
-SQLite file under `.wrangler/state` — no Docker, no database server. `npm run
-dev` runs the server code inside workerd, the same runtime as production.
-
-## First run
+Needs **Node 26** and npm. There's no database server: locally, D1 is a SQLite
+file under `.wrangler/state`, and `npm run dev` runs the server code inside
+workerd, the same runtime as production.
 
 ```bash
 npm install
-cp .env.example .dev.vars
-```
-
-`.dev.vars` is what wrangler reads for local config (it falls back to `.env`
-when there is no `.dev.vars`). The mock values in it boot the app; real
-credentials only matter for the integrations you are working on. The two
-`VITE_PUBLIC_POSTHOG_*` lines also go in `.env.development.local` — Vite reads
-`VITE_*` from `.env*` files only, never from `.dev.vars`.
-
-```bash
-npm run db:migrate                       # create the tables in the local D1
-npm run db:seed                          # the real catalogue, placeholder prices
+cp .env.example .dev.vars        # mock values; enough to boot
+npm run db:migrate               # create the tables in the local D1
+npm run db:seed                  # the catalogue, placeholder prices
 npm run admin:add -- you@example.com "Your Name"
-npm run dev
+npm run dev                      # http://localhost:3000
 ```
 
-App on http://localhost:3000. Admin login is an emailed code; without
-`RESEND_API_KEY` the code is printed to the dev server's console instead.
+Admins sign in with an emailed code. Without `RESEND_API_KEY`, the code is
+printed in the dev server's console. Vite reads `VITE_*` variables only from
+`.env*` files, so the two `VITE_PUBLIC_POSTHOG_*` lines also go in
+`.env.development.local`.
 
-## Environments
+## Environments and deploys
 
-| | Where | Database | Deploy |
+| | URL | D1 database | Deployed by |
 |---|---|---|---|
-| **Local** | http://localhost:3000 | local D1 (`.wrangler/state`) | `npm run dev` |
-| **Staging** | https://staging.three33barber.com | its own D1 (`three33-staging`) | `npm run deploy:staging` |
-| **Production** | https://three33barber.com (`www.` redirects here) | production D1 | `npm run deploy` |
-
-All three are configured in [`wrangler.jsonc`](wrangler.jsonc) — production at
-the top level, staging under `env.staging`. Build a new feature locally, deploy
-it to staging to try it on Cloudflare, then deploy production.
-
-Staging and production each have their own D1 database, both created in
-Asia-Pacific (`--location apac`) since the customers are in Mongolia — a
-database's region is fixed when it is created. Staging runs no cron jobs.
-Apply migrations to both: `npm run db:migrate:staging`, then
-`npm run db:migrate:remote`.
-
-Both deployed environments use the real QPay merchant — there is no QPay
-sandbox, so a staging checkout makes a real, payable invoice.
-
-Secrets are per environment: `npx wrangler secret put NAME` for production,
-`npx wrangler secret put NAME --env staging` for staging. Full deploy notes:
-[docs/deploy-cloudflare.md](docs/deploy-cloudflare.md).
-
-## Branches and deploys
+| Local | http://localhost:3000 | `.wrangler/state` | `npm run dev` |
+| Staging | https://staging.three33barber.com | `three33-staging` | a push to `staging` |
+| Production | https://three33barber.com (`www.` redirects) | `three33` | a push to `production` |
 
 ```
-feature/xyz ──PR──▶ staging ──auto-deploy──▶ staging.three33barber.com
-                       │
-                       └──PR──▶ production ──auto-deploy──▶ three33barber.com
+feature/* ──PR──▶ staging ──PR──▶ production
 ```
 
-- **`staging`** — the default branch. Every change lands here first, through a
-  pull request from a `feature/…` or `fix/…` branch.
-- **`production`** — only ever receives a merge from `staging` (or an urgent
-  fix). What is in `production` is what is live.
+[`ci.yml`](.github/workflows/ci.yml) runs `verify` on every pull request and
+push. It checks that the migrations match the schema, applies them to a
+throwaway D1, builds and dry-runs both environments, and runs the type check
+and tests. A push to `staging` or `production` that passes then applies that
+environment's D1 migrations, then deploys its Worker. A failed migration stops
+the deploy. Run `npm run verify` locally for the same check.
 
-GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) verifies
-every pull request and push — migrations match the schema, both environments
-build and pass `wrangler deploy --dry-run`, types, tests. A push to `staging`
-or `production` that passes then migrates that environment's D1 and deploys
-its Worker. Both branches are protected: changes arrive through pull requests
-with a passing check.
+Both environments are set up in [`wrangler.jsonc`](wrangler.jsonc): production
+at the top level, staging under `env.staging`. They use the real QPay merchant
+(there is no sandbox). Only production runs cron jobs. Secrets are per Worker:
+`npx wrangler secret put NAME [--env staging]`. Rollback, secrets and the API
+token are covered in [docs/deploy-cloudflare.md](docs/deploy-cloudflare.md).
 
-Before pushing, run the same check locally:
+## Data model
+
+[`src/db/schema.ts`](src/db/schema.ts) is the source of truth, and
+`drizzle/` holds the generated migrations plus hand-written triggers. Column
+conventions:
+
+- **Money** is an integer in *mungu* (₮ × 100). Convert only through
+  `src/lib/money.ts`.
+- **Ids** are text UUIDs, generated in JS so a batch can refer to a row before
+  it exists.
+- **Timestamps** are integer milliseconds; dates are `YYYY-MM-DD` text in
+  Ulaanbaatar time.
+- **Enums** are text columns with a `CHECK` constraint.
+
+| Area | Tables |
+|---|---|
+| Accounts | `users` (role `customer`/`admin`) · `sessions` (the SHA-256 hash of the cookie token) · `otp_codes` (sign-in codes) · `addresses` |
+| Catalogue | `categories` · `products` (`draft`/`active`/`archived`) · `product_variants` (SKU, size, price, `stock_qty`) · `product_images` |
+| Cart | `carts` (guest cart from the `uc_cart` cookie, or a user's cart) · `cart_items` |
+| Orders | `orders` · `order_items` (SKU, name and price snapshots) · `payments` (one per provider invoice; `provider` is `qpay` or `storepay`) · `admin_invoices` (orders an admin raised) · `checkout_attempts` (rate limiting) |
+| Stock | `inventory_ledger`: one row per stock change, with its reason (`order_paid`, `order_cancelled`, `order_refunded`, `restock`, `manual_adjustment`) |
+| Booking | `services` (name, minutes, price) · `availability` (the barber's open windows) · `appointments` (`pending` hold → `booked`, or `cancelled`; `online` or `admin`) |
+| Config | `settings`: key/value rows for `shipping_fee`, `shipping_free_threshold` and `booking_fee` |
+| Internal | `batch_guards`: always empty; inserting into it aborts a batch (see below) |
+
+Order status lives in `orders.status`; [`orders/state.ts`](src/lib/server/orders/state.ts) enforces the transitions:
+
+```
+pending_payment ─┬─▶ paid ─▶ processing ─▶ shipped ─▶ delivered
+                 ├─▶ expired
+                 └─▶ cancelled
+paid · processing · shipped · delivered ─▶ refunded
+```
+
+What the database enforces itself:
+- Unique keys: `users.email`, `products.slug`, `product_variants.sku`,
+  `orders.order_no`, `payments.payment_id`, `appointments.booking_no`, and one
+  `cart_items` row per cart and variant.
+- Triggers in `drizzle/0001_constraints.sql` that stop `availability` windows
+  and live `appointments` from overlapping.
+
+## Rules the code relies on
+
+- **No `db.transaction()`.** D1 has no interactive transactions. Writes that
+  must land together go in one `atomic()` batch, and `guard()` re-checks the
+  state the batch depends on. A failed guard inserts into `batch_guards`, which
+  aborts the whole batch. See [`src/db/atomic.ts`](src/db/atomic.ts).
+- **Prices come from the server.** Checkout re-reads `product_variants.price`;
+  `cart_items.unit_price_snapshot` only records what the customer was shown.
+- **Stock moves when payment settles**, not at checkout, so abandoned carts
+  don't take sizes off sale. Every move writes an `inventory_ledger` row.
+- **`settleOrder` is the only thing that marks an order paid.** The payment
+  callback and the `reconcile` job both call it; `payments_payment_id_key` makes
+  sure only one of them wins.
+- **Every server function validates its input with zod** and every admin server
+  function calls `assertAdmin()`. A server function is a public endpoint, so
+  the `/admin` route guard only decides what renders.
+- **`cart/cart.ts` exports only server functions and types.** Any other export
+  keeps the module in the client bundle, along with the secrets it imports.
+  Helpers go in `cart/internal.ts`. See
+  [`src/lib/server/README.md`](src/lib/server/README.md).
+
+## Payments
+
+QPay credentials are production credentials, and there is no sandbox. Creating
+an invoice moves no money, though: only paying it does. That makes invoice
+creation and `payment/check` safe to exercise locally:
 
 ```bash
-npm run verify
+npm run qpay:smoke create 10                 # a real 10₮ invoice
+npm run qpay:smoke watch <invoiceId> 10      # poll until paid
+npm run qpay:smoke cancel <invoiceId>
 ```
 
-Schema changes ship in two steps — a migration runs just before the code that
-needs it, so add first, use, and only remove an old column in a later deploy.
-To undo a bad deploy, `npx wrangler rollback` (code) or D1 Time Travel (data);
-see [docs/deploy-cloudflare.md](docs/deploy-cloudflare.md).
+- **Settlement comes from `payment/check`, never from the callback**, so
+  localhost covers everything except the callback route itself.
+- **QPay's `expires_in` is a UNIX timestamp, not a duration.**
+  `qpay/client.ts` caches the token and lets only one refresh run at a time.
+- **E-barimt receipts** are issued only when `QPAY_EBARIMT_INVOICE_CODE` (a
+  VAT-enabled QPay invoice code) is set.
+- **StorePay** sends the invoice to the customer's app by phone number.
 
-## Product imagery
+## Booking
 
-Packshots are extracted from the client's Product Bible PDF:
+Customers choose a service and a free time at `/booking`, then pay the booking
+fee by QPay. The paid fee confirms the booking and sends the confirmation
+email. An unpaid hold is deleted after 15 minutes. Admins manage bookings at
+`/admin/bookings`, `/admin/schedule` and `/admin/services`. They can enter
+bookings by hand (a phone call or a walk-in, no fee) and reschedule or cancel
+them; a cancelled booking's fee is not refunded. Online booking stays off until
+a `booking_fee` is set.
 
-```bash
-node scripts/extract-brand-images.mjs ~/Downloads/ProductBible-May2026.pdf /tmp/img --sheets
-```
+The JSON API is at `/api/v1/public/*` and `/api/v1/admin/*`. Each route file
+documents itself; the shared conventions are in
+[`src/lib/server/api/README.md`](src/lib/server/api/README.md).
 
-Two wrinkles that the script exists to handle: the packshots are **CMYK JPEGs**,
-which browsers cannot render at all, and their transparency lives in a separate
-`/SMask` stream — without it every product sits on a black rectangle.
+## Scheduled jobs
 
-`scripts/map-brand-images.mjs` then copies identified images to
-`public/products/<slug>.webp`. The mapping is by eye from contact sheets, since
-the PDF has no machine-readable link between an image and a product name.
+Cloudflare Cron Triggers on production. Any job can also be run with
+`npm run job -- <name>`, or with `POST /api/v1/jobs/<name>` and
+`Authorization: Bearer $JOBS_API_TOKEN`. Details are in
+[docs/scheduled-jobs.md](docs/scheduled-jobs.md).
 
-All 22 products now have a packshot in `public/products/`. A product without
-one renders a text placeholder rather than a wrong photo.
+| Job | Runs | Does |
+|---|---|---|
+| `booking-sweep` | every 5 min | Deletes unpaid booking holds past their deadline, after one last QPay check |
+| `reconcile` | hourly at :07 | Settles orders whose callback never arrived; cancels and expires lapsed invoices |
+| `cleanup` | daily at 03:17 Ulaanbaatar | Deletes expired sessions, OTP codes and guest carts; prunes `checkout_attempts` |
 
 ## Scripts
 
 | Command | Does |
 |---|---|
-| `npm run dev` | Vite dev server, SSR in workerd, HMR, local D1 |
-| `npm run build` | Production build to `dist/` (client assets + Worker) |
-| `npm run preview` | Build, then serve the built Worker locally |
-| `npm run deploy` | Build and deploy **production** |
-| `npm run deploy:staging` | Build for staging and deploy **staging** |
-| `npm run verify` | What CI runs: build + `wrangler deploy --dry-run` for both environments, types, tests |
-| `npm run cf-typegen` | Regenerate `worker-configuration.d.ts` after editing `wrangler.jsonc` |
+| `npm run dev` / `dev:lan` | Dev server (SSR in workerd, local D1); `dev:lan` exposes it on the network |
+| `npm run build` / `preview` | Production build to `dist/`; `preview` serves that build |
+| `npm run verify` | Everything CI's `verify` job runs |
+| `npm test` / `test:unit` / `test:d1` | Vitest. `d1` runs the database code against a real local D1 |
 | `npm run typecheck` | `tsc --noEmit` |
-| `npm test` | Vitest: `unit` (pure functions) and `d1` (database code on a real local D1); `test:unit` / `test:d1` run one |
-| `npm run db:generate` | Generate a migration from `src/db/schema.ts` |
-| `npm run db:migrate` | Apply pending migrations to the local D1 |
-| `npm run db:migrate:remote` | …to the production D1 |
-| `npm run db:migrate:staging` | …to staging's D1 |
-| `npm run db:studio` | Drizzle Studio on the local D1 |
-| `npm run db:seed` | Seed the catalogue into the local D1 |
-| `npm run admin:add -- <email> [name] [--remote \| --staging]` | Grant admin — locally, on production, or on staging |
-| `npm run order:inspect -- <orderNo>` | Print an order and its payment from the local D1 |
-| `npm run import:railway -- <dump>` | Turn a pg_dump of the old Railway Postgres into a cleaned D1 import (`backups/railway-import.sql`) — see the script's header for what is kept |
-| `npm run job -- <name> [--url <base>]` | Trigger a scheduled job through its API endpoint |
-| `npm run qpay:ping` | Fetch one QPay token to check credentials. Read-only |
-| `npm run qpay:smoke` | Create / watch / cancel a real test invoice (see QPay below) |
-| `npm run storepay:ping` | Check StorePay credentials. Read-only |
+| `npm run db:generate` | Generate a migration from `schema.ts` |
+| `npm run db:migrate[:staging\|:remote]` | Apply migrations locally, to staging or to production |
+| `npm run db:studio` / `db:seed` | Drizzle Studio; seed the local catalogue |
+| `npm run admin:add -- <email> [name] [--staging\|--remote]` | Make a user an admin |
+| `npm run order:inspect -- <orderNo>` | Print a local order and its payments |
+| `npm run job -- <name> [--url <base>]` | Run a scheduled job through its endpoint |
+| `npm run qpay:ping` / `storepay:ping` | Check provider credentials (read-only) |
+| `npm run qpay:smoke` | Create, watch or cancel a real QPay invoice |
 | `npm run mail:preview` | Render the receipt email to `receipt-preview.html` |
-
-## Cart and checkout
-
-Browse → cart → checkout → QPay → success is wired end to end.
-
-- **Guest cart** keyed by an opaque `uc_cart` cookie. `SameSite=Lax`, not
-  `Strict`: QPay sends the customer into a bank app and back, and `Strict`
-  would drop the cookie on that return — they would come back from paying to
-  an empty cart.
-- **Every price is re-read from `product_variants`.** `cart_items.unit_price_snapshot`
-  exists so an admin can see what the customer was shown; it is never what they
-  are charged. A price change while the cart sat there is visible *before*
-  payment, not after.
-- **Stock is not held by an unpaid order.** Decrementing at checkout would take
-  a size off sale for every abandoned cart. Stock moves when payment settles.
-- **`settleOrder` is the only thing that marks an order paid.** The callback
-  route and the reconciliation sweep both call it, which is what makes them safe
-  to race — `payments_payment_id_key` lets exactly one win.
-
-### The bundling rule this exposed
-
-`src/lib/server/cart/cart.ts` exports **only server functions and types**.
-Helpers live in `cart/internal.ts`, which no route may import.
-
-This is not style. A module that exports anything else stays in the client
-graph, dragging its imports with it — which briefly put `env` (holding the QPay
-password) and the QPay client into the browser bundle. The visible symptom was
-`Buffer is not defined` and a dead Add to cart button; the real problem was
-handing secrets to the client bundler at all. Verify with:
-
-```bash
-npm run build && grep -r "QPAY_PASSWORD" dist/client/
-```
-
-## Booking
-
-One barber, one shop. The barber adds his services (a name and a length —
-"Haircut, 45 minutes") and opens windows on his schedule, any day and any
-hours. A customer picks a service and a free time, enters name, phone and
-email, and pays the booking fee through QPay; the paid fee confirms the
-booking and the confirmation email goes out. Unpaid holds are deleted after
-15 minutes.
-
-Admins see every booking. They can:
-
-- **reschedule** or **cancel** one — the customer is emailed either way, and
-  a cancelled booking's fee is kept (non-refundable);
-- **enter a booking by hand** (a phone call, a walk-in): booked at once, no
-  fee, email optional.
-
-Neither of those is held to the schedule; only overlapping another booking
-is refused.
-
-Screens: `/booking` (service → time → details → QPay fee) and
-`/booking/{bookingNo}` (the customer's booking) for customers;
-`/admin/bookings`, `/admin/schedule` and `/admin/services` (services and the
-booking fee) for admins. Underneath: three tables — `services`,
-`availability`, `appointments` — and the JSON API those pages use,
-`/api/v1/public/*` and `/api/v1/admin/*` (admin session). Each route file
-documents itself; conventions are in
-[`src/lib/server/api/README.md`](src/lib/server/api/README.md). Until a
-booking fee is set, online booking is off.
-
-## Admin
-
-`/admin` — dashboard, orders (list, detail, status transitions), products
-(create, edit price/stock/status, variants, images), categories, goods
-received (restocking), invoices (QPay/StorePay invoices and manual card-reader
-sales) and settings (delivery fee). Desktop-first, since it is used at a desk,
-but it collapses to one column so orders can be checked on a phone. Booking is
-managed through the admin API — see Booking above.
-
-### Signing in
-
-Admins sign in with a one-time code sent to their email (`otp_codes`, then a
-`sessions` row) — there is no password and no signup. An account becomes an
-admin only through `npm run admin:add`. See [docs/email-otp.md](docs/email-otp.md).
-
-### Two layers of check, on purpose
-
-The `/admin` layout's `beforeLoad` decides what *renders*. Every admin server
-function separately calls `assertAdmin()`, because a server function is a public
-HTTP endpoint — anyone can call it directly with the right payload, layout or
-no layout. The route guard is convenience; `assertAdmin()` is the control.
-
-This is the thing the deleted Go layer used to enforce for free.
-
-## Conventions that are load-bearing
-
-Read [`src/lib/server/README.md`](src/lib/server/README.md) before adding a
-server function. The short version:
-
-- **Money is mungu** (₮ × 100), integer columns, integers only, via `~/lib/money`.
-  Conversion to tugrik happens at display and at the QPay boundary, nowhere else.
-- **Every server function validates input with zod.** There is no second service
-  behind this one re-checking anything.
-- **Prices are recomputed server-side at checkout.** Client totals are display
-  artefacts.
-- **Sessions are database rows**, not JWTs. The cookie holds a token; the DB
-  holds its SHA-256 hash.
-- **No `db.transaction()`.** D1 has no interactive transactions. Writes that
-  must land together go through one atomic batch, with `guard()` re-checking
-  what a row lock used to protect — see [`src/db/atomic.ts`](src/db/atomic.ts).
-
-## QPay: what the credentials actually are
-
-**These are production credentials. There is no sandbox pair for this
-merchant.** Any invoice created against `THREE33_BARBER_INVOICE` is a real,
-payable invoice that will appear in the merchant portal. Treat invoice creation
-as a live action during development — test with small amounts, and cancel
-invoices you don't intend to settle (`cancelInvoice`).
-
-Two things learned from the vendor spec that the code depends on:
-
-- **`expires_in` is a UNIX timestamp, not a duration.** Confirmed live: QPay
-  returned `1785815975`. Reading it the OAuth way gives a token we believe is
-  valid for ~52 years and therefore never refresh. `resolveExpiry()` handles
-  both readings; see `qpay/client.ts`.
-- **Do not fetch a token per request.** QPay's integration notes call this out
-  explicitly. `QpayClient` caches the token and single-flights refreshes.
-
-### Testing QPay without spending money
-
-**Creating an invoice moves no money.** It mints a QR and a set of bank
-deeplinks; you are charged only if someone scans and pays. So invoice creation
-and `payment/check` polling are free to exercise against production.
-
-**You also don't need a public callback URL to test settlement.** The callback
-is only a hint that it's worth asking; settlement always comes from
-`payment/check`, which we call ourselves. That's the same path the
-reconciliation sweep uses, so localhost covers everything except testing the
-callback route itself (for that, tunnel with `cloudflared tunnel --url
-http://localhost:3000` and point `APP_URL` at the tunnel).
-
-```bash
-npm run qpay:smoke create 10
-```
-
-Creates a 10₮ invoice through the real `QpayProvider`, prints the short URL,
-QR and deeplinks, then tells you how to watch or cancel it. Test invoices are
-prefixed `TEST-<timestamp>` so they can never collide with a real `order_no` —
-which matters, because `sender_invoice_no` is burnt permanently.
-
-```bash
-npm run qpay:smoke watch  <invoiceId> 10   # polls until it settles
-npm run qpay:smoke cancel <invoiceId>      # throw it away unpaid
-```
-
-Verified on 3 Aug 2026: invoice created, 22 bank deeplinks returned,
-`payment/check` correctly reported `unpaid`, invoice cancelled cleanly.
-
-Open items with the client, both blocking parts of checkout:
-
-1. **E-barimt.** QPay issues the receipt for us via `POST /v2/ebarimt/create`
-   (`payment_id` + `CITIZEN`/`ORGANIZATION`) — we don't integrate with the tax
-   authority directly. But that requires a **separate VAT-enabled invoice code**
-   from QPay; `THREE33_BARBER_INVOICE` is the plain one. If the business must
-   issue e-barimt, request that code now — it changes the invoice payload
-   (`lines[]` with `tax_product_code` and VAT amounts).
-2. **The merchant name is `THREE33_BARBER`**, not an Uppercut Deluxe entity.
-   Confirm this is the intended legal entity for receiving payment before launch.
-
-## Scheduled jobs
-
-Three, run by Cloudflare Cron Triggers (`triggers.crons` in `wrangler.jsonc`,
-dispatched by `src/server.ts`) — nothing to set up beyond deploying. Each can
-also be triggered over HTTP with a bearer token. Full detail in
-[docs/scheduled-jobs.md](docs/scheduled-jobs.md).
-
-| Job | Every | What it does |
-|---|---|---|
-| `reconcile` | hourly, at :07 | Settles orders whose payment callback never arrived (QPay and StorePay); cancels lapsed invoices with the provider and expires them |
-| `booking-sweep` | 5 minutes | Deletes unpaid booking holds past their deadline, after a last QPay check |
-| `cleanup` | daily, 03:17 Ulaanbaatar | Deletes expired sessions, OTP codes and guest carts, and prunes `checkout_attempts` |
-
-| Way in | How |
-|---|---|
-| Cron Triggers | default, once deployed |
-| External scheduler / by hand | `POST /api/v1/jobs/<job>` with `Authorization: Bearer $JOBS_API_TOKEN` — or `npm run job -- <job>` |
-
-Dropped callbacks are a when, not an if, and `reconcile` is the only thing that
-cancels an abandoned invoice with the provider. If you change how this app is
-deployed, check that something is still running it.
+| `npm run cf-typegen` | Regenerate `worker-configuration.d.ts` after editing `wrangler.jsonc` |
 
 ## Layout
 
 ```
 src/
-  server.ts      the Worker entry: fetch (TanStack Start) + scheduled (cron)
-  db/            schema.ts (single source of truth), the D1 client, atomic.ts
-  lib/
-    money.ts     mungu arithmetic — the only place ₮ conversion happens
-    server/      server-only code, organised by domain; see its README
-  routes/        file-based routes; storefront, /admin and /api/v1
-  styles/
-scripts/         seed, admin, job trigger, provider checks — run outside the Worker
-drizzle/         generated D1 migrations (plus hand-written triggers), committed
-wrangler.jsonc   the Workers: bindings, cron triggers, vars — production + env.staging
+  server.ts      Worker entry: fetch (TanStack Start) and scheduled (cron)
+  db/            schema.ts, the D1 client, atomic.ts
+  lib/server/    server-only code by domain (auth, cart, products, orders,
+                 payments, booking, admin, email, api); read its README first
+  routes/        storefront, /booking, /admin and /api/v1
+public/products/ product packshots (.webp)
+scripts/         seed, admin, jobs, provider checks, image extraction
+drizzle/         generated D1 migrations, committed
 ```
 
-## Status
-
-Running on Cloudflare Workers + D1 from this `cloudflare` branch. `main`
-still holds the older Postgres version that ran on Railway, until this
-branch is merged.
-
-- **Live:** production at https://three33barber.com, staging at
-  https://staging.three33barber.com — both Cloudflare Workers custom domains
-  (the `*.workers.dev` addresses still answer too). Storefront, QPay and
-  StorePay checkout, admin and the cron jobs run there.
-- **Data:** the catalogue, settings, admins and the one real order were
-  imported from the Railway Postgres (`npm run import:railway`), into both
-  staging and production.
-- **Next:** set the booking fee, services and schedule; build a booking page
-  on top of `/api/v1/public/*`; retire the Railway services; copy the product
-  images still served from uppercutdeluxe.com into `public/`.
+The product packshots come from the client's Product Bible PDF.
+`scripts/extract-brand-images.mjs` converts its CMYK JPEGs, which browsers can't
+display, and applies their separate transparency masks.
+`scripts/map-brand-images.mjs` copies each one to
+`public/products/<slug>.webp`.

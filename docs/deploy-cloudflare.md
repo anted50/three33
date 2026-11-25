@@ -182,13 +182,13 @@ dashboard. See [scheduled-jobs.md](./scheduled-jobs.md).
 ```bash
 npm run db:generate          # after editing src/db/schema.ts
 npm run db:migrate           # local
-npm run db:migrate:remote    # deployed — run before deploying code that needs it
+npm run db:migrate:remote    # production, by hand (CI normally does this)
 ```
 
-wrangler records applied migrations in the `d1_migrations` table, so both are
-safe to re-run. Unlike the old Railway setup there is no pre-deploy hook:
-apply remote migrations yourself, before `npm run deploy`, whenever the schema
-changed.
+wrangler records applied migrations in the `d1_migrations` table, so they are
+safe to re-run. CI applies the deployed environment's migrations right before
+deploying its Worker, and a failed migration stops the deploy. Only a manual
+`npm run deploy` needs `db:migrate:remote` run first.
 
 ## Things that are different from Postgres
 

@@ -3,7 +3,7 @@ import { getRequestHeader } from '@tanstack/react-start/server'
 import { and, count, eq, gt, inArray } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '~/db'
-import { atomic } from '~/db/atomic'
+import { atomic, insertRows } from '~/db/atomic'
 import {
   checkoutAttempts,
   orderItems,
@@ -14,7 +14,10 @@ import {
 } from '~/db/schema'
 import { currentCart } from '../cart/internal'
 import { clientIp } from '../client-ip'
-import { computeTotals } from '../cart/pricing'
+import { computeTotals, MAX_CART_LINES, type CartTotals, type ShippingRates } from '../cart/pricing'
+import type { CartLine } from '../cart/internal'
+import type { CreatedInvoice } from '../payments/provider'
+import { assert } from '~/lib/assert'
 import { loadShippingRates } from '../settings'
 import {
   availableProviders,
@@ -117,97 +120,26 @@ export const createOrder = createServerFn({ method: 'POST' })
     if (cart.lines.length === 0) {
       throw new Error('Таны сагс хоосон байна')
     }
+    // addToCart refuses a new line past the cap; this is the paired check.
+    assert(cart.lines.length <= MAX_CART_LINES, 'carts never hold more than MAX_CART_LINES lines')
 
     const ip = clientIp(getRequestHeader)
-
-    const record = (
-      outcome: 'created' | 'reused' | 'rate_limited' | 'invoice_failed',
-      orderId?: string,
-    ) =>
-      db.insert(checkoutAttempts).values({
-        ip,
-        phone: data.phone,
-        cartId,
-        orderId: orderId ?? null,
-        outcome,
-      })
+    const record = (outcome: CheckoutOutcome, orderId?: string) =>
+      db.insert(checkoutAttempts).values({ ip, phone: data.phone, cartId, orderId: orderId ?? null, outcome })
 
     await enforceRateLimit(ip, data.phone, record)
 
-    const rates = await loadShippingRates()
+    // Priced before anything else, because the fingerprint that decides
+    // "same basket?" includes the total.
+    const { pricedLines, totals } = await priceCart(cart.lines, await loadShippingRates())
+    assertMethodAllowed(data.method, totals.total)
 
-    /**
-     * Price the cart before anything else, because the fingerprint that decides
-     * "same basket?" includes the total.
-     *
-     * A plain read — D1 has no row locks, and none is needed: nothing is
-     * reserved at this stage, so two tabs both being told the last unit is
-     * available only means both can be invoiced. settle.ts decides who gets
-     * it, with a conditional decrement when money actually lands.
-     */
-    const { pricedLines, totals } = await (async () => {
-      const variantIds = cart.lines.map((l) => l.variantId)
-      const locked = await db
-        .select({
-          id: productVariants.id,
-          price: productVariants.price,
-          stockQty: productVariants.stockQty,
-          isActive: productVariants.isActive,
-          sku: productVariants.sku,
-          size: productVariants.size,
-          name: products.nameMn,
-        })
-        .from(productVariants)
-        .innerJoin(products, eq(products.id, productVariants.productId))
-        .where(inArray(productVariants.id, variantIds))
-
-      const byId = new Map(locked.map((v) => [v.id, v]))
-
-      const priced = cart.lines.map((line) => {
-        const variant = byId.get(line.variantId)
-        if (!variant || !variant.isActive) {
-          throw new Error(`${line.productName} борлуулалтад алга`)
-        }
-        if (variant.stockQty < line.qty) {
-          throw new Error(
-            `${line.productName}: нөөцөд ${variant.stockQty} ширхэг үлдсэн`,
-          )
-        }
-        return {
-          variantId: variant.id,
-          // Authoritative price, from the database, not the browser.
-          unitPrice: variant.price,
-          qty: line.qty,
-          sku: variant.sku,
-          name: variant.size ? `${variant.name} ${variant.size}` : variant.name,
-        }
-      })
-
-      return { pricedLines: priced, totals: computeTotals(priced, rates) }
-    })()
-
-    if (!availableProviders().includes(data.method)) {
-      throw new Error('Энэ төлбөрийн сонголт одоогоор боломжгүй байна')
-    }
-
-    // The drawer greys this out already; this is the check that counts, since
-    // it runs against the total recomputed above rather than the browser's.
-    if (!meetsMinimum(data.method, totals.total)) {
-      const min = PAYMENT_METHOD_MIN_TOTAL[data.method]!
-      throw new Error(
-        `Энэ төлбөрийн хэлбэрээр ${formatMnt(min)}-с дээш дүнтэй захиалга төлөх боломжтой`,
-      )
-    }
-
-    const fingerprint = basketFingerprint(pricedLines, totals.total)
-
-    const reused = await reuseLiveCheckout(cartId, fingerprint, data.method)
+    const reused = await reuseLiveCheckout(cartId, basketFingerprint(pricedLines, totals.total), data.method)
     if (reused) {
       await record('reused', reused.orderId)
       return reused.result
     }
 
-    const total = totals.total
     const orderNo = generateOrderNo()
     const { token, hash } = mintOrderToken()
     const expiresAt = new Date(Date.now() + INVOICE_TTL_MS)
@@ -217,12 +149,11 @@ export const createOrder = createServerFn({ method: 'POST' })
      * customer sees an error and still has their cart — no order row exists
      * to reconcile, chase or explain.
      */
-    const provider = getProvider(data.method)
-    let invoice
+    let invoice: CreatedInvoice
     try {
-      invoice = await provider.createInvoice({
+      invoice = await getProvider(data.method).createInvoice({
         orderNo,
-        amount: total,
+        amount: totals.total,
         // Shows on the payer's bank statement / StorePay app, so it names
         // the shop, not a label the shop happens to stock.
         description: `Three33 ${orderNo}`,
@@ -240,77 +171,8 @@ export const createOrder = createServerFn({ method: 'POST' })
       throw error
     }
 
-    const invoicePayload = {
-      qrText: invoice.qrText,
-      qrImage: invoice.qrImage,
-      shortUrl: invoice.shortUrl,
-      links: invoice.links,
-    }
-
     const orderId = crypto.randomUUID()
-    try {
-      await atomic([
-        db.insert(orders).values({
-          id: orderId,
-          orderNo,
-          cartId,
-          status: 'pending_payment',
-          subtotal: totals.subtotal,
-          shippingFee: totals.shippingFee,
-          total,
-          contactPhone: data.phone,
-          note: null,
-          expiresAt,
-          accessTokenHash: hash,
-          shippingAddressSnapshot: {
-            name: null,
-            phone: data.phone,
-            email: data.email || null,
-            address: data.address,
-          },
-        }),
-        db.insert(orderItems).values(
-          pricedLines.map((line) => ({
-            orderId,
-            variantId: line.variantId,
-            skuSnapshot: line.sku,
-            nameSnapshot: line.name,
-            unitPrice: line.unitPrice,
-            qty: line.qty,
-          })),
-        ),
-        db.insert(payments).values({
-          orderId,
-          provider: data.method,
-          invoiceId: invoice.invoiceId,
-          amount: total,
-          status: 'pending',
-          /**
-           * The QR text, base64 QR image and bank deeplinks as returned at
-           * invoice creation. Stored so reloading the payment page re-renders
-           * instantly instead of calling the provider again on every refresh.
-           */
-          invoicePayload,
-        }),
-      ])
-    } catch (error) {
-      /**
-       * An invoice now exists at the provider for an order that does not
-       * exist here — the mirror image of the old failure, and the easier
-       * one: cancel it and nothing is left behind on either side. The
-       * likeliest cause is an order_no collision, which the unique index
-       * catches.
-       */
-      try {
-        await provider.cancelInvoice(invoice.invoiceId)
-      } catch (cancelError) {
-        console.error(
-          `Orphaned ${data.method} invoice ${invoice.invoiceId} for ${orderNo}`,
-          cancelError,
-        )
-      }
-      throw error
-    }
+    await saveOrder({ orderId, orderNo, cartId, data, pricedLines, totals, invoice, expiresAt, accessTokenHash: hash })
 
     /**
      * The cart is deliberately NOT emptied here. It is what the customer comes
@@ -325,12 +187,159 @@ export const createOrder = createServerFn({ method: 'POST' })
       orderNo,
       provider: data.method,
       invoiceId: invoice.invoiceId,
-      ...invoicePayload,
-      total,
+      ...invoicePayloadOf(invoice),
+      total: totals.total,
       expiresAt: expiresAt.getTime(),
       token,
     }
   })
+
+type CheckoutOutcome = 'created' | 'reused' | 'rate_limited' | 'invoice_failed'
+
+interface PricedOrderLine {
+  variantId: string
+  unitPrice: number
+  qty: number
+  sku: string
+  name: string
+}
+
+/**
+ * Prices the cart from product_variants — nothing the browser sent
+ * contributes to the total.
+ *
+ * A plain read — D1 has no row locks, and none is needed: nothing is
+ * reserved at this stage, so two tabs both being told the last unit is
+ * available only means both can be invoiced. settle.ts decides who gets it,
+ * with a conditional decrement when money actually lands.
+ */
+async function priceCart(
+  lines: readonly CartLine[],
+  rates: ShippingRates,
+): Promise<{ pricedLines: PricedOrderLine[]; totals: CartTotals }> {
+  const variants = await db
+    .select({
+      id: productVariants.id,
+      price: productVariants.price,
+      stockQty: productVariants.stockQty,
+      isActive: productVariants.isActive,
+      sku: productVariants.sku,
+      size: productVariants.size,
+      name: products.nameMn,
+    })
+    .from(productVariants)
+    .innerJoin(products, eq(products.id, productVariants.productId))
+    .where(inArray(productVariants.id, lines.map((l) => l.variantId)))
+
+  const byId = new Map(variants.map((v) => [v.id, v]))
+
+  const pricedLines = lines.map((line) => {
+    const variant = byId.get(line.variantId)
+    if (!variant || !variant.isActive) {
+      throw new Error(`${line.productName} борлуулалтад алга`)
+    }
+    if (variant.stockQty < line.qty) {
+      throw new Error(`${line.productName}: нөөцөд ${variant.stockQty} ширхэг үлдсэн`)
+    }
+    return {
+      variantId: variant.id,
+      // Authoritative price, from the database, not the browser.
+      unitPrice: variant.price,
+      qty: line.qty,
+      sku: variant.sku,
+      name: variant.size ? `${variant.name} ${variant.size}` : variant.name,
+    }
+  })
+
+  assert(pricedLines.length === lines.length, 'every cart line is priced')
+  return { pricedLines, totals: computeTotals(pricedLines, rates) }
+}
+
+/**
+ * The drawer greys these out already; this is the check that counts, since it
+ * runs against the total recomputed on the server rather than the browser's.
+ */
+function assertMethodAllowed(method: ProviderName, total: number): void {
+  if (!availableProviders().includes(method)) {
+    throw new Error('Энэ төлбөрийн сонголт одоогоор боломжгүй байна')
+  }
+  if (!meetsMinimum(method, total)) {
+    const min = PAYMENT_METHOD_MIN_TOTAL[method]
+    assert(min !== undefined, 'a method with a minimum has it listed')
+    throw new Error(`Энэ төлбөрийн хэлбэрээр ${formatMnt(min)}-с дээш дүнтэй захиалга төлөх боломжтой`)
+  }
+}
+
+/** What the payment page needs to render, stored so a reload costs no API call. */
+function invoicePayloadOf(invoice: CreatedInvoice) {
+  return { qrText: invoice.qrText, qrImage: invoice.qrImage, shortUrl: invoice.shortUrl, links: invoice.links }
+}
+
+/**
+ * Writes the order, its lines and its payment in one batch. If that fails, an
+ * invoice exists at the provider for an order that does not exist here — the
+ * mirror image of the old failure, and the easier one: cancel it and nothing
+ * is left behind on either side. The likeliest cause is an order_no
+ * collision, which the unique index catches.
+ */
+async function saveOrder(order: {
+  orderId: string
+  orderNo: string
+  cartId: string
+  data: z.infer<typeof checkoutInput>
+  pricedLines: PricedOrderLine[]
+  totals: CartTotals
+  invoice: CreatedInvoice
+  expiresAt: Date
+  accessTokenHash: string
+}): Promise<void> {
+  const { orderId, orderNo, data, totals, invoice } = order
+  assert(totals.total > 0, 'a non-empty cart has a positive total')
+  try {
+    await atomic([
+      db.insert(orders).values({
+        id: orderId,
+        orderNo,
+        cartId: order.cartId,
+        status: 'pending_payment',
+        subtotal: totals.subtotal,
+        shippingFee: totals.shippingFee,
+        total: totals.total,
+        contactPhone: data.phone,
+        note: null,
+        expiresAt: order.expiresAt,
+        accessTokenHash: order.accessTokenHash,
+        shippingAddressSnapshot: { name: null, phone: data.phone, email: data.email || null, address: data.address },
+      }),
+      ...insertRows(
+        orderItems,
+        order.pricedLines.map((line) => ({
+          orderId,
+          variantId: line.variantId,
+          skuSnapshot: line.sku,
+          nameSnapshot: line.name,
+          unitPrice: line.unitPrice,
+          qty: line.qty,
+        })),
+      ),
+      db.insert(payments).values({
+        orderId,
+        provider: data.method,
+        invoiceId: invoice.invoiceId,
+        amount: totals.total,
+        status: 'pending',
+        invoicePayload: invoicePayloadOf(invoice),
+      }),
+    ])
+  } catch (error) {
+    try {
+      await getProvider(data.method).cancelInvoice(invoice.invoiceId)
+    } catch (cancelError) {
+      console.error(`Orphaned ${data.method} invoice ${invoice.invoiceId} for ${orderNo}`, cancelError)
+    }
+    throw error
+  }
+}
 
 /**
  * Refuses a checkout that is arriving too fast, and records the refusal — the

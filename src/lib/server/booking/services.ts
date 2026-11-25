@@ -2,6 +2,7 @@ import { and, asc, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '~/db'
 import { services } from '~/db/schema'
+import { assert } from '~/lib/assert'
 import { notFound } from '../api/errors'
 import { mungu } from '../api/input'
 
@@ -34,7 +35,8 @@ export async function listServices({ activeOnly }: { activeOnly: boolean }) {
 
 export async function createService(input: z.infer<typeof serviceInput>) {
   const [row] = await db.insert(services).values(input).returning()
-  return row!
+  assert(row, 'an insert with returning() returns the row')
+  return row
 }
 
 export async function updateService(serviceId: string, patch: z.infer<typeof servicePatch>) {

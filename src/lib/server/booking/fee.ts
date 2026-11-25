@@ -2,6 +2,7 @@ import { and, eq, isNull, lt, or } from 'drizzle-orm'
 import { db } from '~/db'
 import { atomic, changed } from '~/db/atomic'
 import { appointments } from '~/db/schema'
+import { assert } from '~/lib/assert'
 import { isGuardFailure } from '../api/db-errors'
 import { notFound } from '../api/errors'
 import { inBackground } from '../background'
@@ -42,6 +43,8 @@ export async function checkBookingFee(appointmentId: string) {
 
   const result = await getQpayProvider().checkInvoice(a.invoiceId, a.fee)
   if (result.outcome !== 'paid') return { status: a.status, checked: true, outcome: result.outcome }
+  // payments_payment_id_key needs it, and a paid check always names one.
+  assert(result.providerPaymentId, 'a paid QPay check carries its payment id')
 
   try {
     await atomic([

@@ -1,7 +1,10 @@
-import { type SQL, type SQLWrapper, sql } from 'drizzle-orm'
+import { getTableColumns, type SQL, type SQLWrapper, sql } from 'drizzle-orm'
 import type { BatchItem } from 'drizzle-orm/batch'
+import type { SQLiteInsertValue, SQLiteTable } from 'drizzle-orm/sqlite-core'
+import { assert } from '~/lib/assert'
 import { isGuardFailure } from '~/lib/server/api/db-errors'
 import { db } from './index'
+import { D1_BOUND_PARAMETERS_MAX } from './limits'
 import { batchGuards } from './schema'
 
 /**
@@ -42,6 +45,9 @@ import { batchGuards } from './schema'
 
 export type Statement = BatchItem<'sqlite'>
 
+/** Upper bound on retryOnGuard attempts: a retry loop that never ends is a hang. */
+const RETRY_TRIES_MAX = 10
+
 /**
  * Runs statements as one atomic batch. Returns each statement's result, in
  * order (`unknown[]` — callers that need a RETURNING row pick it out by index).
@@ -51,6 +57,25 @@ export async function atomic(statements: ReadonlyArray<Statement | null | undefi
   const list = statements.filter((s): s is Statement => Boolean(s))
   if (list.length === 0) return []
   return db.batch(list as [Statement, ...Statement[]])
+}
+
+/**
+ * Inserts `rows` as as many statements as D1's parameter limit needs, for one
+ * atomic batch. Chunked by the table's column count, which bounds the
+ * parameters a row can bind (columns with a SQL default bind none).
+ */
+export function insertRows<T extends SQLiteTable>(table: T, rows: ReadonlyArray<SQLiteInsertValue<T>>): Statement[] {
+  assert(rows.length > 0, 'insertRows needs at least one row')
+  const columnCount = Object.keys(getTableColumns(table)).length
+  const rowsPerStatement = Math.floor(D1_BOUND_PARAMETERS_MAX / columnCount)
+  assert(rowsPerStatement >= 1, `a ${columnCount}-column row cannot fit in one D1 statement`)
+
+  const statements: Statement[] = []
+  for (let start = 0; start < rows.length; start += rowsPerStatement) {
+    statements.push(db.insert(table).values(rows.slice(start, start + rowsPerStatement) as SQLiteInsertValue<T>[]))
+  }
+  assert(statements.length === Math.ceil(rows.length / rowsPerStatement), 'insertRows chunk count')
+  return statements
 }
 
 /**
@@ -92,11 +117,19 @@ export function changed(code: string): Statement {
  * After `tries` attempts the guard failure is thrown as is (a 409).
  */
 export async function retryOnGuard<T>(code: string, attempt: () => Promise<T>, tries = 3): Promise<T> {
-  for (let i = 1; ; i++) {
+  assert(Number.isInteger(tries), 'retryOnGuard tries must be an integer')
+  assert(tries >= 1, 'retryOnGuard needs at least one try')
+  assert(tries <= RETRY_TRIES_MAX, `retryOnGuard tries above ${RETRY_TRIES_MAX}`)
+
+  let lastError: unknown
+  for (let attemptIndex = 0; attemptIndex < tries; attemptIndex++) {
     try {
       return await attempt()
     } catch (error) {
-      if (i >= tries || !isGuardFailure(error, code)) throw error
+      if (!isGuardFailure(error, code)) throw error
+      lastError = error
     }
   }
+  // Every attempt was stopped by the guard: hand the last one on as the 409.
+  throw lastError
 }

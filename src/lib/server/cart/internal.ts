@@ -3,7 +3,7 @@ import { getCookie, setCookie } from '@tanstack/react-start/server'
 import { asc, eq, sql } from 'drizzle-orm'
 import { db } from '~/db'
 import { carts, productImages, productVariants, products } from '~/db/schema'
-import { sumMungu, type Mungu } from '~/lib/money'
+import { lineTotal, sumMungu, type Mungu } from '~/lib/money'
 import { CART_COOKIE, CART_MAX_AGE, cartCookieOptions } from '../cookies'
 import { clampQty } from './pricing'
 import { cartItems } from '~/db/schema'
@@ -134,7 +134,7 @@ export async function readCart(cartId: string): Promise<CartView> {
       size: row.size,
       sku: row.sku,
       unitPrice: row.unitPrice,
-      lineTotal: row.unitPrice * qty,
+      lineTotal: lineTotal(row.unitPrice, qty),
       qty,
       stockQty: row.stockQty,
       imageUrl: row.imageUrl ?? null,

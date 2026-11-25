@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from 'drizzle-orm'
+import { and, eq, inArray, isNull, lt, or, sql } from 'drizzle-orm'
 import { db } from '~/db'
 import { atomic, exists, guard, type Statement } from '~/db/atomic'
 import {
@@ -8,9 +8,13 @@ import {
   orders,
   payments,
   productVariants,
+  type OrderStatus,
 } from '~/db/schema'
+import { D1_BOUND_PARAMETERS_MAX } from '~/db/limits'
+import { assert, assertNever } from '~/lib/assert'
 import { isGuardFailure } from '../api/db-errors'
 import { inBackground } from '../background'
+import type { SettlementResult } from '../payments/provider'
 import { getProvider } from '../payments/registry'
 import { sendOrderReceipt } from './receipt'
 import { assertTransition } from './state'
@@ -50,12 +54,7 @@ export const MIN_CHECK_INTERVAL_MS = 2_500
  */
 export async function settleOrder(orderNo: string): Promise<SettleOutcome> {
   const [order] = await db
-    .select({
-      id: orders.id,
-      status: orders.status,
-      total: orders.total,
-      cartId: orders.cartId,
-    })
+    .select({ id: orders.id, status: orders.status, total: orders.total, cartId: orders.cartId })
     .from(orders)
     .where(eq(orders.orderNo, orderNo))
     .limit(1)
@@ -64,60 +63,70 @@ export async function settleOrder(orderNo: string): Promise<SettleOutcome> {
   if (order.status !== 'pending_payment') return 'already_settled'
 
   const [payment] = await db
-    .select({
-      id: payments.id,
-      provider: payments.provider,
-      invoiceId: payments.invoiceId,
-      lastCheckedAt: payments.lastCheckedAt,
-    })
+    .select({ id: payments.id, provider: payments.provider, invoiceId: payments.invoiceId })
     .from(payments)
     .where(eq(payments.orderId, order.id))
     .limit(1)
 
   if (!payment?.invoiceId) return 'not_found'
+  if (!(await claimCheck(payment.id))) return 'throttled'
 
-  if (
-    payment.lastCheckedAt &&
-    Date.now() - payment.lastCheckedAt.getTime() < MIN_CHECK_INTERVAL_MS
-  ) {
-    return 'throttled'
+  const result = await getProvider(payment.provider).checkInvoice(payment.invoiceId, order.total)
+  switch (result.outcome) {
+    case 'unpaid':
+      return 'unpaid'
+    case 'refunded':
+      return 'already_settled'
+    case 'underpaid':
+      // Deliberately not settled and deliberately not cancelled: real money
+      // arrived, so this needs a human, not an automatic decision.
+      await db.update(payments).set({ status: 'pending', rawCallback: result.raw }).where(eq(payments.id, payment.id))
+      return 'underpaid'
+    case 'paid':
+      return applyPayment(orderNo, order, payment.id, result)
+    default:
+      return assertNever(result.outcome, 'unknown settlement outcome')
   }
+}
 
-  // Stamped before the call, not after: two concurrent pollers must not both
-  // get past the check above while the first is still waiting on QPay.
-  await db
+/**
+ * Claims the right to ask the provider, at most once per
+ * MIN_CHECK_INTERVAL_MS per payment. One conditional UPDATE, so of two
+ * concurrent pollers exactly one gets past it; a read-then-stamp would let
+ * both through while the first was still waiting on the provider.
+ */
+async function claimCheck(paymentRowId: string): Promise<boolean> {
+  const claimed = await db
     .update(payments)
     .set({ lastCheckedAt: new Date() })
-    .where(eq(payments.id, payment.id))
+    .where(
+      and(
+        eq(payments.id, paymentRowId),
+        or(isNull(payments.lastCheckedAt), lt(payments.lastCheckedAt, new Date(Date.now() - MIN_CHECK_INTERVAL_MS))),
+      ),
+    )
+    .returning({ id: payments.id })
+  assert(claimed.length <= 1, 'claimCheck updates one payment row at most')
+  return claimed.length === 1
+}
 
-  const result = await getProvider(payment.provider).checkInvoice(
-    payment.invoiceId,
-    order.total,
-  )
-
-  if (result.outcome === 'unpaid') return 'unpaid'
-  if (result.outcome === 'underpaid') {
-    // Deliberately not settled and deliberately not cancelled: real money
-    // arrived, so this needs a human, not an automatic decision.
-    await db
-      .update(payments)
-      .set({ status: 'pending', rawCallback: result.raw })
-      .where(eq(payments.id, payment.id))
-    return 'underpaid'
-  }
-  if (result.outcome === 'refunded') return 'already_settled'
-
+/** The provider said paid: settle it, unless a concurrent settle got there first. */
+async function applyPayment(
+  orderNo: string,
+  order: { id: string; status: OrderStatus; cartId: string | null },
+  paymentRowId: string,
+  result: SettlementResult,
+): Promise<SettleOutcome> {
+  assert(result.outcome === 'paid', 'applyPayment only applies a paid check')
+  assert(result.providerPaymentId, 'a paid check carries the provider payment id')
   // Checked here for the clear answer; re-checked by the batch's guard,
-  // because a concurrent settle may win between this read and the write.
+  // because a concurrent settle may win between the read and the write.
   assertTransition(order.status, 'paid')
 
   try {
     await atomic([
       orderStillPending(order.id),
-      ...(await markPaid(order, payment.id, {
-        paymentId: result.providerPaymentId,
-        rawCallback: result.raw,
-      })),
+      ...(await markPaid(order, paymentRowId, { paymentId: result.providerPaymentId, rawCallback: result.raw })),
     ])
   } catch (error) {
     if (isGuardFailure(error, ALREADY_SETTLED)) return 'already_settled'
@@ -132,7 +141,6 @@ export async function settleOrder(orderNo: string): Promise<SettleOutcome> {
    * step it should wait through.
    */
   inBackground(`receipt ${orderNo}`, sendOrderReceipt(orderNo))
-
   return 'settled'
 }
 
@@ -184,6 +192,7 @@ export async function markPaid(
       .from(orderItems)
       .where(eq(orderItems.orderId, order.id)))
 
+  assert(lines.length > 0, 'an order has at least one line')
   const now = new Date()
 
   /**
@@ -199,38 +208,8 @@ export async function markPaid(
   ]
 
   for (const line of lines) {
-    if (!line.variantId) continue
-
-    statements.push(
-      // The guard in the WHERE clause means a sale that would oversell
-      // updates zero rows rather than going negative...
-      db
-        .update(productVariants)
-        .set({ stockQty: sql`${productVariants.stockQty} - ${line.qty}` })
-        .where(
-          and(
-            eq(productVariants.id, line.variantId),
-            sql`${productVariants.stockQty} >= ${line.qty}`,
-          ),
-        ),
-      /**
-       * ...and the ledger row reads changes() to record which happened.
-       * Paid, but we cannot ship what we do not have: settling anyway and
-       * flagging it beats refusing the payment the customer already made, so
-       * a short line is recorded as a zero-delta manual adjustment for an
-       * admin to resolve.
-       */
-      db.insert(inventoryLedger).select(sql`
-        select
-          ${crypto.randomUUID()},
-          ${line.variantId},
-          case when changes() > 0 then ${-line.qty} else 0 end,
-          case when changes() > 0 then 'order_paid' else 'manual_adjustment' end,
-          ${order.id},
-          null,
-          ${now.getTime()}
-      `),
-    )
+    // Custom admin-invoice lines have no variant and move no stock.
+    if (line.variantId) statements.push(...stockStatements(line.variantId, line.qty, order.id, now))
   }
 
   statements.push(
@@ -255,6 +234,8 @@ export async function markPaid(
     .map((line) => line.variantId)
     .filter((id): id is string => id !== null)
 
+  // One parameter per variant plus the cart id; carts are capped well below.
+  assert(boughtVariantIds.length < D1_BOUND_PARAMETERS_MAX, 'bought variants fit one D1 statement')
   if (order.cartId && boughtVariantIds.length > 0) {
     statements.push(
       db
@@ -269,4 +250,38 @@ export async function markPaid(
   }
 
   return statements
+}
+
+/**
+ * One paid line's stock move: a decrement that refuses to go negative, and
+ * the ledger row recording whether it happened.
+ */
+function stockStatements(variantId: string, qty: number, orderId: string, now: Date): Statement[] {
+  assert(Number.isInteger(qty), 'line quantities are whole units')
+  assert(qty > 0, 'line quantities are positive')
+  return [
+    // The guard in the WHERE clause means a sale that would oversell
+    // updates zero rows rather than going negative...
+    db
+      .update(productVariants)
+      .set({ stockQty: sql`${productVariants.stockQty} - ${qty}` })
+      .where(and(eq(productVariants.id, variantId), sql`${productVariants.stockQty} >= ${qty}`)),
+    /**
+     * ...and the ledger row reads changes() to record which happened.
+     * Paid, but we cannot ship what we do not have: settling anyway and
+     * flagging it beats refusing the payment the customer already made, so
+     * a short line is recorded as a zero-delta manual adjustment for an
+     * admin to resolve.
+     */
+    db.insert(inventoryLedger).select(sql`
+      select
+        ${crypto.randomUUID()},
+        ${variantId},
+        case when changes() > 0 then ${-qty} else 0 end,
+        case when changes() > 0 then 'order_paid' else 'manual_adjustment' end,
+        ${orderId},
+        null,
+        ${now.getTime()}
+    `),
+  ]
 }

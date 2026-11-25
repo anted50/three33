@@ -1,13 +1,14 @@
 import { and, asc, eq, gte, inArray, lt, ne } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '~/db'
-import { atomic } from '~/db/atomic'
+import { atomic, insertRows } from '~/db/atomic'
 import { appointments, availability } from '~/db/schema'
 import { badRequest, notFound } from '../api/errors'
 import { clockTime, isoDate } from '../api/input'
 import { localDay } from './db'
-import { planSchedule, type ScheduleEntry } from './schedule-plan'
-import { addDays, atLocal, datesBetween, type IsoDate } from './time'
+import { assert } from '~/lib/assert'
+import { MAX_SCHEDULE_DAYS, planSchedule, type ScheduleEntry } from './schedule-plan'
+import { addDays, atLocal, dayCount, datesBetween, type IsoDate } from './time'
 
 /**
  * The barber's schedule: the windows he is open for bookings. He sets it
@@ -33,14 +34,15 @@ export async function applySchedule(input: z.infer<typeof scheduleInput>) {
   const plan = planSchedule(input.entries as ScheduleEntry[])
   const days = [...plan.keys()].sort()
   if (days.length === 0) throw badRequest('No days matched (check weekdays)')
+  assert(days.length <= MAX_SCHEDULE_DAYS, 'planSchedule bounds the days a request touches')
 
   const windows = [...plan.values()].flatMap((p) => (p.kind === 'open' ? p.windows : []))
 
   // Each touched day is replaced as a whole, in one batch: never half old,
-  // half new.
+  // half new. insertRows splits a long schedule under D1's parameter limit.
   await atomic([
     db.delete(availability).where(inArray(localDay(availability.startsAt), days)),
-    windows.length > 0 && db.insert(availability).values(windows),
+    ...(windows.length > 0 ? insertRows(availability, windows) : []),
   ])
 
   return getSchedule(days[0]!, days.at(-1)!)
@@ -55,8 +57,8 @@ export async function deleteWindow(windowId: string) {
 /** Each day from `from` to `to`, with its windows and its bookings. */
 export async function getSchedule(from: IsoDate, to: IsoDate) {
   if (to < from) throw badRequest('"to" is before "from"')
-  const days = datesBetween(from, to)
-  if (days.length > 93) throw badRequest('At most 93 days at a time')
+  if (dayCount(from, to) > MAX_SCHEDULE_DAYS) throw badRequest(`At most ${MAX_SCHEDULE_DAYS} days at a time`)
+  const days = datesBetween(from, to, MAX_SCHEDULE_DAYS)
 
   const start = atLocal(from, '00:00')
   const end = atLocal(addDays(to, 1), '00:00')

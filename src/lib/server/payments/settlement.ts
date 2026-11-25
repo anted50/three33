@@ -1,4 +1,5 @@
-import { fromQpayAmount, fromStorepayAmount, type Mungu } from '~/lib/money'
+import { assert } from '~/lib/assert'
+import { assertMungu, fromQpayAmount, fromStorepayAmount, sumMungu, type Mungu } from '~/lib/money'
 import type { SettlementResult } from './provider'
 import type { QpayPaymentCheckResponse } from './qpay/types'
 import type { StorepayCheckByLoanResponse } from './storepay/types'
@@ -15,19 +16,20 @@ export function decideSettlement(
   response: QpayPaymentCheckResponse,
   expected: Mungu,
 ): SettlementResult {
+  assertMungu(expected)
+  assert(expected > 0, 'an invoice is never for nothing')
   const paidRows = response.rows.filter((r) => r.payment_status === 'PAID')
   const refundedRows = response.rows.filter(
     (r) => r.payment_status === 'REFUNDED',
   )
 
-  const paidAmount = paidRows.reduce(
-    (sum, row) => sum + fromQpayAmount(row.payment_amount),
-    0,
-  )
+  const paidAmount = sumMungu(paidRows.map((row) => fromQpayAmount(row.payment_amount)))
 
   /**
-   * A refund reverses a payment, so refunds win over paid rows regardless of
-   * order in the array. Reporting `paid` here would let a refunded order ship.
+   * A refunded row never counts toward the paid amount, wherever it sits in
+   * the array. The outcome is `refunded` only when nothing paid is left;
+   * a payment that still stands next to a refunded one is judged on its own
+   * amount below.
    */
   if (refundedRows.length > 0 && paidRows.length === 0) {
     return {
@@ -82,6 +84,8 @@ export function decideStorepaySettlement(
   loanId: string,
   expected: Mungu,
 ): SettlementResult {
+  assertMungu(expected)
+  assert(expected > 0, 'an invoice is never for nothing')
   const data = response.data
 
   if (!data?.isExist) {

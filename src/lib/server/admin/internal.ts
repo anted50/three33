@@ -11,7 +11,9 @@ import {
   sql,
 } from 'drizzle-orm'
 import { db } from '~/db'
-import { atomic, changed, exists, guard } from '~/db/atomic'
+import { atomic, changed, exists, guard, insertRows } from '~/db/atomic'
+import { D1_BOUND_PARAMETERS_MAX } from '~/db/limits'
+import { assert } from '~/lib/assert'
 import { isGuardFailure } from '../api/db-errors'
 import {
   inventoryLedger,
@@ -48,6 +50,16 @@ const EARNING = ['paid', 'processing', 'shipped', 'delivered'] as const
 
 /** Orders/month the shop is aiming at. Drives the goal card's progress bar. */
 const MONTHLY_ORDER_GOAL = Number(process.env.MONTHLY_ORDER_GOAL ?? 100)
+// Checked at startup, so a typo in the variable fails the deploy rather than
+// drawing NaN on the dashboard.
+assert(Number.isInteger(MONTHLY_ORDER_GOAL), 'MONTHLY_ORDER_GOAL must be a whole number')
+assert(MONTHLY_ORDER_GOAL > 0, 'MONTHLY_ORDER_GOAL must be positive')
+
+/** Most rows one Excel export may hold; past it, narrow the filter. */
+export const ORDER_EXPORT_ROWS_MAX = 10_000
+
+/** Slug candidates tried for a split product: base, base-2 … base-N. */
+const SLUG_CANDIDATES_MAX = 50
 
 /** Turns sparse `YYYY-MM-DD -> value` rows into one entry per day so far. */
 function fillDays(
@@ -77,6 +89,80 @@ function utcDay(column: typeof orders.createdAt) {
   return sql<string>`strftime('%Y-%m-%d', ${column} / 1000, 'unixepoch')`
 }
 
+/**
+ * Every dashboard read, built here and run as one D1 batch: one round trip
+ * to the database instead of nine.
+ */
+function dashboardQueries(monthStart: Date) {
+  const earnedThisMonth = and(inArray(orders.status, EARNING), gte(orders.createdAt, monthStart))
+  const revenueSum = sql<number>`coalesce(sum(${orders.total}), 0)`
+  /**
+   * "Customers" counts distinct phone numbers, not user accounts — checkout is
+   * guest-only, so orders carry no user_id. Phone is the closest thing to a
+   * stable identity we actually collect.
+   */
+  const distinctPhones = sql<number>`count(distinct ${orders.contactPhone})`
+
+  return [
+    db.select({ total: revenueSum, orders: count(orders.id) }).from(orders).where(earnedThisMonth),
+    /** Daily revenue, for the bar sparkline on the sales card. */
+    db.select({ day: utcDay(orders.createdAt), value: revenueSum }).from(orders).where(earnedThisMonth).groupBy(utcDay(orders.createdAt)),
+    db.select({ n: distinctPhones }).from(orders).where(earnedThisMonth),
+    db.select({ day: utcDay(orders.createdAt), value: distinctPhones }).from(orders).where(earnedThisMonth).groupBy(utcDay(orders.createdAt)),
+    db.select({ n: count(orders.id) }).from(orders).where(eq(orders.status, 'pending_payment')),
+    db.select({ n: count(orders.id) }).from(orders).where(inArray(orders.status, ['paid', 'processing'])),
+    db
+      .select({
+        orderNo: orders.orderNo,
+        status: orders.status,
+        total: orders.total,
+        createdAt: orders.createdAt,
+        address: orders.shippingAddressSnapshot,
+        // The frame's "Item" column shows what was bought, not the order number.
+        item: sql<string | null>`(
+          select ${orderItems.nameSnapshot}
+          from ${orderItems}
+          where ${orderItems.orderId} = ${orders.id}
+          order by ${orderItems.id}
+          limit 1
+        )`,
+        lines: sql<number>`(
+          select count(*) from ${orderItems}
+          where ${orderItems.orderId} = ${orders.id}
+        )`,
+      })
+      .from(orders)
+      .orderBy(desc(orders.createdAt))
+      .limit(5),
+    /** Stock that will run out first — the thing a shop actually needs to see. */
+    db
+      .select({
+        sku: productVariants.sku,
+        size: productVariants.size,
+        stockQty: productVariants.stockQty,
+        name: products.nameMn,
+        slug: products.slug,
+      })
+      .from(productVariants)
+      .innerJoin(products, eq(products.id, productVariants.productId))
+      .where(eq(productVariants.isActive, true))
+      .orderBy(asc(productVariants.stockQty))
+      .limit(8),
+    db
+      .select({
+        name: orderItems.nameSnapshot,
+        units: sql<number>`sum(${orderItems.qty})`,
+        revenue: sql<number>`sum(${orderItems.unitPrice} * ${orderItems.qty})`,
+      })
+      .from(orderItems)
+      .innerJoin(orders, eq(orders.id, orderItems.orderId))
+      .where(earnedThisMonth)
+      .groupBy(orderItems.nameSnapshot)
+      .orderBy(desc(sql`sum(${orderItems.qty})`))
+      .limit(5),
+  ] as const
+}
+
 export async function dashboard() {
   await assertAdmin()
 
@@ -84,116 +170,10 @@ export async function dashboard() {
   monthStart.setUTCDate(1)
   monthStart.setUTCHours(0, 0, 0, 0)
 
-  const earnedThisMonth = and(
-    inArray(orders.status, EARNING),
-    gte(orders.createdAt, monthStart),
-  )
-
-  const [revenue] = await db
-    .select({
-      total: sql<number>`coalesce(sum(${orders.total}), 0)`,
-      orders: count(orders.id),
-    })
-    .from(orders)
-    .where(earnedThisMonth)
-
-  /** Daily revenue, for the bar sparkline on the sales card. */
-  const salesByDay = await db
-    .select({
-      day: utcDay(orders.createdAt),
-      value: sql<number>`coalesce(sum(${orders.total}), 0)`,
-    })
-    .from(orders)
-    .where(earnedThisMonth)
-    .groupBy(utcDay(orders.createdAt))
-
-  /**
-   * "Customers" counts distinct phone numbers, not user accounts — checkout is
-   * guest-only until auth lands, so orders carry no user_id. Phone is the
-   * closest thing to a stable identity we actually collect.
-   */
-  const [customers] = await db
-    .select({
-      n: sql<number>`count(distinct ${orders.contactPhone})`,
-    })
-    .from(orders)
-    .where(earnedThisMonth)
-
-  const customersByDay = await db
-    .select({
-      day: utcDay(orders.createdAt),
-      value: sql<number>`count(distinct ${orders.contactPhone})`,
-    })
-    .from(orders)
-    .where(earnedThisMonth)
-    .groupBy(utcDay(orders.createdAt))
-
-  const [pending] = await db
-    .select({ n: count(orders.id) })
-    .from(orders)
-    .where(eq(orders.status, 'pending_payment'))
-
-  const [toFulfil] = await db
-    .select({ n: count(orders.id) })
-    .from(orders)
-    .where(inArray(orders.status, ['paid', 'processing']))
-
-  const recent = await db
-    .select({
-      orderNo: orders.orderNo,
-      status: orders.status,
-      total: orders.total,
-      createdAt: orders.createdAt,
-      address: orders.shippingAddressSnapshot,
-      // The frame's "Item" column shows what was bought, not the order number.
-      item: sql<string | null>`(
-        select ${orderItems.nameSnapshot}
-        from ${orderItems}
-        where ${orderItems.orderId} = ${orders.id}
-        order by ${orderItems.id}
-        limit 1
-      )`,
-      lines: sql<number>`(
-        select count(*) from ${orderItems}
-        where ${orderItems.orderId} = ${orders.id}
-      )`,
-    })
-    .from(orders)
-    .orderBy(desc(orders.createdAt))
-    .limit(5)
-
-  /** Stock that will run out first — the thing a shop actually needs to see. */
-  const lowStock = await db
-    .select({
-      sku: productVariants.sku,
-      size: productVariants.size,
-      stockQty: productVariants.stockQty,
-      name: products.nameMn,
-      slug: products.slug,
-    })
-    .from(productVariants)
-    .innerJoin(products, eq(products.id, productVariants.productId))
-    .where(eq(productVariants.isActive, true))
-    .orderBy(asc(productVariants.stockQty))
-    .limit(8)
-
-  const best = await db
-    .select({
-      name: orderItems.nameSnapshot,
-      units: sql<number>`sum(${orderItems.qty})`,
-      revenue: sql<number>`sum(${orderItems.unitPrice} * ${orderItems.qty})`,
-    })
-    .from(orderItems)
-    .innerJoin(orders, eq(orders.id, orderItems.orderId))
-    .where(
-      and(inArray(orders.status, EARNING), gte(orders.createdAt, monthStart)),
-    )
-    .groupBy(orderItems.nameSnapshot)
-    .orderBy(desc(sql`sum(${orderItems.qty})`))
-    .limit(5)
+  const [[revenue], salesByDay, [customers], customersByDay, [pending], [toFulfil], recent, lowStock, best] =
+    await db.batch(dashboardQueries(monthStart))
 
   const bestRows = best.map((b) => ({ ...b, revenue: Number(b.revenue) }))
-  const bestTotal = bestRows.reduce((sum, b) => sum + b.revenue, 0)
   const ordersThisMonth = revenue?.orders ?? 0
 
   return {
@@ -216,7 +196,7 @@ export async function dashboard() {
     recent,
     lowStock,
     best: bestRows,
-    bestTotal,
+    bestTotal: bestRows.reduce((sum, b) => sum + b.revenue, 0),
   }
 }
 
@@ -317,7 +297,12 @@ export async function listOrders(
  */
 export async function listOrdersForExport(filter: OrdersFilter) {
   await assertAdmin()
-  return ordersQuery(ordersWhereClause(filter))
+  // One row past the cap, to tell "exactly the cap" from "more than fits".
+  const rows = await ordersQuery(ordersWhereClause(filter)).limit(ORDER_EXPORT_ROWS_MAX + 1)
+  if (rows.length > ORDER_EXPORT_ROWS_MAX) {
+    throw new Error(`Нэг удаад ${ORDER_EXPORT_ROWS_MAX}-аас олон захиалга татах боломжгүй — шүүлтүүрээ нарийсгана уу`)
+  }
+  return rows
 }
 
 export async function orderDetail(orderNo: string) {
@@ -619,7 +604,8 @@ export async function insertProduct(input: NewProductInput) {
       brandLine: input.brandLine,
       status: input.status,
     }),
-    db.insert(productVariants).values(
+    ...insertRows(
+      productVariants,
       input.variants.map((variant) => ({
         productId,
         sku: variant.sku,
@@ -628,15 +614,7 @@ export async function insertProduct(input: NewProductInput) {
         stockQty: variant.stockQty,
       })),
     ),
-    input.images.length > 0 &&
-      db.insert(productImages).values(
-        input.images.map((image, i) => ({
-          productId,
-          url: image.url,
-          alt: image.alt,
-          sortOrder: i,
-        })),
-      ),
+    ...insertImages(productId, input.images),
   ])
 
   return { slug: input.slug }
@@ -769,6 +747,63 @@ function hasSiblings(productId: string) {
 export async function splitVariantIntoProduct(variantId: string) {
   await assertAdmin()
 
+  const { variant, parent } = await readSplitSource(variantId)
+
+  // The size is what tells the two listings apart; SKU is the fallback for
+  // variants that carry no size at all.
+  const suffix = variant.size?.trim() || variant.sku
+
+  const base = slugify(`${parent.slug}-${suffix}`) || slugify(variant.sku)
+  const slug = await uniqueProductSlug(base)
+
+  const images = await db
+    .select({
+      url: productImages.url,
+      alt: productImages.alt,
+      sortOrder: productImages.sortOrder,
+    })
+    .from(productImages)
+    .where(eq(productImages.productId, parent.id))
+    .orderBy(asc(productImages.sortOrder))
+
+  const productId = crypto.randomUUID()
+
+  try {
+    await atomic([
+      hasSiblings(parent.id),
+      db.insert(products).values({
+        id: productId,
+        slug,
+        // sizeSuffix keeps a parent already named after the size ("… 30g")
+        // from becoming "… 30g 30g".
+        nameMn: `${parent.nameMn}${sizeSuffix(parent.nameMn, suffix)}`,
+        nameEn: `${parent.nameEn}${sizeSuffix(parent.nameEn, suffix)}`,
+        descriptionMn: parent.descriptionMn,
+        descriptionEn: parent.descriptionEn,
+        categoryId: parent.categoryId,
+        brandLine: parent.brandLine,
+        status: parent.status,
+      }),
+      ...insertImages(productId, images),
+      // Scoped to the parent it was read under, so a variant moved elsewhere
+      // in the meantime is not silently re-parented again.
+      db
+        .update(productVariants)
+        .set({ productId })
+        .where(and(eq(productVariants.id, variantId), eq(productVariants.productId, parent.id))),
+      changed('VARIANT_MOVED'),
+    ])
+  } catch (error) {
+    if (isGuardFailure(error, 'LAST_VARIANT')) throw new Error(SPLIT_SINGLE_MESSAGE)
+    if (isGuardFailure(error, 'VARIANT_MOVED')) throw new Error('Хувилбар энэ хооронд өөрчлөгдсөн байна')
+    throw error
+  }
+
+  return { slug }
+}
+
+/** The variant to split off and the product it hangs off, or a clear refusal. */
+async function readSplitSource(variantId: string) {
   const [variant] = await db
     .select({
       id: productVariants.id,
@@ -806,66 +841,7 @@ export async function splitVariantIntoProduct(variantId: string) {
     .where(eq(productVariants.productId, parent.id))
 
   if ((siblings?.value ?? 0) <= 1) throw new Error(SPLIT_SINGLE_MESSAGE)
-
-  // The size is what tells the two listings apart; SKU is the fallback for
-  // variants that carry no size at all.
-  const suffix = variant.size?.trim() || variant.sku
-
-  const base = slugify(`${parent.slug}-${suffix}`) || slugify(variant.sku)
-  const slug = await uniqueProductSlug(base)
-
-  const images = await db
-    .select({
-      url: productImages.url,
-      alt: productImages.alt,
-      sortOrder: productImages.sortOrder,
-    })
-    .from(productImages)
-    .where(eq(productImages.productId, parent.id))
-    .orderBy(asc(productImages.sortOrder))
-
-  const productId = crypto.randomUUID()
-
-  try {
-    await atomic([
-      hasSiblings(parent.id),
-      db.insert(products).values({
-        id: productId,
-        slug,
-        // sizeSuffix keeps a parent already named after the size ("… 30g")
-        // from becoming "… 30g 30g".
-        nameMn: `${parent.nameMn}${sizeSuffix(parent.nameMn, suffix)}`,
-        nameEn: `${parent.nameEn}${sizeSuffix(parent.nameEn, suffix)}`,
-        descriptionMn: parent.descriptionMn,
-        descriptionEn: parent.descriptionEn,
-        categoryId: parent.categoryId,
-        brandLine: parent.brandLine,
-        status: parent.status,
-      }),
-      images.length > 0 &&
-        db.insert(productImages).values(
-          images.map((image, i) => ({
-            productId,
-            url: image.url,
-            alt: image.alt,
-            sortOrder: i,
-          })),
-        ),
-      // Scoped to the parent it was read under, so a variant moved elsewhere
-      // in the meantime is not silently re-parented again.
-      db
-        .update(productVariants)
-        .set({ productId })
-        .where(and(eq(productVariants.id, variantId), eq(productVariants.productId, parent.id))),
-      changed('VARIANT_MOVED'),
-    ])
-  } catch (error) {
-    if (isGuardFailure(error, 'LAST_VARIANT')) throw new Error(SPLIT_SINGLE_MESSAGE)
-    if (isGuardFailure(error, 'VARIANT_MOVED')) throw new Error('Хувилбар энэ хооронд өөрчлөгдсөн байна')
-    throw error
-  }
-
-  return { slug }
+  return { variant, parent }
 }
 
 const SPLIT_SINGLE_MESSAGE =
@@ -878,19 +854,16 @@ const SPLIT_SINGLE_MESSAGE =
  */
 async function uniqueProductSlug(base: string): Promise<string> {
   const seed = base || 'product'
+  const candidates = Array.from({ length: SLUG_CANDIDATES_MAX }, (_, index) => (index === 0 ? seed : `${seed}-${index + 1}`))
+  assert(candidates.length < D1_BOUND_PARAMETERS_MAX, 'the candidate list fits one D1 statement')
 
-  for (let attempt = 1; attempt <= 50; attempt++) {
-    const candidate = attempt === 1 ? seed : `${seed}-${attempt}`
-    const [taken] = await db
-      .select({ id: products.id })
-      .from(products)
-      .where(eq(products.slug, candidate))
-      .limit(1)
+  // One query for every candidate, rather than one round trip per guess.
+  const taken = await db.select({ slug: products.slug }).from(products).where(inArray(products.slug, candidates))
+  const takenSlugs = new Set(taken.map((row) => row.slug))
 
-    if (!taken) return candidate
-  }
-
-  throw new Error('Чөлөөтэй slug олдсонгүй — гараар үүсгэнэ үү')
+  const free = candidates.find((candidate) => !takenSlugs.has(candidate))
+  if (!free) throw new Error('Чөлөөтэй slug олдсонгүй — гараар үүсгэнэ үү')
+  return free
 }
 
 /**
@@ -914,16 +887,17 @@ export async function replaceProductImages(
 
   await atomic([
     db.delete(productImages).where(eq(productImages.productId, product.id)),
-    images.length > 0 &&
-      db.insert(productImages).values(
-        images.map((image, i) => ({
-          productId: product.id,
-          url: image.url,
-          alt: image.alt,
-          sortOrder: i,
-        })),
-      ),
+    ...insertImages(product.id, images),
   ])
+}
+
+/** A product's images in list order: the first is what the catalogue shows. */
+function insertImages(productId: string, images: ReadonlyArray<{ url: string; alt: string | null }>) {
+  if (images.length === 0) return []
+  return insertRows(
+    productImages,
+    images.map((image, index) => ({ productId, url: image.url, alt: image.alt, sortOrder: index })),
+  )
 }
 
 export interface ProductUpdate {
@@ -941,7 +915,7 @@ export interface ProductUpdate {
 export async function updateProductRow(input: ProductUpdate) {
   await assertAdmin()
 
-  await db
+  const updated = await db
     .update(products)
     .set({
       nameMn: input.nameMn,
@@ -952,6 +926,9 @@ export async function updateProductRow(input: ProductUpdate) {
       status: input.status,
     })
     .where(eq(products.slug, input.slug))
+    .returning({ id: products.id })
 
+  // Without this, a product renamed or deleted meanwhile is "saved" silently.
+  if (updated.length === 0) throw new Error('Бүтээгдэхүүн олдсонгүй')
   return { ok: true as const }
 }

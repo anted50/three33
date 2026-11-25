@@ -2,7 +2,7 @@ import { and, eq, lt } from 'drizzle-orm'
 import { db } from '~/db'
 import { orders } from '~/db/schema'
 import { expireCheckout } from './expire'
-import { settleOrder } from './settle'
+import { settleOrder, type SettleOutcome } from './settle'
 
 /**
  * Order payment reconciliation, across every provider (QPay, StorePay).
@@ -18,6 +18,9 @@ import { settleOrder } from './settle'
 
 /** Grace period: an invoice younger than this may simply still be in progress. */
 const STALE_AFTER_MS = 10 * 60 * 1000
+
+/** Orders looked at per run; the next hourly run takes the rest. */
+const RECONCILE_ORDERS_MAX = 500
 
 /** Per-outcome counts: settleOrder's outcomes, plus `expired` and `error`. */
 export interface ReconcileTally {
@@ -43,7 +46,7 @@ export async function reconcileOrders(): Promise<ReconcileTally> {
       ),
     )
     // Uses orders_status_created_at_idx.
-    .limit(500)
+    .limit(RECONCILE_ORDERS_MAX)
 
   const tally: ReconcileTally = { checked: stale.length, error: 0 }
 
@@ -56,37 +59,8 @@ export async function reconcileOrders(): Promise<ReconcileTally> {
 
   for (const order of stale) {
     try {
-      const outcome = await settleOrder(order.orderNo)
+      const outcome = await reconcileOne(order, now)
       tally[outcome] = (tally[outcome] ?? 0) + 1
-
-      if (outcome === 'settled') {
-        console.log(`  ${order.orderNo}: SETTLED (callback never arrived)`)
-        continue
-      }
-
-      if (outcome === 'underpaid') {
-        console.log(`  ${order.orderNo}: UNDERPAID — needs a human`)
-        continue
-      }
-
-      /**
-       * Retire it once the invoice window has passed.
-       *
-       * `not_found` counts. It means a pending order with no usable payment row
-       * — settleOrder can never do anything but repeat that answer, so treating
-       * it as "still in progress" left the order pending forever. Expiring it
-       * is the only outcome that terminates.
-       */
-      const lapsed = order.expiresAt.getTime() < now
-      if (lapsed && (outcome === 'unpaid' || outcome === 'not_found')) {
-        // expireCheckout cancels the invoice with the provider before touching
-        // our row. Skipping that is what left "expired" orders quietly payable
-        // for days.
-        if (await expireCheckout(order.id, 'expired')) {
-          console.log(`  ${order.orderNo}: expired, invoice cancelled`)
-          tally.expired = (tally.expired ?? 0) + 1
-        }
-      }
     } catch (error) {
       // One bad order must not stop the sweep for the rest.
       tally.error++
@@ -96,4 +70,39 @@ export async function reconcileOrders(): Promise<ReconcileTally> {
 
   console.log('reconcile:', JSON.stringify(tally))
   return tally
+}
+
+/** Settles one stale order, or retires it once its invoice window has passed. */
+async function reconcileOne(
+  order: { orderNo: string; id: string; expiresAt: Date },
+  now: number,
+): Promise<SettleOutcome | 'expired'> {
+  const outcome = await settleOrder(order.orderNo)
+
+  if (outcome === 'settled') {
+    console.log(`  ${order.orderNo}: SETTLED (callback never arrived)`)
+    return outcome
+  }
+  if (outcome === 'underpaid') {
+    console.log(`  ${order.orderNo}: UNDERPAID — needs a human`)
+    return outcome
+  }
+
+  /**
+   * `not_found` counts as retirable. It means a pending order with no usable
+   * payment row — settleOrder can never do anything but repeat that answer,
+   * so treating it as "still in progress" left the order pending forever.
+   * Expiring it is the only outcome that terminates.
+   */
+  const lapsed = order.expiresAt.getTime() < now
+  if (lapsed && (outcome === 'unpaid' || outcome === 'not_found')) {
+    // expireCheckout cancels the invoice with the provider before touching
+    // our row. Skipping that is what left "expired" orders quietly payable
+    // for days.
+    if (await expireCheckout(order.id, 'expired')) {
+      console.log(`  ${order.orderNo}: expired, invoice cancelled`)
+      return 'expired'
+    }
+  }
+  return outcome
 }

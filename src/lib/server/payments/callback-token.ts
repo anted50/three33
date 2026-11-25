@@ -14,8 +14,9 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
  */
 
 export function signCallbackToken(orderNo: string, secret: string): string {
+  // Shared by every provider: the message must not name one of them.
   if (!secret) {
-    throw new Error('QPAY_CALLBACK_SECRET is empty; refusing to sign')
+    throw new Error('A payment callback secret is empty; refusing to sign')
   }
   return createHmac('sha256', secret).update(orderNo).digest('hex')
 }

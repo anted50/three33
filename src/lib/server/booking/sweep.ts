@@ -15,6 +15,9 @@ import { checkBookingFee } from './fee'
  *
  * Idempotent; one failure never stops the rest.
  */
+/** Holds retired per run. The next run, five minutes later, takes the rest. */
+const SWEEP_HOLDS_MAX = 200
+
 export async function sweepBooking() {
   const tally = { holdsConfirmed: 0, holdsDeleted: 0, holdsKept: 0, errors: 0 }
 
@@ -22,7 +25,7 @@ export async function sweepBooking() {
     .select({ id: appointments.id, bookingNo: appointments.bookingNo, invoiceId: appointments.qpayInvoiceId })
     .from(appointments)
     .where(and(eq(appointments.status, 'pending'), lt(appointments.expiresAt, new Date())))
-    .limit(200)
+    .limit(SWEEP_HOLDS_MAX)
 
   for (const hold of expired) {
     try {

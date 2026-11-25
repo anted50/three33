@@ -8,6 +8,9 @@ import { freeStarts } from './availability'
 import { bookableService, listServices } from './services'
 import { addDays, atLocal, datesBetween } from './time'
 
+/** Most days the public page may ask slots for at once. */
+const SLOT_DAYS_MAX = 31
+
 /** What the public booking page reads. */
 
 /** Step 1: the services, and the fee that confirms a booking. */
@@ -23,7 +26,7 @@ export async function bookingOptions() {
 export const slotsQuery = z.object({
   serviceId: z.uuid(),
   from: isoDate,
-  days: z.coerce.number().int().min(1).max(31).default(14),
+  days: z.coerce.number().int().min(1).max(SLOT_DAYS_MAX).default(14),
 })
 
 /**
@@ -48,11 +51,11 @@ export async function availableSlots(input: z.infer<typeof slotsQuery>) {
   const now = new Date()
   return {
     service: { id: service.id, name: service.name, durationMinutes: service.durationMinutes },
-    days: datesBetween(input.from, to).map((date) => {
+    days: datesBetween(input.from, to, SLOT_DAYS_MAX).map((date) => {
       const dayStart = atLocal(date, '00:00')
       const dayEnd = atLocal(addDays(date, 1), '00:00')
       const open = windows.filter((w) => w.startsAt >= dayStart && w.startsAt < dayEnd)
-      return { date, slots: freeStarts(open, busy, service.durationMinutes, now) }
+      return { date, slots: freeStarts({ windows: open, busy, durationMinutes: service.durationMinutes, notBefore: now }) }
     }),
   }
 }

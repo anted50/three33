@@ -1,4 +1,5 @@
 import { toStorepayAmount, type Mungu } from '~/lib/money'
+import { assert } from '~/lib/assert'
 import { env } from '~/lib/server/env'
 import type {
   CreateInvoiceInput,
@@ -114,9 +115,13 @@ export class StorepayProvider implements PaymentProvider {
   }
 
   async cancelInvoice(invoiceId: string): Promise<void> {
+    // StorePay's loan ids are integers sent as numbers here; anything else
+    // would go out as null or NaN and cancel nothing.
+    const accountId = Number(invoiceId)
+    assert(Number.isSafeInteger(accountId), `StorePay loan id is not an integer: ${invoiceId}`)
     const raw = await this.client.request<unknown>('/merchant/account/cancel', {
       method: 'POST',
-      body: { accountId: Number(invoiceId) },
+      body: { accountId },
     })
     storepayCancelResponse.parse(raw)
   }

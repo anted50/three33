@@ -86,6 +86,28 @@ describe('setup by the barber', () => {
     expect(options.services).toEqual([expect.objectContaining({ name: 'Haircut', durationMinutes: 45, price: 3_500_000 })])
   })
 
+  it('applies a long schedule: more windows than one D1 statement may bind', async () => {
+    // Goal: D1 caps a statement at 100 bound parameters; 60 windows of three
+    // each must still land, split across statements in one batch.
+    const days = await applySchedule({ entries: [{ from: '2031-01-01', to: '2031-03-01', start: '10:00', end: '18:00' }] })
+    expect(days).toHaveLength(60)
+    expect(days.every((day) => day.windows.length === 1)).toBe(true)
+  })
+
+  it('refuses one change that touches more than 93 days in all', async () => {
+    // Goal: the bound is on the whole request, not each entry — two entries
+    // a year apart are 120 days of rewriting.
+    const error = await rejection(
+      applySchedule({
+        entries: [
+          { from: '2032-01-01', to: '2032-03-01', start: '10:00', end: '18:00' },
+          { from: '2033-01-01', to: '2033-03-01', start: '10:00', end: '18:00' },
+        ],
+      }),
+    )
+    expect(error).toMatchObject({ status: 400 })
+  })
+
   it('replaces a day as a whole; windows never overlap', async () => {
     await applySchedule({
       entries: [
@@ -153,6 +175,20 @@ describe('a customer booking', () => {
     expect(await rejection(createBooking({ serviceId: haircut.id, startsAt: at(5, '14:00'), ...someone }))).toMatchObject({
       code: 'HOLD_EXISTS',
     })
+  })
+
+  it('one customer racing two holds from two tabs: one is kept, the other hears HOLD_EXISTS', async () => {
+    // Goal: the one-hold-per-customer rule holds under a race, not just
+    // sequentially. Both requests pass the read-time check; the batch guard
+    // must stop the second.
+    const someone = customer()
+    const results = await Promise.allSettled([
+      createBooking({ serviceId: haircut.id, startsAt: at(7, '10:00'), ...someone }),
+      createBooking({ serviceId: haircut.id, startsAt: at(7, '14:00'), ...someone }),
+    ])
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1)
+    const lost = results.find((r) => r.status === 'rejected') as PromiseRejectedResult
+    expect(lost.reason).toMatchObject({ code: 'HOLD_EXISTS' })
   })
 
   it('two customers racing for one time: one holds it, the other hears TIME_TAKEN', async () => {

@@ -29,7 +29,6 @@ import {
  * strictly worse.
  */
 export const productSort = z.enum(['featured', 'new', 'bestseller'])
-export type ProductSort = z.infer<typeof productSort>
 
 export const listProductsInput = z.object({
   category: z.string().max(64).optional(),
@@ -107,11 +106,12 @@ export const listCategories = createServerFn({ method: 'GET' }).handler(
 export const listProducts = createServerFn({ method: 'GET' })
   .validator(listProductsInput)
   .handler(async ({ data }): Promise<ProductCard[]> => {
-    const matched = data.q ? await matchingProductIds(data.q) : null
-    if (matched?.length === 0) return []
+    const matched = data.q ? new Set(await matchingProductIds(data.q)) : null
+    if (matched?.size === 0) return []
 
-    const rows = await db
+    const grouped = await db
       .select({
+        id: products.id,
         slug: products.slug,
         name: products.nameMn,
         fromPrice: min(productVariants.price),
@@ -143,7 +143,6 @@ export const listProducts = createServerFn({ method: 'GET' })
         and(
           eq(products.status, 'active'),
           data.category ? eq(categories.slug, data.category) : undefined,
-          matched ? inArray(products.id, matched) : undefined,
         ),
       )
       .groupBy(products.id, products.slug, products.nameMn, products.createdAt)
@@ -151,44 +150,61 @@ export const listProducts = createServerFn({ method: 'GET' })
         data.sort === 'new' ? desc(products.createdAt) : asc(products.createdAt),
       )
 
-    if (data.sort === 'bestseller') {
-      /**
-       * Units sold, in a separate query rather than another join.
-       *
-       * Joining order_items into the query above would multiply the rows its
-       * GROUP BY is already aggregating, quietly inflating stock and variant
-       * counts. With a catalogue this size a second round trip and a sort in
-       * memory is cheaper than getting that subtle.
-       */
-      const sold = await db
-        .select({
-          slug: products.slug,
-          units: sql<number>`coalesce(sum(${orderItems.qty}), 0)`,
-        })
-        .from(orderItems)
-        .innerJoin(orders, eq(orders.id, orderItems.orderId))
-        .innerJoin(productVariants, eq(productVariants.id, orderItems.variantId))
-        .innerJoin(products, eq(products.id, productVariants.productId))
-        // Only orders where the money actually arrived.
-        .where(inArray(orders.status, ['paid', 'processing', 'shipped', 'delivered']))
-        .groupBy(products.slug)
+    // Search matches are applied here, not as an `inArray` in the query: a
+    // short query can match more products than one D1 statement may bind.
+    const rows = matched ? grouped.filter((row) => matched.has(row.id)) : grouped
+    if (data.sort === 'bestseller') await sortByUnitsSold(rows)
 
-      const unitsBySlug = new Map(sold.map((s) => [s.slug, s.units]))
-      rows.sort(
-        (a, b) => (unitsBySlug.get(b.slug) ?? 0) - (unitsBySlug.get(a.slug) ?? 0),
-      )
-    }
-
-    return rows.map((row) => ({
-      slug: row.slug,
-      name: row.name,
-      size: row.variantCount === 1 ? row.size : null,
-      fromPrice: Number(row.fromPrice ?? 0),
-      totalStock: row.totalStock,
-      variantCount: row.variantCount,
-      imageUrl: row.imageUrl,
-    }))
+    return rows.map(toProductCard)
   })
+
+/** A grouped listing row as the catalogue card shows it. */
+function toProductCard(row: {
+  slug: string
+  name: string
+  size: string | null
+  fromPrice: number | null
+  totalStock: number
+  variantCount: number
+  imageUrl: string | null
+}): ProductCard {
+  return {
+    slug: row.slug,
+    name: row.name,
+    // A size is only worth showing when there is exactly one to show.
+    size: row.variantCount === 1 ? row.size : null,
+    fromPrice: Number(row.fromPrice ?? 0),
+    totalStock: row.totalStock,
+    variantCount: row.variantCount,
+    imageUrl: row.imageUrl,
+  }
+}
+
+/**
+ * Units sold, in a separate query rather than another join.
+ *
+ * Joining order_items into the listing query would multiply the rows its
+ * GROUP BY is already aggregating, quietly inflating stock and variant
+ * counts. With a catalogue this size a second round trip and a sort in
+ * memory is cheaper than getting that subtle.
+ */
+async function sortByUnitsSold(rows: Array<{ slug: string }>): Promise<void> {
+  const sold = await db
+    .select({
+      slug: products.slug,
+      units: sql<number>`coalesce(sum(${orderItems.qty}), 0)`,
+    })
+    .from(orderItems)
+    .innerJoin(orders, eq(orders.id, orderItems.orderId))
+    .innerJoin(productVariants, eq(productVariants.id, orderItems.variantId))
+    .innerJoin(products, eq(products.id, productVariants.productId))
+    // Only orders where the money actually arrived.
+    .where(inArray(orders.status, ['paid', 'processing', 'shipped', 'delivered']))
+    .groupBy(products.slug)
+
+  const unitsBySlug = new Map(sold.map((s) => [s.slug, s.units]))
+  rows.sort((a, b) => (unitsBySlug.get(b.slug) ?? 0) - (unitsBySlug.get(a.slug) ?? 0))
+}
 
 export interface ProductGroup {
   slug: string
@@ -260,15 +276,7 @@ export const listGroupedProducts = createServerFn({ method: 'GET' }).handler(
     const byCategory = new Map<string, ProductCard[]>()
     for (const row of rows) {
       const key = row.categorySlug ?? ''
-      const card: ProductCard = {
-        slug: row.slug,
-        name: row.name,
-        size: row.variantCount === 1 ? row.size : null,
-        fromPrice: Number(row.fromPrice ?? 0),
-        totalStock: row.totalStock,
-        variantCount: row.variantCount,
-        imageUrl: row.imageUrl,
-      }
+      const card = toProductCard(row)
       const bucket = byCategory.get(key)
       if (bucket) bucket.push(card)
       else byCategory.set(key, [card])

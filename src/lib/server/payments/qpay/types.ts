@@ -21,7 +21,6 @@ export const qpayTokenResponse = z.object({
   expires_in: z.coerce.number(),
   refresh_expires_in: z.coerce.number().optional(),
 })
-export type QpayTokenResponse = z.infer<typeof qpayTokenResponse>
 
 const qpayLink = z.object({
   name: z.string(),
@@ -43,7 +42,6 @@ export const qpayInvoiceResponse = z.object({
   urls: z.array(qpayLink).nullish(),
   qPay_deeplink: z.array(qpayLink).nullish(),
 })
-export type QpayInvoiceResponse = z.infer<typeof qpayInvoiceResponse>
 
 /** NEW: created · FAILED · PAID · PARTIAL: underpaid · REFUNDED: reversed. */
 export const qpayPaymentStatus = z.enum([
@@ -53,7 +51,6 @@ export const qpayPaymentStatus = z.enum([
   'PARTIAL',
   'REFUNDED',
 ])
-export type QpayPaymentStatus = z.infer<typeof qpayPaymentStatus>
 
 export const qpayPaymentRow = z.object({
   /** May be a long numeric string or a UUID depending on payment type. */
@@ -66,7 +63,6 @@ export const qpayPaymentRow = z.object({
   payment_type: z.string().nullish(),
   payment_date: z.string().nullish(),
 })
-export type QpayPaymentRow = z.infer<typeof qpayPaymentRow>
 
 export const qpayPaymentCheckResponse = z.object({
   count: z.coerce.number().default(0),
@@ -106,17 +102,3 @@ export const qpayEbarimtResponse = z
     lottery: z.string().nullish(),
   })
   .passthrough()
-export type QpayEbarimtResponse = z.infer<typeof qpayEbarimtResponse>
-
-/**
- * What QPay POSTs to our callback URL. Notably thin — which is exactly why the
- * callback is treated as a notification and never as proof of payment.
- */
-export const qpayCallbackBody = z
-  .object({
-    payment_id: z.coerce.string().nullish(),
-    payment_status: z.string().nullish(),
-    object_id: z.string().nullish(),
-  })
-  .passthrough()
-export type QpayCallbackBody = z.infer<typeof qpayCallbackBody>

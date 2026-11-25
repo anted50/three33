@@ -1,3 +1,4 @@
+import { assert } from '~/lib/assert'
 import { env } from '../env'
 import { buildCallbackUrl, buildPathCallbackUrl } from './callback-token'
 import { getQpayProvider } from './qpay'
@@ -31,15 +32,14 @@ export function getProvider(name: string): PaymentProvider {
  * guarantees STOREPAY_CALLBACK_SECRET is set.
  */
 export function providerCallbackUrl(name: ProviderName, orderNo: string): string {
-  return name === 'qpay'
-    ? buildCallbackUrl(env.APP_URL, '/api/qpay/callback', orderNo, env.QPAY_CALLBACK_SECRET)
-    : // Path, not query: StorePay appends its own `?id=` — see buildPathCallbackUrl.
-      buildPathCallbackUrl(
-        env.APP_URL,
-        '/api/storepay/callback',
-        orderNo,
-        env.STOREPAY_CALLBACK_SECRET!,
-      )
+  if (name === 'qpay') {
+    return buildCallbackUrl(env.APP_URL, '/api/qpay/callback', orderNo, env.QPAY_CALLBACK_SECRET)
+  } else {
+    const secret = env.STOREPAY_CALLBACK_SECRET
+    assert(secret, 'StorePay is offered only when STOREPAY_CALLBACK_SECRET is set (availableProviders)')
+    // Path, not query: StorePay appends its own `?id=` — see buildPathCallbackUrl.
+    return buildPathCallbackUrl(env.APP_URL, '/api/storepay/callback', orderNo, secret)
+  }
 }
 
 /** Payment methods checkout may currently offer, in display order. */

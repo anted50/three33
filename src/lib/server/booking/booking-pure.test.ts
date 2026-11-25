@@ -20,7 +20,7 @@ describe('time', () => {
   })
 
   it('walks days and weekdays', () => {
-    expect(datesBetween('2026-09-30', '2026-10-02')).toEqual(['2026-09-30', '2026-10-01', '2026-10-02'])
+    expect(datesBetween('2026-09-30', '2026-10-02', 3)).toEqual(['2026-09-30', '2026-10-01', '2026-10-02'])
     expect(addDays('2026-12-31', 1)).toBe('2027-01-01')
     expect(isoWeekday('2026-10-05')).toBe(1) // Monday
     expect(isoWeekday('2026-10-11')).toBe(7) // Sunday
@@ -91,7 +91,7 @@ describe('freeStarts', () => {
   ]
 
   it('offers only starts where the whole service fits', () => {
-    const starts = freeStarts(windows, busy, 55, t('00:00')).map(hhmm)
+    const starts = freeStarts({ windows, busy, durationMinutes: 55, notBefore: t('00:00') }).map(hhmm)
     expect(starts[0]).toBe('10:00')
     expect(starts).not.toContain('10:15') // would run into 11:00
     expect(starts[1]).toBe('12:15') // right when the booking ends
@@ -99,12 +99,12 @@ describe('freeStarts', () => {
   })
 
   it('skips the past', () => {
-    const starts = freeStarts(windows, [], 30, t('16:05')).map(hhmm)
+    const starts = freeStarts({ windows, busy: [], durationMinutes: 30, notBefore: t('16:05') }).map(hhmm)
     expect(starts).toEqual(['16:15', '16:30', '16:45', '17:00', '17:15', '17:30'])
   })
 
   it('has nothing to offer without a window', () => {
-    expect(freeStarts([], [], 30, t('00:00'))).toEqual([])
+    expect(freeStarts({ windows: [], busy: [], durationMinutes: 30, notBefore: t('00:00') })).toEqual([])
   })
 })
 

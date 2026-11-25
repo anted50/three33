@@ -4,14 +4,15 @@ import { z } from 'zod'
 import { db } from '~/db'
 import { atomic, changed } from '~/db/atomic'
 import { appointments } from '~/db/schema'
-import { conflict, notFound } from '../api/errors'
+import { badRequest, conflict, notFound } from '../api/errors'
 import { email, isoDate, phone } from '../api/input'
 import { inBackground } from '../background'
 import { sendCancelled, sendRescheduled } from './emails/changes'
 import { sendConfirmation } from './emails/confirmation'
 import { generateBookingNo } from './refs'
 import { bookableService } from './services'
-import { addDays, addMinutes, atLocal } from './time'
+import { MAX_SCHEDULE_DAYS } from './schedule-plan'
+import { addDays, addMinutes, atLocal, dayCount } from './time'
 
 /**
  * Bookings, as admins see and manage them. Every admin sees every booking.
@@ -41,7 +42,10 @@ export const adminBookingInput = z.object({
 /** Everything but the status-page token hash, which never leaves the server. */
 const { accessTokenHash: _hidden, invoicePayload: _invoice, ...visible } = getTableColumns(appointments)
 
+/** The admin list covers a range, never the whole table: same bound as the schedule view. */
 export async function listAppointments(query: z.infer<typeof appointmentsQuery>) {
+  if (query.to < query.from) throw badRequest('"to" is before "from"')
+  if (dayCount(query.from, query.to) > MAX_SCHEDULE_DAYS) throw badRequest(`At most ${MAX_SCHEDULE_DAYS} days at a time`)
   return db
     .select(visible)
     .from(appointments)

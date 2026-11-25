@@ -52,8 +52,3 @@ export function isPaid(status: OrderStatus): boolean {
 export function isTerminal(status: OrderStatus): boolean {
   return TRANSITIONS[status].length === 0
 }
-
-/** Only delivered orders may be reviewed. */
-export function canReview(status: OrderStatus): boolean {
-  return status === 'delivered'
-}

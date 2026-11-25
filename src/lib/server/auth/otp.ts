@@ -1,7 +1,9 @@
 import { createHash, randomInt } from 'node:crypto'
-import { and, desc, eq, isNull, lt } from 'drizzle-orm'
+import { and, desc, eq, isNull, lt, sql } from 'drizzle-orm'
 import { db } from '~/db'
 import { otpCodes } from '~/db/schema'
+import { assert } from '~/lib/assert'
+import { safeCompare } from './session'
 
 /** 10 minutes: long enough to switch to a mail app, short enough that a
  * leaked code is stale. */
@@ -56,20 +58,19 @@ export type OtpOutcome = 'ok' | 'invalid' | 'expired' | 'too_many_attempts'
 
 /**
  * Verifies a code against the newest unconsumed, unexpired row for the email.
- * A wrong guess still increments attempts before comparing — the counter has
- * to move on every try, correct or not, or it protects nothing.
+ *
+ * The attempt is counted before the comparison — the counter has to move on
+ * every try, correct or not, or it protects nothing — and counted by one
+ * conditional UPDATE, so twenty guesses sent at once still get MAX_ATTEMPTS
+ * between them, not twenty. Consuming is conditional the same way, so one
+ * code signs in once.
  */
 export async function consumeOtp(
   email: string,
   code: string,
 ): Promise<OtpOutcome> {
   const [row] = await db
-    .select({
-      id: otpCodes.id,
-      codeHash: otpCodes.codeHash,
-      expiresAt: otpCodes.expiresAt,
-      attempts: otpCodes.attempts,
-    })
+    .select({ id: otpCodes.id, codeHash: otpCodes.codeHash, expiresAt: otpCodes.expiresAt })
     .from(otpCodes)
     .where(and(eq(otpCodes.email, email), isNull(otpCodes.consumedAt)))
     .orderBy(desc(otpCodes.createdAt))
@@ -77,19 +78,25 @@ export async function consumeOtp(
 
   if (!row) return 'invalid'
   if (row.expiresAt.getTime() < Date.now()) return 'expired'
-  if (row.attempts >= MAX_ATTEMPTS) return 'too_many_attempts'
 
-  await db
+  const counted = await db
     .update(otpCodes)
-    .set({ attempts: row.attempts + 1 })
-    .where(eq(otpCodes.id, row.id))
+    .set({ attempts: sql`${otpCodes.attempts} + 1` })
+    .where(and(eq(otpCodes.id, row.id), lt(otpCodes.attempts, MAX_ATTEMPTS)))
+    .returning({ attempts: otpCodes.attempts })
+  if (counted.length === 0) return 'too_many_attempts'
+  assert(counted[0]!.attempts <= MAX_ATTEMPTS, 'the attempt counter stops at MAX_ATTEMPTS')
 
-  if (hashCode(code) !== row.codeHash) return 'invalid'
+  // Constant-time: both are fixed-length hex digests.
+  if (!safeCompare(hashCode(code), row.codeHash)) return 'invalid'
 
-  await db
+  const consumed = await db
     .update(otpCodes)
     .set({ consumedAt: new Date() })
-    .where(eq(otpCodes.id, row.id))
+    .where(and(eq(otpCodes.id, row.id), isNull(otpCodes.consumedAt)))
+    .returning({ id: otpCodes.id })
+  // A concurrent request with the same code signed in first.
+  if (consumed.length === 0) return 'invalid'
 
   return 'ok'
 }

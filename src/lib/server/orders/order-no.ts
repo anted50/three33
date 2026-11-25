@@ -31,8 +31,3 @@ export function generateOrderNo(now = new Date()): string {
 
   return `UD-${yy}${mm}${dd}-${suffix}`
 }
-
-/** QPay's constraint, asserted rather than assumed. */
-export function isValidOrderNo(orderNo: string): boolean {
-  return /^[A-Za-z0-9-]{1,45}$/.test(orderNo)
-}

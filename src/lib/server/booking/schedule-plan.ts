@@ -1,5 +1,7 @@
+import { assert } from '~/lib/assert'
+import { D1_BOUND_PARAMETERS_MAX } from '~/db/limits'
 import { badRequest } from '../api/errors'
-import { atLocal, datesBetween, isoWeekday, type IsoDate } from './time'
+import { atLocal, dayCount, datesBetween, isoWeekday, type IsoDate } from './time'
 
 /**
  * Turns the barber's schedule request into one plan per calendar day. Pure:
@@ -30,23 +32,30 @@ export interface PlannedWindow {
 
 export type DayPlan = { kind: 'open'; windows: PlannedWindow[] } | { kind: 'closed' }
 
-/** Longest span one request may touch: about three months of planning at once. */
+/**
+ * Most days one request may touch, across all its entries: about three
+ * months of planning at once. Also bounds the day list applySchedule deletes
+ * by, which is one bound parameter per day.
+ */
 export const MAX_SCHEDULE_DAYS = 93
+assert(MAX_SCHEDULE_DAYS < D1_BOUND_PARAMETERS_MAX, 'the schedule day list must fit one D1 statement')
 
 export function planSchedule(entries: ScheduleEntry[]): Map<IsoDate, DayPlan> {
   const plan = new Map<IsoDate, DayPlan>()
 
   for (const entry of entries) {
     if (entry.to < entry.from) throw badRequest(`"to" is before "from" (${entry.from})`)
-
-    const days = datesBetween(entry.from, entry.to)
-    if (days.length > MAX_SCHEDULE_DAYS) {
+    if (dayCount(entry.from, entry.to) > MAX_SCHEDULE_DAYS) {
       throw badRequest(`A schedule entry may cover at most ${MAX_SCHEDULE_DAYS} days`)
     }
 
-    for (const day of days) {
-      if (entry.weekdays && !entry.weekdays.includes(isoWeekday(day))) continue
-      merge(plan, day, toDayPlan(entry, day))
+    for (const day of datesBetween(entry.from, entry.to, MAX_SCHEDULE_DAYS)) {
+      const included = !entry.weekdays || entry.weekdays.includes(isoWeekday(day))
+      if (included) merge(plan, day, toDayPlan(entry, day))
+    }
+    // Checked per entry, so a request spread over years stops early.
+    if (plan.size > MAX_SCHEDULE_DAYS) {
+      throw badRequest(`One schedule change may touch at most ${MAX_SCHEDULE_DAYS} days`)
     }
   }
 
@@ -67,15 +76,15 @@ function toDayPlan(entry: ScheduleEntry, day: IsoDate): DayPlan {
   return { kind: 'open', windows: [{ startsAt, endsAt }] }
 }
 
-function merge(plan: Map<IsoDate, DayPlan>, day: IsoDate, next: DayPlan) {
+function merge(plan: Map<IsoDate, DayPlan>, day: IsoDate, next: DayPlan): void {
   const current = plan.get(day)
-  if (!current) return plan.set(day, next)
-
-  if (current.kind === 'open' && next.kind === 'open') {
+  if (!current) {
+    plan.set(day, next)
+  } else if (current.kind === 'open' && next.kind === 'open') {
     current.windows.push(...next.windows)
-    return
+  } else {
+    throw badRequest(`${day} is both open and closed in this request`)
   }
-  throw badRequest(`${day} is both open and closed in this request`)
 }
 
 function assertNoOverlap(day: IsoDate, windows: PlannedWindow[]) {

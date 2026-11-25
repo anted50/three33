@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm'
 import { db } from '~/db'
 import { atomic } from '~/db/atomic'
 import { settings } from '~/db/schema'
+import { assert } from '~/lib/assert'
 import type { ShippingRates } from './cart/pricing'
 
 /**
@@ -38,6 +39,12 @@ export async function loadShippingRates(): Promise<ShippingRates> {
 }
 
 export async function saveShippingRates(rates: ShippingRates): Promise<void> {
+  // The route validates these; checked again because a bad value here is
+  // charged to every customer until someone notices.
+  assert(Number.isInteger(rates.fee), 'shipping fee is whole mungu')
+  assert(rates.fee >= 0, 'shipping fee is not negative')
+  assert(Number.isInteger(rates.freeThreshold), 'free-shipping threshold is whole mungu')
+  assert(rates.freeThreshold >= 0, 'free-shipping threshold is not negative')
   await atomic(
     (
       [
@@ -69,6 +76,9 @@ export async function loadBookingFee(): Promise<number | null> {
 }
 
 export async function saveBookingFee(fee: number): Promise<void> {
+  // Paired with loadBookingFee, which treats anything else as "not set".
+  assert(Number.isInteger(fee), 'booking fee is whole mungu')
+  assert(fee > 0, 'booking fee is positive')
   await db
     .insert(settings)
     .values({ key: BOOKING_FEE, value: String(fee) })

@@ -1,9 +1,11 @@
 import { createHash, randomBytes } from 'node:crypto'
-import { and, eq, gt, gte, lte, or } from 'drizzle-orm'
+import { and, eq, gt, gte, lte, or, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '~/db'
-import { atomic } from '~/db/atomic'
+import { atomic, exists, guard } from '~/db/atomic'
 import { appointments, availability } from '~/db/schema'
+import { assert } from '~/lib/assert'
+import { isGuardFailure } from '../api/db-errors'
 import { ApiError, badRequest, conflict } from '../api/errors'
 import { email, phone } from '../api/input'
 import { env } from '../env'
@@ -41,92 +43,122 @@ export const bookingInput = z.object({
 export async function createBooking(input: z.infer<typeof bookingInput>) {
   const fee = await loadBookingFee()
   if (!fee) throw conflict('BOOKING_OFF', 'Online booking is not open yet')
+  assert(Number.isInteger(fee), 'loadBookingFee returns whole mungu')
 
   const service = await bookableService(input.serviceId)
   const startsAt = new Date(input.startsAt)
   const endsAt = addMinutes(startsAt, service.durationMinutes)
+  assert(endsAt > startsAt, 'a service has a positive length')
   if (startsAt <= new Date()) throw badRequest('That time has passed')
 
-  await assertInsideWindow(startsAt, endsAt)
-  await assertNoLiveHold(input.customerPhone, input.customerEmail)
+  // Read first for the clear error; the same two checks run again inside the
+  // batch, since a schedule edit or a second tab may land in between.
+  const [window] = await db.select({ id: availability.id }).from(availability).where(windowCovers(startsAt, endsAt)).limit(1)
+  if (!window) throw notAvailable()
+  const [live] = await db.select({ id: appointments.id }).from(appointments).where(liveHoldOf(input)).limit(1)
+  if (live) throw holdExists()
 
   const token = randomBytes(24).toString('base64url')
   const id = crypto.randomUUID()
   const bookingNo = generateBookingNo()
   const expiresAt = new Date(Date.now() + HOLD_MS)
 
-  // A clash with another booking or hold aborts here with TIME_TAKEN
-  // (the no-overlap trigger, mapped in api/db-errors.ts).
-  await atomic([
-    db.insert(appointments).values({
-      id,
-      bookingNo,
-      serviceId: service.id,
-      serviceName: service.name,
-      durationMinutes: service.durationMinutes,
-      status: 'pending',
-      startsAt,
-      endsAt,
-      customerName: input.customerName,
-      customerPhone: input.customerPhone,
-      customerEmail: input.customerEmail,
-      note: input.note ?? null,
-      bookingFee: fee,
-      expiresAt,
-      accessTokenHash: createHash('sha256').update(token).digest('hex'),
-    }),
-  ])
+  try {
+    // A clash with another booking or hold aborts here with TIME_TAKEN
+    // (the no-overlap trigger, mapped in api/db-errors.ts).
+    await atomic([
+      guard(exists(db.select({ id: availability.id }).from(availability).where(windowCovers(startsAt, endsAt))), 'NOT_AVAILABLE'),
+      guard(sql`not ${exists(db.select({ id: appointments.id }).from(appointments).where(liveHoldOf(input)))}`, 'HOLD_EXISTS'),
+      db.insert(appointments).values({
+        id,
+        bookingNo,
+        serviceId: service.id,
+        serviceName: service.name,
+        durationMinutes: service.durationMinutes,
+        status: 'pending',
+        startsAt,
+        endsAt,
+        customerName: input.customerName,
+        customerPhone: input.customerPhone,
+        customerEmail: input.customerEmail,
+        note: input.note ?? null,
+        bookingFee: fee,
+        expiresAt,
+        accessTokenHash: createHash('sha256').update(token).digest('hex'),
+      }),
+    ])
+  } catch (error) {
+    if (isGuardFailure(error, 'NOT_AVAILABLE')) throw notAvailable()
+    if (isGuardFailure(error, 'HOLD_EXISTS')) throw holdExists()
+    throw error
+  }
 
   const invoice = await issueFeeInvoice(id, bookingNo, fee)
   return { bookingNo, token, expiresAt, startsAt, endsAt, service: service.name, bookingFee: fee, invoice }
 }
 
-async function assertInsideWindow(startsAt: Date, endsAt: Date) {
-  const [window] = await db
-    .select({ id: availability.id })
-    .from(availability)
-    .where(and(lte(availability.startsAt, startsAt), gte(availability.endsAt, endsAt)))
-    .limit(1)
-  if (!window) throw conflict('NOT_AVAILABLE', 'That time is not open for booking')
+const notAvailable = () => conflict('NOT_AVAILABLE', 'That time is not open for booking')
+const holdExists = () => conflict('HOLD_EXISTS', 'You already have a booking waiting for payment')
+
+/** A window the barber opened that holds the whole appointment. */
+function windowCovers(startsAt: Date, endsAt: Date) {
+  return and(lte(availability.startsAt, startsAt), gte(availability.endsAt, endsAt))
 }
 
 /** One unpaid hold per customer at a time, so nobody can squat on times. */
-async function assertNoLiveHold(customerPhone: string, customerEmail: string) {
-  const [live] = await db
-    .select({ id: appointments.id })
-    .from(appointments)
-    .where(
-      and(
-        eq(appointments.status, 'pending'),
-        gt(appointments.expiresAt, new Date()),
-        or(eq(appointments.customerPhone, customerPhone), eq(appointments.customerEmail, customerEmail)),
-      ),
-    )
-    .limit(1)
-  if (live) throw conflict('HOLD_EXISTS', 'You already have a booking waiting for payment')
+function liveHoldOf(customer: { customerPhone: string; customerEmail: string }) {
+  return and(
+    eq(appointments.status, 'pending'),
+    gt(appointments.expiresAt, new Date()),
+    or(eq(appointments.customerPhone, customer.customerPhone), eq(appointments.customerEmail, customer.customerEmail)),
+  )
 }
 
-/** After the hold is written; if QPay won't issue, the hold is removed again. */
+/**
+ * After the hold is written. If QPay won't issue, the hold is removed again.
+ * If QPay issued but the invoice could not be saved, it is cancelled first:
+ * a payable invoice with no hold behind it would take money for nothing.
+ */
 async function issueFeeInvoice(appointmentId: string, bookingNo: string, fee: number) {
+  let invoice
   try {
-    const invoice = await getQpayProvider().createInvoice({
+    invoice = await getQpayProvider().createInvoice({
       orderNo: bookingNo,
       amount: fee,
       description: `Three33 ${bookingNo}`,
       callbackUrl: feeCallbackUrl(appointmentId),
     })
-    const payload = { qrText: invoice.qrText, qrImage: invoice.qrImage, shortUrl: invoice.shortUrl, links: invoice.links }
+  } catch (error) {
+    console.error(`QPay fee invoice failed for ${bookingNo}`, error)
+    await releaseHold(appointmentId)
+    throw qpayUnavailable()
+  }
+
+  const payload = { qrText: invoice.qrText, qrImage: invoice.qrImage, shortUrl: invoice.shortUrl, links: invoice.links }
+  try {
     await db
       .update(appointments)
       .set({ qpayInvoiceId: invoice.invoiceId, invoicePayload: payload })
       .where(eq(appointments.id, appointmentId))
-    return payload
   } catch (error) {
-    console.error(`QPay fee invoice failed for ${bookingNo}`, error)
-    await db.delete(appointments).where(and(eq(appointments.id, appointmentId), eq(appointments.status, 'pending')))
-    throw new ApiError(502, 'QPAY_UNAVAILABLE', 'Payment could not be started; please try again')
+    console.error(`Saving QPay fee invoice ${invoice.invoiceId} for ${bookingNo} failed`, error)
+    try {
+      await getQpayProvider().cancelInvoice(invoice.invoiceId)
+    } catch (cancelError) {
+      console.error(`Orphaned QPay fee invoice ${invoice.invoiceId} for ${bookingNo}`, cancelError)
+    }
+    await releaseHold(appointmentId)
+    throw qpayUnavailable()
   }
+  return payload
 }
+
+/** Only while still pending: a hold confirmed meanwhile is never removed. */
+async function releaseHold(appointmentId: string): Promise<void> {
+  await db.delete(appointments).where(and(eq(appointments.id, appointmentId), eq(appointments.status, 'pending')))
+}
+
+const qpayUnavailable = () => new ApiError(502, 'QPAY_UNAVAILABLE', 'Payment could not be started; please try again')
 
 /** Signed per appointment, so the public callback can't be pointed at others. */
 export const feeCallbackSubject = (appointmentId: string) => `booking-fee:${appointmentId}`

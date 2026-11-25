@@ -66,6 +66,18 @@ beforeEach(() => {
 })
 
 describe('settleOrder', () => {
+  it('two polls at once reach the provider once: the check claim is atomic', async () => {
+    // Goal: the throttle must hold under concurrency; a read-then-stamp let
+    // every concurrent poller through to the provider.
+    const o = await pendingOrder({ stock: 3, qty: 1 })
+    provider.checkInvoice.mockResolvedValue({ outcome: 'unpaid', paidAmount: 0, providerPaymentId: null, raw: {} })
+
+    const outcomes = await Promise.all([settleOrder(o.orderNo), settleOrder(o.orderNo), settleOrder(o.orderNo)])
+
+    expect(provider.checkInvoice).toHaveBeenCalledTimes(1)
+    expect(outcomes.filter((outcome) => outcome === 'throttled')).toHaveLength(2)
+  })
+
   it('settles: status, stock, ledger, payment and cart in one go', async () => {
     const o = await pendingOrder({ stock: 3, qty: 2 })
     provider.checkInvoice.mockResolvedValue({ outcome: 'paid', paidAmount: 2000, providerPaymentId: 'PAY-A', raw: { ok: 1 } })

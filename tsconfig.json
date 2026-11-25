@@ -14,7 +14,6 @@
     "verbatimModuleSyntax": true,
     "noEmit": true,
     "types": ["node", "vite/client"],
-    "baseUrl": ".",
     "paths": {
       "~/*": ["./src/*"]
     }

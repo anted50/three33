@@ -1,3 +1,5 @@
+import { assert } from '~/lib/assert'
+import { D1_BOUND_PARAMETERS_MAX } from '~/db/limits'
 import { lineTotal, sumMungu, type Mungu } from '~/lib/money'
 
 /**
@@ -8,6 +10,14 @@ import { lineTotal, sumMungu, type Mungu } from '~/lib/money'
  * Nothing here accepts a total from the client. Callers pass prices they just
  * read from product_variants; see lib/server/README.md rule 3.
  */
+
+/**
+ * Most distinct lines one cart may hold. Checkout reads them with one
+ * `inArray` and settlement clears them with another, so this stays well under
+ * D1's 100 bound parameters (db/limits.ts) — and no real basket gets near it.
+ */
+export const MAX_CART_LINES = 50
+assert(MAX_CART_LINES < D1_BOUND_PARAMETERS_MAX, 'a cart\'s variant list must fit one D1 statement')
 
 export interface PricedLine {
   variantId: string
@@ -33,6 +43,10 @@ export function computeTotals(
   lines: readonly PricedLine[],
   rates: ShippingRates,
 ): CartTotals {
+  assert(Number.isInteger(rates.fee), 'the shipping fee is whole mungu')
+  assert(rates.fee >= 0, 'the shipping fee is not negative')
+  assert(Number.isInteger(rates.freeThreshold), 'the free-shipping threshold is whole mungu')
+  assert(rates.freeThreshold >= 0, 'the free-shipping threshold is not negative')
   const subtotal = sumMungu(lines.map((l) => lineTotal(l.unitPrice, l.qty)))
 
   // An empty cart ships for nothing; charging delivery on nothing is a bug

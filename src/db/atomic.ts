@@ -1,7 +1,9 @@
-import { type SQL, type SQLWrapper, sql } from 'drizzle-orm'
+import { getTableColumns, type SQL, type SQLWrapper, sql } from 'drizzle-orm'
 import type { BatchItem } from 'drizzle-orm/batch'
-import { isGuardFailure } from '~/lib/server/api/db-errors'
+import type { SQLiteInsertValue, SQLiteTable } from 'drizzle-orm/sqlite-core'
+import { assert } from '~/lib/assert'
 import { db } from './index'
+import { D1_BOUND_PARAMETERS_MAX } from './limits'
 import { batchGuards } from './schema'
 
 /**
@@ -54,6 +56,25 @@ export async function atomic(statements: ReadonlyArray<Statement | null | undefi
 }
 
 /**
+ * Inserts `rows` as as many statements as D1's parameter limit needs, for one
+ * atomic batch. Chunked by the table's column count, which bounds the
+ * parameters a row can bind (columns with a SQL default bind none).
+ */
+export function insertRows<T extends SQLiteTable>(table: T, rows: ReadonlyArray<SQLiteInsertValue<T>>): Statement[] {
+  assert(rows.length > 0, 'insertRows needs at least one row')
+  const columnCount = Object.keys(getTableColumns(table)).length
+  const rowsPerStatement = Math.floor(D1_BOUND_PARAMETERS_MAX / columnCount)
+  assert(rowsPerStatement >= 1, `a ${columnCount}-column row cannot fit in one D1 statement`)
+
+  const statements: Statement[] = []
+  for (let start = 0; start < rows.length; start += rowsPerStatement) {
+    statements.push(db.insert(table).values(rows.slice(start, start + rowsPerStatement) as SQLiteInsertValue<T>[]))
+  }
+  assert(statements.length === Math.ceil(rows.length / rowsPerStatement), 'insertRows chunk count')
+  return statements
+}
+
+/**
  * A batch statement that aborts the batch with `code` unless `condition`
  * holds at that point in the batch. Put guards first, so they see the state
  * before this batch's own writes.
@@ -82,21 +103,4 @@ export function exists(query: SQLWrapper): SQL {
  */
 export function changed(code: string): Statement {
   return guard(sql`changes() > 0`, code)
-}
-
-/**
- * Re-runs `attempt` when its batch was stopped by the guard `code` — for
- * writes computed from state that another request may have changed in the
- * moment between reading it and the batch running (two payments landing on
- * one sale at once, say). Each attempt must re-read what it depends on.
- * After `tries` attempts the guard failure is thrown as is (a 409).
- */
-export async function retryOnGuard<T>(code: string, attempt: () => Promise<T>, tries = 3): Promise<T> {
-  for (let i = 1; ; i++) {
-    try {
-      return await attempt()
-    } catch (error) {
-      if (i >= tries || !isGuardFailure(error, code)) throw error
-    }
-  }
 }

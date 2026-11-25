@@ -1,11 +1,6 @@
 /**
  * The homepage hero's photograph: the shop's "ROAD TO BARBER" board.
  *
- * Replaces HeroAscii on the band. That component and its art are kept in the
- * tree on purpose — the ASCII treatment is the fallback if the photograph ever
- * has to come down, and swapping back is a one-line change in routes/index.tsx
- * plus dropping `hero--photo` off the section.
- *
  * <img> rather than a CSS background so the browser gets a srcset to pick from:
  * the band is full-bleed, so on a phone it would otherwise pull the same 274KB
  * file a 1440px monitor does. fetchpriority high because this is the LCP

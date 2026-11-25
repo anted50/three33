@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
   assertTransition,
-  canReview,
   canTransition,
   InvalidTransitionError,
   isPaid,
@@ -88,13 +87,5 @@ describe('isTerminal', () => {
     expect(isTerminal('expired')).toBe(true)
     expect(isTerminal('refunded')).toBe(true)
     expect(isTerminal('pending_payment')).toBe(false)
-  })
-})
-
-describe('canReview', () => {
-  it('gates reviews to delivered orders only', () => {
-    expect(canReview('delivered')).toBe(true)
-    expect(canReview('shipped')).toBe(false)
-    expect(canReview('paid')).toBe(false)
   })
 })

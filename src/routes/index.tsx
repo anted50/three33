@@ -23,12 +23,7 @@ function Home() {
 
   return (
     <Page>
-      {/*
-        hero--photo switches the band from the paper-and-ink treatment the
-        ASCII art was drawn for to a dark one the photograph can sit under.
-        components/hero-ascii and its .txt are still in the tree — see the note
-        on HeroPhoto — so putting the ASCII back is this pair of lines.
-      */}
+      {/* hero--photo switches the band to the dark treatment the photograph sits under. */}
       <section className="hero hero--photo">
         <HeroPhoto />
 

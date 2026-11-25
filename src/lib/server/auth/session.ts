@@ -93,11 +93,6 @@ export async function invalidateSession(token: string): Promise<void> {
   await db.delete(sessions).where(eq(sessions.id, hashSessionToken(token)))
 }
 
-/** Log out everywhere — used after a password change or reset. */
-export async function invalidateAllUserSessions(userId: string): Promise<void> {
-  await db.delete(sessions).where(eq(sessions.userId, userId))
-}
-
 /** Housekeeping for the scheduled script; harmless to run often. */
 export async function deleteExpiredSessions(): Promise<void> {
   await db.delete(sessions).where(lt(sessions.expiresAt, new Date()))

@@ -29,7 +29,6 @@ import {
  * strictly worse.
  */
 export const productSort = z.enum(['featured', 'new', 'bestseller'])
-export type ProductSort = z.infer<typeof productSort>
 
 export const listProductsInput = z.object({
   category: z.string().max(64).optional(),

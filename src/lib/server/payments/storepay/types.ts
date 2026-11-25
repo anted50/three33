@@ -20,7 +20,6 @@ export const storepayTokenResponse = z.object({
    */
   expires_in: z.coerce.number(),
 })
-export type StorepayTokenResponse = z.infer<typeof storepayTokenResponse>
 
 const storepayMessage = z.object({
   code: z.string().nullish(),
@@ -44,9 +43,6 @@ function storepayEnvelope<T extends z.ZodType>(value: T) {
 
 /** POST /merchant/loan — value is the new loan's id. */
 export const storepayCreateLoanResponse = storepayEnvelope(z.coerce.string())
-export type StorepayCreateLoanResponse = z.infer<
-  typeof storepayCreateLoanResponse
->
 
 /**
  * Only the two flags are always present. For a loan StorePay has no record of
@@ -64,7 +60,6 @@ const storepayLoanData = z.object({
   isExist: z.boolean(),
   isConfirmed: z.boolean(),
 })
-export type StorepayLoanData = z.infer<typeof storepayLoanData>
 
 /** GET /merchant/loan/check/{loanId} — value is a plain confirmed flag. */
 export const storepayCheckByLoanResponse = z.object({
@@ -78,24 +73,6 @@ export type StorepayCheckByLoanResponse = z.infer<
   typeof storepayCheckByLoanResponse
 >
 
-/** GET /merchant/loan/checkRequest/{requestId} — value carries the loan id too. */
-export const storepayCheckByRequestResponse = z.object({
-  value: z
-    .object({
-      loanId: z.coerce.string().nullish(),
-      isExist: z.boolean(),
-      isConfirmed: z.boolean(),
-    })
-    .nullish(),
-  data: storepayLoanData.nullish(),
-  msgList: z.array(storepayMessage).default([]),
-  attrs: z.unknown().nullish(),
-  status: z.enum(['Success', 'Failed']).catch('Failed'),
-})
-export type StorepayCheckByRequestResponse = z.infer<
-  typeof storepayCheckByRequestResponse
->
-
 /** POST /merchant/account/cancel — same envelope, boolean value. */
 export const storepayCancelResponse = z.object({
   value: z.boolean().nullish(),
@@ -103,4 +80,3 @@ export const storepayCancelResponse = z.object({
   attrs: z.unknown().nullish(),
   status: z.enum(['Success', 'Failed']).catch('Failed'),
 })
-export type StorepayCancelResponse = z.infer<typeof storepayCancelResponse>

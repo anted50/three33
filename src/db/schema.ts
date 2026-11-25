@@ -101,12 +101,6 @@ export const paymentStatus = sqliteEnum([
   'refunded',
 ])
 
-export const reviewStatus = sqliteEnum([
-  'pending',
-  'approved',
-  'rejected',
-])
-
 /** Why stock moved. Every change to product_variants.stock_qty writes one row. */
 export const inventoryReason = sqliteEnum([
   'order_paid',
@@ -543,38 +537,8 @@ export const checkoutAttempts = sqliteTable(
 )
 
 // ---------------------------------------------------------------------------
-// Reviews & inventory
+// Inventory
 // ---------------------------------------------------------------------------
-
-export const reviews = sqliteTable(
-  'reviews',
-  {
-    id: id(),
-    productId: text('product_id')
-      .notNull()
-      .references(() => products.id, { onDelete: 'cascade' }),
-    userId: text('user_id')
-      .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
-    /** Gate: only orders that reached `delivered` may leave a review. */
-    orderId: text('order_id')
-      .notNull()
-      .references(() => orders.id, { onDelete: 'cascade' }),
-    rating: integer('rating').notNull(), // 1..5, checked in the server function
-    body: text('body'),
-    status: reviewStatus('status').notNull().default('pending'), // moderated
-    createdAt: createdAt(),
-  },
-  (t) => [
-    uniqueIndex('reviews_product_user_order_key').on(
-      t.productId,
-      t.userId,
-      t.orderId,
-    ),
-    index('reviews_product_id_status_idx').on(t.productId, t.status),
-    check('reviews_status_check', oneOf(t.status, reviewStatus.enumValues)),
-  ],
-)
 
 /**
  * Append-only audit of every stock movement. `product_variants.stock_qty` is the
@@ -800,24 +764,14 @@ export const batchGuards = sqliteTable('batch_guards', {
 // ---------------------------------------------------------------------------
 
 export type User = typeof users.$inferSelect
-export type Session = typeof sessions.$inferSelect
-export type Address = typeof addresses.$inferSelect
 export type Category = typeof categories.$inferSelect
 export type Product = typeof products.$inferSelect
-export type ProductVariant = typeof productVariants.$inferSelect
-export type ProductImage = typeof productImages.$inferSelect
 export type Cart = typeof carts.$inferSelect
-export type CartItem = typeof cartItems.$inferSelect
 export type Order = typeof orders.$inferSelect
-export type OrderItem = typeof orderItems.$inferSelect
 export type Payment = typeof payments.$inferSelect
-export type CheckoutAttempt = typeof checkoutAttempts.$inferSelect
-export type Review = typeof reviews.$inferSelect
 
 export type Service = typeof services.$inferSelect
-export type Availability = typeof availability.$inferSelect
 export type Appointment = typeof appointments.$inferSelect
 
 export type OrderStatus = (typeof orderStatus.enumValues)[number]
-export type PaymentStatus = (typeof paymentStatus.enumValues)[number]
 export type AppointmentStatus = (typeof appointmentStatus.enumValues)[number]

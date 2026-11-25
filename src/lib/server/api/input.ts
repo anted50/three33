@@ -25,18 +25,12 @@ export function readQuery<T>(request: Request, schema: z.ZodType<T>): T {
   return schema.parse(Object.fromEntries(params))
 }
 
-export function readParams<T>(params: unknown, schema: z.ZodType<T>): T {
-  return schema.parse(params)
-}
-
 /** One uuid path param. A malformed id is a 400, never a database error. */
 export function readId(params: Record<string, string>, key: string): string {
   return z.object({ [key]: z.uuid() }).parse(params)[key] as string
 }
 
 // Shared field schemas -------------------------------------------------------
-
-export const idParam = z.uuid()
 
 /** YYYY-MM-DD, as a local Ulaanbaatar date. */
 export const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD')
@@ -53,9 +47,3 @@ export const mungu = z.number().int().min(0).max(1_000_000_000_00)
 export const phone = z.string().trim().regex(/^\d{8}$/, 'Expected 8 digits')
 
 export const email = z.email().max(255).transform((v) => v.trim().toLowerCase())
-
-/** Comma-separated uuids in a query string: ?serviceIds=a,b */
-export const uuidList = z
-  .string()
-  .transform((v) => v.split(',').filter(Boolean))
-  .pipe(z.array(z.uuid()).max(10))

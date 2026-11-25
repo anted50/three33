@@ -84,11 +84,6 @@ export const PhoneIcon = (p: IconProps) => (
     <path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a1 1 0 0 1-1 1A16 16 0 0 1 4 5a1 1 0 0 1 1-1z" />
   </Svg>
 )
-export const ArrowRight = (p: IconProps) => (
-  <Svg size={20} strokeWidth={1.8} {...p}>
-    <path d="M4 12h15M13 6l6 6-6 6" />
-  </Svg>
-)
 export const ScissorsIcon = (p: IconProps) => (
   <Svg size={44} strokeWidth={1.2} {...p}>
     <circle cx="6" cy="6" r="3" />

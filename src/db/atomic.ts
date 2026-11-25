@@ -2,7 +2,6 @@ import { getTableColumns, type SQL, type SQLWrapper, sql } from 'drizzle-orm'
 import type { BatchItem } from 'drizzle-orm/batch'
 import type { SQLiteInsertValue, SQLiteTable } from 'drizzle-orm/sqlite-core'
 import { assert } from '~/lib/assert'
-import { isGuardFailure } from '~/lib/server/api/db-errors'
 import { db } from './index'
 import { D1_BOUND_PARAMETERS_MAX } from './limits'
 import { batchGuards } from './schema'
@@ -44,9 +43,6 @@ import { batchGuards } from './schema'
  */
 
 export type Statement = BatchItem<'sqlite'>
-
-/** Upper bound on retryOnGuard attempts: a retry loop that never ends is a hang. */
-const RETRY_TRIES_MAX = 10
 
 /**
  * Runs statements as one atomic batch. Returns each statement's result, in
@@ -107,29 +103,4 @@ export function exists(query: SQLWrapper): SQL {
  */
 export function changed(code: string): Statement {
   return guard(sql`changes() > 0`, code)
-}
-
-/**
- * Re-runs `attempt` when its batch was stopped by the guard `code` — for
- * writes computed from state that another request may have changed in the
- * moment between reading it and the batch running (two payments landing on
- * one sale at once, say). Each attempt must re-read what it depends on.
- * After `tries` attempts the guard failure is thrown as is (a 409).
- */
-export async function retryOnGuard<T>(code: string, attempt: () => Promise<T>, tries = 3): Promise<T> {
-  assert(Number.isInteger(tries), 'retryOnGuard tries must be an integer')
-  assert(tries >= 1, 'retryOnGuard needs at least one try')
-  assert(tries <= RETRY_TRIES_MAX, `retryOnGuard tries above ${RETRY_TRIES_MAX}`)
-
-  let lastError: unknown
-  for (let attemptIndex = 0; attemptIndex < tries; attemptIndex++) {
-    try {
-      return await attempt()
-    } catch (error) {
-      if (!isGuardFailure(error, code)) throw error
-      lastError = error
-    }
-  }
-  // Every attempt was stopped by the guard: hand the last one on as the 409.
-  throw lastError
 }

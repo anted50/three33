@@ -77,7 +77,3 @@ export function addMinutes(instant: Date, minutes: number): Date {
   assert(Number.isInteger(minutes), `addMinutes: whole minutes only, got ${minutes}`)
   return new Date(instant.getTime() + minutes * 60_000)
 }
-
-export function todayLocal(now = new Date()): IsoDate {
-  return localDateOf(now)
-}

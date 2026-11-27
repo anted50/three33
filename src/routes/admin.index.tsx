@@ -73,7 +73,7 @@ function Dashboard() {
           <div className="best__body">
             <p className="best__total">
               {formatMnt(data.bestTotal)}
-              <span> — нийт борлуулалт</span>
+              <span>нийт борлуулалт</span>
             </p>
 
             {data.best.length === 0 ? (
@@ -111,13 +111,13 @@ function Dashboard() {
           {data.recent.length === 0 ? (
             <p className="adm__muted adm__pad">Захиалга алга.</p>
           ) : (
-            <table className="adm__table">
+            <table className="adm__table adm__table--fit">
               <thead>
                 <tr>
                   <th>Бараа</th>
-                  <th>Огноо</th>
+                  <th className="adm__wide">Огноо</th>
                   <th>Дүн</th>
-                  <th>Төлөв</th>
+                  <th className="adm__wide">Төлөв</th>
                 </tr>
               </thead>
               <tbody>
@@ -134,11 +134,13 @@ function Dashboard() {
                         <span className="adm__muted"> +{order.lines - 1}</span>
                       )}
                     </td>
-                    <td className="adm__muted">
+                    <td className="adm__muted adm__wide">
                       {formatDate(order.createdAt)}
                     </td>
                     <td className="adm__num">{formatMnt(order.total)}</td>
-                    <td className="adm__muted">{STATUS_LABEL[order.status]}</td>
+                    <td className="adm__muted adm__wide">
+                      {STATUS_LABEL[order.status]}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -158,11 +160,11 @@ function Dashboard() {
             Бүгд
           </Link>
         </div>
-        <table className="adm__table">
+        <table className="adm__table adm__table--fit">
           <thead>
             <tr>
               <th>Бүтээгдэхүүн</th>
-              <th>SKU</th>
+              <th className="adm__wide">SKU</th>
               <th>Үлдэгдэл</th>
             </tr>
           </thead>
@@ -178,7 +180,7 @@ function Dashboard() {
                     {sizeSuffix(variant.name, variant.size)}
                   </Link>
                 </td>
-                <td className="adm__muted adm__mono">{variant.sku}</td>
+                <td className="adm__muted adm__mono adm__wide">{variant.sku}</td>
                 <td>
                   <span
                     className="pill"

@@ -19,7 +19,9 @@
   --bk-fill: #e2e2e6;
   --bk-red: var(--accent);
   --bk-ok: var(--ok);
-  --bk-pad: 20px;
+  /* The site's edge (--gutter: 12px on a phone, 24px up), so the booking
+     flow lines up with the header above it. */
+  --bk-pad: var(--gutter);
 }
 
 .bk-main {
@@ -246,8 +248,8 @@
 
 .bk-side .bk-bar {
   position: fixed;
-  left: 10px;
-  right: 10px;
+  left: var(--gutter);
+  right: var(--gutter);
   bottom: calc(14px + var(--safe-bottom));
   width: auto;
   z-index: 10;
@@ -847,8 +849,8 @@
 
 .bk-done__bar .bk-bar {
   position: fixed;
-  left: 10px;
-  right: 10px;
+  left: var(--gutter);
+  right: var(--gutter);
   bottom: calc(14px + var(--safe-bottom));
   width: auto;
 }
@@ -882,8 +884,8 @@
 
 .bk-center__actions {
   position: fixed;
-  left: 10px;
-  right: 10px;
+  left: var(--gutter);
+  right: var(--gutter);
   bottom: calc(14px + var(--safe-bottom));
   display: flex;
   flex-direction: column;

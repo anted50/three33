@@ -12,15 +12,17 @@
 
 const ACCENT = 'var(--accent)'
 
+/**
+ * The sparklines' drawing height, in viewBox units. Not their size on screen:
+ * they stretch to .spark's CSS height (preserveAspectRatio="none", and the
+ * line keeps its stroke width with non-scaling-stroke).
+ */
+const SPARK_VIEWBOX_HEIGHT = 64
+
 /** Bar sparkline — daily revenue across the month. */
-export function BarSpark({
-  values,
-  height = 64,
-}: {
-  values: number[]
-  height?: number
-}) {
-  if (values.length === 0) return <ChartEmpty height={height} />
+export function BarSpark({ values }: { values: number[] }) {
+  const height = SPARK_VIEWBOX_HEIGHT
+  if (!hasData(values)) return <ChartEmpty />
 
   const max = Math.max(...values, 1)
   const gap = 2
@@ -32,7 +34,6 @@ export function BarSpark({
       className="spark"
       viewBox={`0 0 ${width} ${height}`}
       preserveAspectRatio="none"
-      style={{ height }}
       role="img"
       aria-label={`Өдрийн борлуулалт, ${values.length} хоног`}
     >
@@ -58,14 +59,9 @@ export function BarSpark({
 }
 
 /** Line sparkline — distinct customers per day. */
-export function LineSpark({
-  values,
-  height = 64,
-}: {
-  values: number[]
-  height?: number
-}) {
-  if (values.length === 0) return <ChartEmpty height={height} />
+export function LineSpark({ values }: { values: number[] }) {
+  const height = SPARK_VIEWBOX_HEIGHT
+  if (!hasData(values)) return <ChartEmpty />
 
   const width = 100
   const max = Math.max(...values, 1)
@@ -89,7 +85,6 @@ export function LineSpark({
       className="spark"
       viewBox={`0 0 ${width} ${height}`}
       preserveAspectRatio="none"
-      style={{ height }}
       role="img"
       aria-label={`Өдрийн хэрэглэгч, ${values.length} хоног`}
     >
@@ -189,6 +184,19 @@ export function Donut({
   )
 }
 
-function ChartEmpty({ height }: { height: number }) {
-  return <div className="spark spark--empty" style={{ height }} />
+/**
+ * True when a series has something to draw. A month of zeros is drawn as
+ * the empty frame too: as a line it was a red rule along the card's foot
+ * and as bars a faint dashed one, two looks for the same "nothing yet".
+ */
+function hasData(values: number[]): boolean {
+  return values.some((value) => value > 0)
+}
+
+/**
+ * The frame a chart draws in, empty. Its height, like the charts', comes from
+ * .spark in admin.css, so phones can draw them shorter.
+ */
+function ChartEmpty() {
+  return <div className="spark spark--empty" />
 }

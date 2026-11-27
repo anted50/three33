@@ -13,9 +13,24 @@
  * stock counts, and mono gives tabular figures that line up by default.
  */
 
+/*
+ * Phones get a 12px gutter instead of the site's 24px: the admin is tables
+ * and forms, and every pixel of width is a column that fits. Every edge in
+ * the shell keys off --gutter (bar, menu rows, page, cards, table cells), so
+ * they all move together and stay aligned.
+ */
+@media (max-width: 899px) {
+  .adm {
+    --gutter: 12px;
+  }
+}
+
 .adm {
   display: grid;
   grid-template-columns: 1fr;
+  /* Phones stack the bar over the page: the page takes the spare height, or
+     min-height would stretch the bar's rows apart instead. */
+  grid-template-rows: auto 1fr;
   min-height: 100vh;
   background: #fff;
   color: var(--ink);
@@ -23,14 +38,26 @@
 
 /* --------------------------------------------------------------- sidebar */
 
+/*
+ * Phones: one bar, pinned to the top, with the logo and a burger that names
+ * the open section. The burger opens .adm__menu as a popup under the bar,
+ * over a dimmed page, like the storefront's cart drawer; the page itself
+ * never moves. The top bar is hidden there, the burger's label doing its job.
+ */
 .adm__side {
+  --adm-bar: 57px;
+  position: sticky;
+  top: 0;
+  z-index: 40;
   background: #fff;
   border-bottom: 1px solid var(--border);
-  padding: 12px var(--gutter);
-  display: flex;
+  padding: 0 var(--gutter);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas: 'logo label menu';
   align-items: center;
-  gap: 16px;
-  flex-wrap: wrap;
+  column-gap: 12px;
+  min-height: 56px;
   /* A grid item sizes to its content by default; without this the nav's full
      width stretched the whole admin to ~1024px below the 900px breakpoint
      instead of the nav scrolling sideways. */
@@ -38,6 +65,7 @@
 }
 
 .adm__logo {
+  grid-area: logo;
   font-weight: 800;
   font-size: 13px;
   letter-spacing: 0.03em;
@@ -49,55 +77,187 @@
   color: var(--accent);
 }
 
+/*
+ * The burger: the bare icon, no frame, turning into an X while the menu is
+ * open. The button is the full 44px tap target, pulled right by the empty
+ * space around the drawn bars (12px around the 20px icon, 3px inside it), so
+ * the bars end at the gutter, as the logo starts at it.
+ */
+.adm__menubtn {
+  grid-area: menu;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin: 6px -15px 6px 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.adm__menulabel {
+  grid-area: label;
+  justify-self: end;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.adm__burger {
+  display: block;
+  animation: adm-burger-in 0.2s ease;
+}
+
+@keyframes adm-burger-in {
+  from {
+    opacity: 0;
+    transform: rotate(-90deg) scale(0.6);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .adm__burger {
+    animation: none;
+  }
+}
+
+/*
+ * The menu: the whole screen under the bar, scrolling inside itself if a
+ * short phone cannot show it all.
+ */
+.adm__menu {
+  position: fixed;
+  inset: var(--adm-bar) 0 0;
+  z-index: 41;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: #fff;
+  animation: adm-menu-in 0.2s ease;
+}
+
+@keyframes adm-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .adm__menu {
+    animation: none;
+  }
+}
+
 .adm__nav {
   display: flex;
-  gap: 4px;
-  overflow-x: auto;
-  scrollbar-width: none;
+  flex-direction: column;
   min-width: 0;
-  max-width: 100%;
 }
 
-.adm__nav::-webkit-scrollbar {
-  display: none;
-}
-
-.adm__nav a {
+/*
+ * Every admin rail (the section nav, the orders status filter) is the
+ * storefront's category rail (.pgroups__railitem in app.css): plain rows
+ * split by hairlines, in spaced capitals, the open one filled red with white
+ * text, so the one red block is always "you are here".
+ *
+ * Capitals also centre the icons: lower-case Cyrillic sits low in its line
+ * box, so a centred icon looked a pixel or two high beside it. Capitals fill
+ * the middle of the box, where the icon's centre is.
+ */
+.adm__nav a,
+.adm__railitem {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: var(--radius);
-  font-size: 14px;
+  gap: 12px;
+  padding: 14px 12px;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.35;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   white-space: nowrap;
   color: var(--ink-soft);
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
 }
 
 .adm__nav a svg {
-  flex: 0 0 18px;
+  display: block;
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
   color: var(--muted);
+  transition: color 0.15s ease;
 }
 
-.adm__nav a:hover {
-  background: #fafafa;
+@media (hover: hover) and (pointer: fine) {
+  .adm__nav a:hover:not([data-active='true']),
+  .adm__railitem:hover:not([data-active='true']) {
+    background: var(--surface);
+    color: var(--ink);
+  }
 }
 
-/* Active row: grey fill and a red rule, per the frame's selected state. */
-.adm__nav a[data-active='true'] {
-  background: #f4f4f5;
-  color: var(--ink);
+.adm__nav a[data-active='true'],
+.adm__railitem[data-active='true'] {
+  background: var(--accent);
+  border-bottom-color: var(--accent);
+  color: #fff;
   font-weight: 600;
-  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 .adm__nav a[data-active='true'] svg {
-  color: var(--accent);
+  color: #fff;
+}
+
+.adm__nav a:focus-visible,
+.adm__railitem:focus-visible {
+  outline-offset: -3px;
+}
+
+.adm__nav a[data-active='true']:focus-visible,
+.adm__railitem[data-active='true']:focus-visible {
+  outline-color: #fff;
 }
 
 .adm__back {
+  padding: 16px var(--gutter);
   font-size: 13px;
+  white-space: nowrap;
   color: var(--muted);
-  margin-left: auto;
+}
+
+@media (max-width: 899px) {
+  /* Closed: the bar alone. */
+  .adm__side:not([data-open='true']) .adm__menu {
+    display: none;
+  }
+
+  .adm__nav a {
+    padding: 15px var(--gutter);
+  }
+
+  /* The orders filter runs sideways on a phone, so the row carries one rule
+     under it all instead of each item drawing its own. */
+  .adm__railitem {
+    gap: 8px;
+    padding: 12px 10px;
+    font-size: 11px;
+    border-bottom: 0;
+  }
 }
 
 .adm__back:hover {
@@ -130,8 +290,9 @@
   color: var(--muted);
 }
 
+/* The current page in red, as in the storefront's breadcrumbs. */
 .adm__crumbs strong {
-  color: var(--ink);
+  color: var(--accent);
   font-weight: 600;
 }
 
@@ -156,6 +317,37 @@
   background: var(--surface);
 }
 
+/* The menu's sign-out row: icon and word, a full row under the sections. */
+.adm__signout.adm__signout--side {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  width: auto;
+  height: auto;
+  padding: 15px var(--gutter);
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.adm__signout.adm__signout--side:hover {
+  background: none;
+  color: var(--accent);
+}
+
+/* Phones: the open tab names the page and sign-out sits by the logo, so the
+   top bar would only repeat them. After .adm__topbar so this wins. */
+@media (max-width: 899px) {
+  .adm__topbar {
+    display: none;
+  }
+}
+
 .adm__main {
   padding: 20px var(--gutter) 60px;
   min-width: 0;
@@ -165,9 +357,11 @@
 @media (min-width: 900px) {
   .adm {
     grid-template-columns: 236px 1fr;
+    grid-template-rows: auto;
   }
 
   .adm__side {
+    display: flex;
     flex-direction: column;
     align-items: stretch;
     gap: 28px;
@@ -179,15 +373,24 @@
     height: 100vh;
   }
 
-  .adm__nav {
-    flex-direction: column;
-    overflow: visible;
-    gap: 2px;
+  /* The popup's box goes away: its nav, sign-out and back link become the
+     sidebar's own flex items, so the back link can sit at the bottom. */
+  .adm__menu {
+    display: contents;
+  }
+
+  .adm__menubtn,
+  .adm__menulabel {
+    display: none;
   }
 
   .adm__back {
-    margin-left: 0;
     margin-top: auto;
+    padding: 0;
+  }
+
+  .adm__signout.adm__signout--side {
+    display: none;
   }
 
   .adm__topbar {
@@ -252,12 +455,13 @@
   font-size: 15px;
 }
 
-.adm__cardhead a {
+/* Plain text links only; a .pillbtn in the head keeps its own colours. */
+.adm__cardhead a:not(.pillbtn) {
   font-size: 13px;
   color: var(--muted);
 }
 
-.adm__cardhead a:hover {
+.adm__cardhead a:not(.pillbtn):hover {
   color: var(--accent);
 }
 
@@ -268,8 +472,8 @@
 .adm__stats {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 14px;
-  margin-bottom: 14px;
+  gap: 12px;
+  margin-bottom: 12px;
 }
 
 @media (min-width: 700px) {
@@ -324,12 +528,13 @@
 
 /* ------------------------------------------------------- metric cards */
 
+/* Phones: shorter cards, so all three fit on about one screen. */
 .metric {
-  padding: var(--gutter);
+  padding: 18px var(--gutter);
   margin-bottom: 0;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 14px;
 }
 
 .metric__head {
@@ -364,8 +569,20 @@
 .spark {
   display: block;
   width: 100%;
+  height: 36px;
   margin-top: auto;
   overflow: visible;
+}
+
+@media (min-width: 700px) {
+  .metric {
+    padding: var(--gutter);
+    gap: 18px;
+  }
+
+  .spark {
+    height: 64px;
+  }
 }
 
 .spark--empty {
@@ -425,10 +642,15 @@
   margin-bottom: 18px;
 }
 
+/* The label under the figure, in the metric cards' small capitals, so a
+   narrow column does not break "— нийт борлуулалт" across three lines. */
 .best__total span {
-  font-size: 13px;
+  display: block;
+  margin-top: 6px;
+  font-size: 11px;
   font-weight: 400;
-  letter-spacing: 0;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
   color: var(--muted);
 }
 
@@ -461,20 +683,22 @@
 /* "View All" button from the frame's card header. Near-square like every
    other control, not the frame's pill: the corners are one of the places
    the app diverges from the frames on purpose (see the tokens in app.css). */
+/* Black, like .btn: the grey fill it had read as a disabled control. */
 .pillbtn {
   display: inline-flex;
   align-items: center;
   height: 32px;
   font-size: 12px;
+  font-weight: 600;
   padding: 0 12px;
   border-radius: var(--radius);
-  background: var(--surface);
-  color: var(--ink-soft);
+  background: var(--ink);
+  color: #fff;
+  white-space: nowrap;
 }
 
 .pillbtn:hover {
-  background: var(--accent-tint);
-  color: var(--accent-dark);
+  background: #2f2f33;
 }
 
 .adm__muted {
@@ -507,6 +731,44 @@
   .adm__table {
     display: table;
     white-space: normal;
+  }
+}
+
+/*
+ * Columns a phone can do without (a date, a SKU, a status the row's link
+ * leads to anyway). Dropped below 700px so the rest fit the card instead of
+ * scrolling sideways out of sight.
+ */
+@media (max-width: 699px) {
+  .adm__table .adm__wide {
+    display: none;
+  }
+}
+
+/*
+ * A table that fits a phone once its .adm__wide columns are gone: kept a
+ * real table, full width with wrapping cells, instead of the sideways
+ * scroller every other table falls back to.
+ */
+.adm__table.adm__table--fit {
+  display: table;
+  white-space: normal;
+}
+
+/* The gutter stays at the card's edges only; between columns 12px, or the
+   three that remain overflow a phone. The last visible cell is the one with
+   no visible cell after it, since a hidden .adm__wide may come last. */
+@media (max-width: 699px) {
+  .adm__table.adm__table--fit :is(th, td) {
+    padding-inline: 12px;
+  }
+
+  .adm__table.adm__table--fit :is(th, td):first-child {
+    padding-left: var(--gutter);
+  }
+
+  .adm__table.adm__table--fit :is(th, td):not(.adm__wide):not(:has(~ :not(.adm__wide))) {
+    padding-right: var(--gutter);
   }
 }
 
@@ -604,54 +866,30 @@
   gap: 0;
 }
 
-.adm__rail {
+/* The rail and, on a phone, the scroll track under it (ScrollTrack). */
+.adm__railwrap {
   flex: 0 0 auto;
+  min-width: 0;
+  margin-bottom: 12px;
+}
+
+/* No frame: plain rows on the page, like the storefront rail. */
+.adm__rail {
   display: flex;
   /* Horizontal until there's room for a column — on a phone the rail would
-     otherwise eat a third of a screen the table already needs. */
-  gap: 4px;
+     otherwise eat a third of a screen the table already needs. The track
+     under it stands in for the scrollbar phones hide. */
   overflow-x: auto;
   scrollbar-width: none;
-  margin-bottom: 12px;
-  padding: 6px;
-  /* A white card on the grey canvas, like every other admin panel — the
-     storefront rail's --surface fill would be invisible here, that page
-     being white behind it. */
-  background: #fff;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
 }
 
 .adm__rail::-webkit-scrollbar {
   display: none;
 }
 
+/* Look shared with the section nav; see .adm__nav a above. */
 .adm__railitem {
   flex: 0 0 auto;
-  padding: 11px 12px;
-  border-radius: var(--radius);
-  font-size: 13px;
-  line-height: 1.3;
-  text-align: left;
-  white-space: nowrap;
-  color: var(--ink-soft);
-  transition:
-    background 0.15s ease,
-    color 0.15s ease,
-    box-shadow 0.15s ease;
-}
-
-.adm__railitem:hover:not([data-active='true']) {
-  background: #fafafa;
-  color: var(--ink);
-}
-
-/* Same selected state as the shell's sidebar nav — grey fill, red rule. */
-.adm__railitem[data-active='true'] {
-  background: #f4f4f5;
-  color: var(--ink);
-  font-weight: 600;
-  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 .adm__railmain {
@@ -677,9 +915,18 @@
     gap: 16px;
   }
 
+  /* The rail itself is the flex item again, so it can stick. */
+  .adm__railwrap {
+    display: contents;
+  }
+
+  .adm__railwrap .scrolltrack {
+    display: none;
+  }
+
   .adm__rail {
+    flex: 0 0 auto;
     flex-direction: column;
-    margin-bottom: 0;
     /* Fits "Хугацаа дууссан", the longest label, on one line. */
     width: 170px;
     overflow-x: visible;
@@ -717,6 +964,50 @@
    filters. */
 .adm__toolbar > .btn--sm {
   margin-left: auto;
+}
+
+/* Words for one width or the other, e.g. a long button label cut to one
+   word on a phone. */
+.adm__onphone {
+  display: none;
+}
+
+@media (max-width: 639px) {
+  .adm__onwide {
+    display: none;
+  }
+
+  .adm__onphone {
+    display: inline;
+  }
+
+  /* Orders: both dates and the export button on one row. The dates share
+     what the button leaves, so they shrink instead of wrapping. */
+  .adm__toolbar--oneline {
+    flex-wrap: nowrap;
+    gap: 8px;
+  }
+
+  .adm__toolbar--oneline .adm__daterange {
+    flex: 1 1 auto;
+    flex-wrap: nowrap;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .adm__toolbar--oneline .adm__daterange .field {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .adm__toolbar--oneline .adm__daterange .field input {
+    width: 100%;
+    padding: 0 6px;
+  }
+
+  .adm__toolbar--oneline > .btn--sm {
+    flex: 0 0 auto;
+  }
 }
 
 .adm__daterange {
@@ -1878,6 +2169,24 @@
 
 .bka-seg button:last-child {
   border-right: 0;
+}
+
+/* Phones: the segments share the full width and wrap their words, so the
+   longest set ("Төлбөр хүлээж буй") fits instead of running off the edge. */
+@media (max-width: 639px) {
+  .bka-seg {
+    display: flex;
+    width: 100%;
+  }
+
+  .bka-seg button {
+    flex: 1 1 0;
+    height: auto;
+    min-height: 34px;
+    padding: 6px 8px;
+    line-height: 1.25;
+    white-space: normal;
+  }
 }
 
 .bka-seg button[data-active='true'] {

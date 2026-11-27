@@ -25,15 +25,15 @@ function Products() {
       </header>
 
       <section className="adm__card">
-        <table className="adm__table">
+        <table className="adm__table adm__table--fit">
           <thead>
             <tr>
               <th>Нэр</th>
-              <th>Ангилал</th>
-              <th>Хувилбар</th>
+              <th className="adm__wide">Ангилал</th>
+              <th className="adm__wide">Хувилбар</th>
               <th>Нөөц</th>
               <th>Үнэ</th>
-              <th>Төлөв</th>
+              <th className="adm__wide">Төлөв</th>
             </tr>
           </thead>
           <tbody>
@@ -47,8 +47,8 @@ function Products() {
                     {product.name}
                   </Link>
                 </td>
-                <td className="adm__muted">{product.category ?? '—'}</td>
-                <td>{product.variants}</td>
+                <td className="adm__muted adm__wide">{product.category ?? '—'}</td>
+                <td className="adm__wide">{product.variants}</td>
                 <td>
                   <span
                     className="pill"
@@ -63,8 +63,8 @@ function Products() {
                     {product.stock}
                   </span>
                 </td>
-                <td>{formatMnt(product.minPrice)}</td>
-                <td>
+                <td className="adm__num">{formatMnt(product.minPrice)}</td>
+                <td className="adm__wide">
                   <span
                     className="badge2"
                     data-tone={product.status === 'active' ? 'ok' : 'dead'}

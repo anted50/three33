@@ -1,6 +1,13 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { usePostHog } from '@posthog/react'
-import { createFileRoute, Link, Outlet, redirect, useRouter } from '@tanstack/react-router'
+import {
+  createFileRoute,
+  Link,
+  Outlet,
+  redirect,
+  useRouter,
+  useRouterState,
+} from '@tanstack/react-router'
 import adminCss from '~/styles/admin.css?url'
 import { adminLogout, checkAdminSession } from '~/lib/server/admin/auth'
 import {
@@ -65,7 +72,12 @@ function AdminShell() {
   const { isAdmin, adminId, adminEmail, adminName } = Route.useRouteContext()
   const posthog = usePostHog()
   const identifiedAdminId = useRef<string | undefined>(undefined)
-  const router = useRouter()
+  /** Phones only: whether the burger menu is open. */
+  const [menuOpen, setMenuOpen] = useState(false)
+  // Subscribed, so the effect below reruns on every section change.
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  })
 
   useEffect(() => {
     if (!isAdmin || !adminId || !posthog) return
@@ -82,37 +94,91 @@ function AdminShell() {
     identifiedAdminId.current = adminId
   }, [adminEmail, adminId, adminName, isAdmin, posthog])
 
+  // Picking a section is the end of the menu's job: close it on arrival.
+  useEffect(() => {
+    setMenuOpen(false)
+  }, [pathname])
+
+  // While the menu is open: Escape closes it, and the page behind is held
+  // still, so a swipe in the menu cannot scroll it.
+  useEffect(() => {
+    if (!menuOpen) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMenuOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    const previous = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      document.body.style.overflow = previous
+    }
+  }, [menuOpen])
+
   // The login page is nested in this layout but must not show the nav —
   // advertising the sections to someone who has not got in yet is pointless.
   if (!isAdmin) return <Outlet />
 
   return (
     <div className="adm">
-      <aside className="adm__side">
+      {/*
+        From 900px a fixed sidebar. On a phone, a bar pinned to the top with
+        the logo and a burger naming the open section. The burger turns into
+        an X and opens .adm__menu over the whole screen under the bar, so the
+        page under it never moves: the sections, then sign-out, then the way
+        back to the shop last. From 900px .adm__menu
+        is display: contents, its children the sidebar's own.
+      */}
+      <aside className="adm__side" data-open={menuOpen}>
         <Link to="/admin" className="adm__logo">
           Three33 <span>Admin</span>
         </Link>
 
-        <nav className="adm__nav">
-          {NAV.map((item) => {
-            const Icon = item.icon
-            return (
-              <Link
-                key={item.to}
-                to={item.to}
-                activeOptions={{ exact: item.exact ?? false }}
-                activeProps={{ 'data-active': 'true' }}
-              >
-                <Icon />
-                {item.label}
-              </Link>
-            )
-          })}
-        </nav>
+        {/* Phones: the open section, so the bar still says where you are. */}
+        <span className="adm__menulabel">
+          <Crumb />
+        </span>
 
-        <Link to="/" className="adm__back">
-          ← Дэлгүүр рүү
-        </Link>
+        <button
+          type="button"
+          className="adm__menubtn"
+          aria-expanded={menuOpen}
+          aria-controls="adm-menu"
+          aria-label={menuOpen ? 'Цэс хаах' : 'Цэс нээх'}
+          onClick={() => setMenuOpen((open) => !open)}
+        >
+          <BurgerIcon open={menuOpen} />
+        </button>
+
+        <div className="adm__menu" id="adm-menu">
+          <nav className="adm__nav">
+            {NAV.map((item) => {
+              const Icon = item.icon
+              return (
+                <Link
+                  key={item.to}
+                  to={item.to}
+                  activeOptions={{ exact: item.exact ?? false }}
+                  activeProps={{ 'data-active': 'true' }}
+                >
+                  <Icon />
+                  {item.label}
+                </Link>
+              )
+            })}
+          </nav>
+
+          {/* Phones only; from 900px sign-out is in the top bar. */}
+          <SignOutButton
+            className="adm__signout adm__signout--side"
+            adminName={adminName}
+            label="Гарах"
+          />
+
+          <Link to="/" className="adm__back">
+            ← Дэлгүүр рүү
+          </Link>
+        </div>
       </aside>
 
       <div className="adm__body">
@@ -125,20 +191,7 @@ function AdminShell() {
             </strong>
           </nav>
 
-          <button
-            type="button"
-            className="adm__signout"
-            title={adminName ? `Гарах (${adminName})` : 'Гарах'}
-            aria-label="Гарах"
-            onClick={async () => {
-              await adminLogout()
-              posthog?.reset()
-              await router.invalidate()
-              await router.navigate({ to: '/admin/login' })
-            }}
-          >
-            <SignOutIcon />
-          </button>
+          <SignOutButton className="adm__signout" adminName={adminName} />
         </header>
 
         <main className="adm__main">
@@ -146,6 +199,72 @@ function AdminShell() {
         </main>
       </div>
     </div>
+  )
+}
+
+/**
+ * Ends the session and goes to the login page. Rendered twice by the shell,
+ * once per layout (top bar from 900px, the logo row on phones), with CSS
+ * showing one, so neither layout has to move the other's markup around.
+ */
+function SignOutButton({
+  className,
+  adminName,
+  label,
+}: {
+  className: string
+  adminName: string | undefined
+  /** Shown beside the icon; the top bar's button is the icon alone. */
+  label?: string
+}) {
+  const posthog = usePostHog()
+  const router = useRouter()
+
+  return (
+    <button
+      type="button"
+      className={className}
+      title={adminName ? `Гарах (${adminName})` : 'Гарах'}
+      aria-label="Гарах"
+      onClick={async () => {
+        await adminLogout()
+        posthog?.reset()
+        await router.invalidate()
+        await router.navigate({ to: '/admin/login' })
+      }}
+    >
+      <SignOutIcon />
+      {label}
+    </button>
+  )
+}
+
+/**
+ * Three bars, or an X while the menu is open. Two drawings swapped, not one
+ * morphed: bars translated and turned about a shared centre went through
+ * lopsided in-between shapes. The `key` remounts the svg on each swap, so
+ * the turn-in animation (.adm__burger in admin.css) plays every time.
+ */
+function BurgerIcon({ open }: { open: boolean }) {
+  return (
+    <svg
+      key={open ? 'close' : 'open'}
+      className="adm__burger"
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      aria-hidden
+    >
+      {open ? (
+        <path d="M6 6l12 12M18 6L6 18" />
+      ) : (
+        <path d="M4 7h16M4 12h16M4 17h16" />
+      )}
+    </svg>
   )
 }
 

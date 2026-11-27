@@ -50,7 +50,8 @@
   /*
    * Minimum horizontal padding anywhere content meets an edge. Layout
    * containers, cards and table cells all key off this or match it, so
-   * nothing sits closer than 24px to the side of a card or the screen.
+   * nothing sits closer than this to the side of a card or the screen:
+   * 24px, or 12px on a phone (below), where width is the scarce thing.
    */
   --gutter: 24px;
   --max-width: 1200px;
@@ -64,6 +65,15 @@
    * drawer is open beside the page.
    */
   --header-bar: 56px;
+}
+
+/* Phones: a 12px edge, so content and the header's buttons get the width.
+   Everything that meets an edge keys off --gutter, so it all moves in step
+   and stays aligned. The admin sets its own (.adm in admin.css). */
+@media (max-width: 639px) {
+  :root {
+    --gutter: 12px;
+  }
 }
 
 @media (min-width: 900px) {
@@ -2942,4 +2952,23 @@ button:focus-visible {
   .totop svg {
     transition: none;
   }
+}
+
+/*
+ * ScrollTrack (components/scroll-track.tsx): the always-visible scrollbar
+ * under a row that scrolls sideways. The track is the row's bottom rule;
+ * the thumb is the visible share, in ink so it reads at a glance.
+ */
+.scrolltrack {
+  position: relative;
+  height: 3px;
+  border-top: 1px solid var(--border);
+}
+
+.scrolltrack__thumb {
+  position: absolute;
+  top: -1px;
+  bottom: 0;
+  border-radius: 2px;
+  background: var(--ink);
 }

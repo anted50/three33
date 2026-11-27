@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { formatDate } from '~/lib/dates'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { z } from 'zod'
@@ -7,6 +7,7 @@ import { formatMnt } from '~/lib/money'
 import { exportOrders, getOrders } from '~/lib/server/admin/admin'
 import { STATUS_LABEL, StatusBadge } from '~/components/admin-bits'
 import { ChevronLeftIcon, ChevronRightIcon } from '~/components/admin-icons'
+import { ScrollTrack } from '~/components/scroll-track'
 
 const searchSchema = z.object({
   status: z.string().max(32).optional(),
@@ -46,6 +47,7 @@ function Orders() {
   const { rows, total, page, pageSize } = Route.useLoaderData()
   const { status, dateFrom, dateTo } = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
+  const railRef = useRef<HTMLElement>(null)
   const active = status ?? 'all'
 
   const [exporting, setExporting] = useState(false)
@@ -89,28 +91,33 @@ function Orders() {
         vertical list you scan, not a strip that scrolls out of view.
       */}
       <div className="adm__withrail">
-        <nav className="adm__rail" aria-label="Төлөв">
-          {FILTERS.map((f) => (
-            <Link
-              key={f}
-              to="/admin/orders"
-              search={(prev) => ({
-                ...prev,
-                status: f === 'all' ? undefined : f,
-                page: undefined,
-              })}
-              className="adm__railitem"
-              data-active={active === f}
-            >
-              {f === 'all'
-                ? 'Бүгд'
-                : STATUS_LABEL[f as keyof typeof STATUS_LABEL]}
-            </Link>
-          ))}
-        </nav>
+        {/* On a phone the rail runs sideways, past the screen's edge; the
+            track under it shows there is more and how far along you are. */}
+        <div className="adm__railwrap">
+          <nav className="adm__rail" aria-label="Төлөв" ref={railRef}>
+            {FILTERS.map((f) => (
+              <Link
+                key={f}
+                to="/admin/orders"
+                search={(prev) => ({
+                  ...prev,
+                  status: f === 'all' ? undefined : f,
+                  page: undefined,
+                })}
+                className="adm__railitem"
+                data-active={active === f}
+              >
+                {f === 'all'
+                  ? 'Бүгд'
+                  : STATUS_LABEL[f as keyof typeof STATUS_LABEL]}
+              </Link>
+            ))}
+          </nav>
+          <ScrollTrack target={railRef} />
+        </div>
 
         <div className="adm__railmain">
-          <div className="adm__toolbar">
+          <div className="adm__toolbar adm__toolbar--oneline">
             <div className="adm__daterange">
               <label className="field">
                 <span>Эхлэх огноо</span>
@@ -168,13 +175,21 @@ function Orders() {
               )}
             </div>
 
+            {/* "Excel" alone on a phone, so it fits on the dates' row. */}
             <button
               type="button"
               className="btn btn--sm btn--ghost"
               disabled={exporting}
+              aria-busy={exporting}
+              aria-label={exporting ? 'Бэлтгэж байна…' : 'Excel татах'}
               onClick={handleExport}
             >
-              {exporting ? 'Бэлтгэж байна…' : 'Excel татах'}
+              <span className="adm__onwide">
+                {exporting ? 'Бэлтгэж байна…' : 'Excel татах'}
+              </span>
+              <span className="adm__onphone">
+                {exporting ? 'Excel…' : 'Excel'}
+              </span>
             </button>
           </div>
 

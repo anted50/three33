@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { z } from 'zod'
+import { Breadcrumbs } from '~/components/breadcrumbs'
 import { Page } from '~/components/layout'
 import { ProductCard } from '~/components/product-card'
 import { ProductGroups } from '~/components/product-groups'
@@ -49,9 +50,10 @@ function Listing() {
     return (
       <Page>
         <div className="wrap">
-          <p className="crumbs">
-            <Link to="/">Нүүр</Link> › Бүтээгдэхүүн
-          </p>
+          <Breadcrumbs
+            trail={[<Link to="/">Нүүр</Link>]}
+            current="Бүтээгдэхүүн"
+          />
           <ProductGroups groups={data.groups} />
         </div>
       </Page>
@@ -70,19 +72,31 @@ function FlatListing({
 }) {
   const { category, q } = Route.useSearch()
   const active = categories.find((c) => c.slug === category)
+  // A search or a known category is a step under the catalogue. A category
+  // slug that matches nothing (an old or mistyped link) has no name of its
+  // own, so the page is the catalogue itself, not "Бүтээгдэхүүн › Бүтээгдэхүүн".
+  const narrowed = q ? `"${q}" хайлт` : active ? active.nameMn : null
 
   return (
     <Page>
       <div className="wrap">
-        <p className="crumbs">
-          <Link to="/">Нүүр</Link> ›{' '}
-          {q ? `"${q}" хайлт` : active ? active.nameMn : 'Бүтээгдэхүүн'}
-        </p>
+        {narrowed === null ? (
+          <Breadcrumbs trail={[<Link to="/">Нүүр</Link>]} current="Бүтээгдэхүүн" />
+        ) : (
+          <Breadcrumbs
+            trail={[
+              <Link to="/">Нүүр</Link>,
+              <Link to="/products" search={{}}>
+                Бүтээгдэхүүн
+              </Link>,
+            ]}
+            current={narrowed}
+          />
+        )}
 
         {/*
-          No search field here — the header owns search at both breakpoints
-          (inline on desktop, toggled panel on mobile). Rendering one here too
-          put two search bars on the same desktop page.
+          No search field of its own: Breadcrumbs above renders the phones'
+          bar, and the header has the field from 900px. One per breakpoint.
         */}
 
         {products.length === 0 ? (

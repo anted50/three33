@@ -47,8 +47,10 @@
 
 /* ------------------------------------------------------------- shell */
 
-/* The storefront frame is desktop-only (see the media query at the end). */
-.bk > .header,
+/* The site header stays on a phone too: its logo and products icon are the
+   only way back to the shop from here. The rest of the storefront frame,
+   the footer and the photo band, is desktop-only (see the media query at
+   the end). */
 .bk > .footer,
 .bk-band {
   display: none;
@@ -111,7 +113,8 @@
 .bk-flow {
   /* Room for the fixed bar, and the phone's home indicator under it. */
   padding: 0 var(--bk-pad) calc(110px + var(--safe-bottom));
-  min-height: 100dvh;
+  /* A screen tall, less the site header above it. */
+  min-height: calc(100dvh - var(--header-bar) - 1px);
 }
 
 .bk-sec {
@@ -185,6 +188,16 @@
 
 .bk-bar__value {
   color: #c9c9cf;
+}
+
+/* The copy-number bar: its icon takes the label's white, not the muted grey
+   it has inline in text; the tick goes green on the dark fill. */
+.bk-bar .copy-icon {
+  color: inherit;
+}
+
+.bk-bar .copy-icon--done {
+  color: #4ade80;
 }
 
 .bk-bar[data-tone='red'] {
@@ -841,7 +854,7 @@
 }
 
 .bk-center {
-  min-height: 100dvh;
+  min-height: calc(100dvh - var(--header-bar) - 1px);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -900,7 +913,6 @@
 /* ------------------------------------------------------------- desktop */
 
 @media (min-width: 1000px) {
-  .bk > .header,
   .bk > .footer,
   .bk-band {
     display: block;

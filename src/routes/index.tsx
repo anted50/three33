@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { HeroPhoto } from '~/components/hero-photo'
-import { Page } from '~/components/layout'
+import { Page, ProductsIcon } from '~/components/layout'
 import { ProductCard } from '~/components/product-card'
 import { listProducts } from '~/lib/server/products/queries'
 
@@ -56,6 +56,7 @@ function Home() {
             </p>
             <div className="hero__actions">
               <Link to="/products" className="btn">
+                <ProductsIcon />
                 Бүтээгдэхүүн үзэх
               </Link>
               {/* <Link
@@ -73,7 +74,6 @@ function Home() {
       <div className="wrap">
         <div className="section-head">
           <h2>Онцлох бүтээгдэхүүн</h2>
-          <Link to="/products">Бүгдийг үзэх →</Link>
         </div>
 
         <div className="grid">

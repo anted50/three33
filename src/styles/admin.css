@@ -458,11 +458,16 @@
   display: block;
 }
 
-/* "View All" pill button from the frame's card header. */
+/* "View All" button from the frame's card header. Near-square like every
+   other control, not the frame's pill: the corners are one of the places
+   the app diverges from the frames on purpose (see the tokens in app.css). */
 .pillbtn {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
   font-size: 12px;
-  padding: 6px 12px;
-  border-radius: 999px;
+  padding: 0 12px;
+  border-radius: var(--radius);
   background: var(--surface);
   color: var(--ink-soft);
 }
@@ -544,9 +549,12 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* 36px, the admin's compact control height: the same as the .btn--sm save
+   button and the .adm__iconbtn delete button that share the row. */
 .adm__table--form input[type='text'],
 .adm__table--form input:not([type]) {
-  padding: 8px;
+  height: 36px;
+  padding: 0 8px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   font-variant-numeric: tabular-nums;
@@ -708,8 +716,6 @@
 /* Pushed to the right edge — the only action in a row that is otherwise all
    filters. */
 .adm__toolbar > .btn--sm {
-  height: 40px;
-  min-height: 40px;
   margin-left: auto;
 }
 
@@ -730,7 +736,7 @@
 }
 
 .adm__daterange .field input {
-  height: 40px;
+  height: 36px;
   min-height: 0;
   width: auto;
   padding: 0 10px;
@@ -754,8 +760,9 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
   flex: 0 0 auto;
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -955,8 +962,8 @@
 
 .adm__unlockcard .field input {
   width: 100%;
-  min-height: 46px;
-  padding: 12px;
+  height: 46px;
+  padding: 0 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
 }
@@ -1618,8 +1625,8 @@
 }
 
 .inv__details .field input {
-  min-height: 42px;
-  padding: 10px 12px;
+  height: 42px;
+  padding: 0 12px;
 }
 
 .inv__details .field--method {
@@ -1854,11 +1861,14 @@
   align-self: flex-end;
 }
 
+/* 34px inside the 1px frame makes 36px: level with .btn--sm and the date
+   fields beside it. */
 .bka-seg button {
+  height: 34px;
   border: 0;
   border-right: 1px solid var(--border);
   background: #fff;
-  padding: 8px 12px;
+  padding: 0 12px;
   font: inherit;
   font-size: 12px;
   color: var(--ink-soft);

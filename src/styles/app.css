@@ -57,6 +57,19 @@
 
   /* Sticky action bars sit above the phone's home indicator. */
   --safe-bottom: env(safe-area-inset-bottom, 0px);
+
+  /*
+   * The site header's bar, without its 1px bottom rule. The cart drawer's
+   * own header uses it too, so the two rules run on one line when the
+   * drawer is open beside the page.
+   */
+  --header-bar: 56px;
+}
+
+@media (min-width: 900px) {
+  :root {
+    --header-bar: 68px;
+  }
 }
 
 *,
@@ -67,6 +80,17 @@
 
 * {
   margin: 0;
+}
+
+/*
+ * No sideways scrolling, whatever pokes past the edge: the drawer as it
+ * slides in, a badge's ring, a rounding pixel on a phone. `clip`, not
+ * `hidden`, so body is not made a scroll container and the sticky header
+ * keeps sticking. Set on both because iOS Safari ignores it on html alone.
+ */
+html,
+body {
+  overflow-x: clip;
 }
 
 html {
@@ -80,6 +104,29 @@ body {
   font-size: 14px;
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
+}
+
+/*
+ * Selected text inverts instead of taking the browser's blue: white letters
+ * on ink over the light page, ink letters on white over the near-black bands.
+ * Images keep no tint, so a selection running across a card doesn't wash the
+ * photo blue.
+ */
+::selection {
+  background: var(--ink);
+  color: #fff;
+}
+
+.hero--photo ::selection,
+.footer ::selection,
+.bk-band ::selection,
+.bk-timer ::selection {
+  background: #fff;
+  color: var(--ink);
+}
+
+img::selection {
+  background: transparent;
 }
 
 img,
@@ -148,7 +195,7 @@ h3 {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  height: 56px;
+  height: var(--header-bar);
 }
 
 .logo {
@@ -176,43 +223,40 @@ h3 {
 
 /* --------------------------------------------------------------- search */
 
-/* Inline field is desktop-only; mobile gets the toggled panel below. */
+/* Inline field, desktop only. Phones have no header search. */
 .header__search {
   display: none;
 }
 
-.header__panel {
-  border-top: 1px solid var(--border);
-  background: #fff;
-  padding-bottom: 12px;
+/* The search field and the results dropdown under it (components/
+   search-box.tsx). The box is the positioning context for the dropdown. */
+.search-box {
+  position: relative;
 }
 
-.header__panel .search {
-  margin-top: 12px;
-}
-
-.search {
+/* A subtle dashed red (the booking button's line, faded) that goes solid
+   on focus. Header and phone bar alike. */
+.search-box__field {
   display: flex;
   align-items: center;
   gap: 8px;
-  border: 1px solid var(--border);
+  border: 1px dashed rgba(216, 31, 38, 0.45);
   border-radius: var(--radius);
   background: #fff;
   padding: 0 12px;
-  margin: 16px 0 0;
 }
 
-.search:focus-within {
+.search-box__field:focus-within {
+  border-style: solid;
   border-color: var(--accent);
-  box-shadow: inset 0 0 0 1px var(--accent);
 }
 
-.search svg {
+.search-box__field svg {
   flex: 0 0 17px;
-  color: var(--muted);
+  color: var(--accent);
 }
 
-.search input {
+.search-box__field input {
   flex: 1;
   min-width: 0;
   min-height: 46px;
@@ -222,9 +266,15 @@ h3 {
   font-size: 16px;
 }
 
+/* The prompt in the booking red, softened, to match the dashed red frame. */
+.search-box__field input::placeholder {
+  color: rgba(216, 31, 38, 0.7);
+  opacity: 1;
+}
+
 /* Safari draws its own clear button on type=search; we have our own. */
-.search input::-webkit-search-decoration,
-.search input::-webkit-search-cancel-button {
+.search-box__field input::-webkit-search-decoration,
+.search-box__field input::-webkit-search-cancel-button {
   -webkit-appearance: none;
 }
 
@@ -242,6 +292,131 @@ h3 {
   color: var(--accent);
 }
 
+/*
+ * The results dropdown: laid over the page under the field, never pushing
+ * it down, and scrolling inside itself when the list is long. Below the
+ * sticky header (z 20) so the page search's list slides under it on scroll.
+ */
+.search-box__panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 15;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow:
+    0 2px 4px rgba(18, 18, 18, 0.05),
+    0 12px 32px rgba(18, 18, 18, 0.12);
+  overflow: hidden;
+  animation: search-panel-in 0.16s ease-out;
+}
+
+@keyframes search-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .search-box__panel {
+    animation: none;
+  }
+}
+
+.search-box__list {
+  max-height: min(60vh, 432px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+}
+
+.search-box__item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  font-size: 14px;
+}
+
+.search-box__item[data-active='true'] {
+  background: var(--surface);
+}
+
+.search-box__thumb {
+  flex: 0 0 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: #fff;
+}
+
+.search-box__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.search-box__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.search-box__price {
+  flex-shrink: 0;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.search-box__note {
+  padding: 16px 14px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.search-box__all {
+  display: block;
+  width: 100%;
+  padding: 12px 14px;
+  border: 0;
+  border-top: 1px dashed var(--border);
+  background: none;
+  text-align: left;
+  font: inherit;
+  font-size: 13px;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.search-box__all:hover {
+  background: var(--accent-tint);
+}
+
+/*
+ * Phones: the search bar under the breadcrumbs, the full width of the page.
+ * The header has no field on a phone, so this is the only one; from 900px
+ * the header's field takes over and this one hides.
+ */
+.page-search {
+  margin: -4px 0 20px;
+}
+
+@media (min-width: 900px) {
+  .page-search {
+    display: none;
+  }
+}
+
 .header__actions {
   display: flex;
   align-items: center;
@@ -249,25 +424,73 @@ h3 {
 }
 
 /*
- * Glyphs sit at the right end of their tap targets rather than centred, so
- * the last one lands exactly on the content edge — the line the product grid
- * and "Бүгдийг үзэх →" end on. The 44px targets are unchanged; only where the
- * glyph sits inside them moves. The icons' viewBoxes are trimmed to the drawn
- * stroke on the right for the same reason (see components/layout.tsx).
+ * Products and cart, framed together in the subtle dashed line the product
+ * cards use, with a dashed rule between them. 40px tall overall, the height
+ * of the red booking square beside it. The frame's right edge sits on the
+ * content edge, the line the product grid ends on.
  */
-.header__actions .icon-btn {
-  justify-content: flex-end;
+.header__shop {
+  display: flex;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
 }
 
-/* Booking is the barber's main business, so it gets the one red control. */
+.header__shop .icon-btn {
+  width: 40px;
+  height: 38px;
+  border-radius: 0;
+  color: var(--ink);
+  transition: background 0.15s ease;
+}
+
+.header__shop .icon-btn + .icon-btn {
+  border-left: 1px dashed var(--border);
+}
+
+/* In use: the products link on a /products page, the cart while it is open. */
+.header__shop .icon-btn[data-status='active'],
+.header__shop .icon-btn[aria-expanded='true'] {
+  background: var(--surface);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .header__shop .icon-btn:hover {
+    background: var(--surface);
+  }
+}
+
+/* On a /products page the four tiles turn a quarter-diagonal, into a
+   diamond, and shrink a touch so its points stay inside the button. */
+.header__productsicon {
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.header__shop .icon-btn[data-status='active'] .header__productsicon {
+  transform: rotate(45deg) scale(0.88);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .header__productsicon {
+    transition: none;
+  }
+}
+
+/* Booking is the barber's main business, so it gets the one red control:
+   a dashed red outline, in the same dashed line as the products-and-cart
+   frame beside it, around red scissors (red text from 900px). On a phone it is a square, the
+   frame's height; from 900px the label replaces the glyph. Filled with the
+   red tint on hover and on the booking pages themselves. */
 .header__book {
   display: inline-flex;
   align-items: center;
-  min-height: 36px;
-  padding: 0 12px;
-  margin-right: 8px;
-  background: var(--accent);
-  color: #fff;
+  justify-content: center;
+  width: 40px;
+  min-height: 40px;
+  padding: 0;
+  margin-right: 4px;
+  border: 1px dashed var(--accent);
+  background: transparent;
+  color: var(--accent);
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.06em;
@@ -276,14 +499,13 @@ h3 {
   border-radius: var(--radius);
 }
 
-.header__book:hover {
-  background: var(--accent-dark);
+.header__book:hover,
+.header__book[data-status='active'] {
+  background: var(--accent-tint);
 }
 
-/* The count rides the glyph's top-right corner, as it did when centred. */
-.header__actions .badge {
-  top: 6px;
-  right: -7px;
+.header__booklabel {
+  display: none;
 }
 
 /* 44px minimum touch target — these are the primary controls on a phone. */
@@ -293,8 +515,8 @@ h3 {
   justify-content: center;
   width: 44px;
   height: 44px;
-  /* Browsers pad buttons 6px a side by default — invisible while the glyph
-     was centred, but it kept a right-aligned glyph off the content edge. */
+  /* Browsers pad buttons 6px a side by default; zero it so the glyph is
+     centred on the box itself. */
   padding: 0;
   border: 0;
   background: none;
@@ -307,27 +529,49 @@ h3 {
   background: var(--surface);
 }
 
+/*
+ * The cart count, as a phone's notification badge: a red circle (a pill
+ * from two digits) in the system font, with a white ring that cuts it out
+ * of the cart glyph. Keyed on the count in layout.tsx, so it pops each time
+ * the count changes.
+ */
 .badge {
   position: absolute;
-  top: 4px;
-  right: 4px;
-  min-width: 17px;
-  height: 17px;
-  padding: 0 4px;
+  top: 3px;
+  right: 2px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
   border-radius: 999px;
-  background: var(--ink);
+  background: var(--accent);
+  box-shadow: 0 0 0 2px #fff;
   color: #fff;
-  font-size: 10px;
-  font-weight: 700;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
   display: grid;
   place-items: center;
+  animation: badge-pop 0.32s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes badge-pop {
+  from {
+    transform: scale(0.4);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .badge {
+    animation: none;
+  }
 }
 
 @media (min-width: 900px) {
-  .header__bar {
-    height: 68px;
-  }
-
   .header__nav {
     display: flex;
     gap: 28px;
@@ -346,19 +590,25 @@ h3 {
     margin-inline: auto;
   }
 
-  .header__search .search {
-    margin: 0;
-  }
-
-  .header__search .search input {
+  .header__search .search-box__field input {
     min-height: 40px;
     font-size: 14px;
   }
 
-  /* The field is inline up here, so the toggle and its panel are redundant. */
-  .header__searchbtn,
-  .header__panel {
+  /* Room for the words: the label replaces the scissors. */
+  .header__book {
+    width: auto;
+    min-height: 40px;
+    padding: 0 12px;
+    margin: 0 8px 0 0;
+  }
+
+  .header__bookicon {
     display: none;
+  }
+
+  .header__booklabel {
+    display: inline;
   }
 }
 
@@ -382,26 +632,19 @@ h3 {
   flex: 0 0 120px;
   display: flex;
   flex-direction: column;
-  gap: 3px;
   max-height: 100vh;
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-width: none;
-  background: var(--surface);
-  border-radius: var(--radius-lg);
-  padding: 6px;
+  /* No rule above the first row: once the rail sticks under the header, a
+     top rule doubles the header's own bottom rule. Each row draws only the
+     one under itself. */
 }
 
-/* On a phone the rail is the whole left third of the screen — bleeding it
-   past .wrap's own gutter into the edge gives it (and the grid next to it)
-   back the width that padding would otherwise cost. */
-@media (max-width: 639px) {
-  .pgroups {
-    margin-left: calc(var(--gutter) * -1);
-  }
-
+/* Wider once there is room, so the spaced-out names wrap less. */
+@media (min-width: 900px) {
   .pgroups__rail {
-    border-radius: 0;
+    flex-basis: 168px;
   }
 }
 
@@ -409,42 +652,64 @@ h3 {
   display: none;
 }
 
+/*
+ * No panel behind the list: plain rows on the page, split by hairlines, in
+ * spaced capitals like a printed index. The current category fills red with
+ * white text — the header's "Цаг захиалах" button, so the one red block on
+ * the page is always "you are here".
+ */
 .pgroups__railitem {
   border: 0;
-  padding: 13px 10px;
-  border-radius: var(--radius);
+  border-bottom: 1px solid var(--border);
+  padding: 14px 10px;
+  border-radius: 0;
   background: transparent;
   font-size: 12px;
   font-weight: 500;
-  line-height: 1.3;
-  letter-spacing: 0.01em;
+  line-height: 1.35;
+  letter-spacing: 0.08em;
   text-align: left;
   color: var(--ink-soft);
   cursor: pointer;
   transition:
     background 0.15s ease,
-    color 0.15s ease,
-    box-shadow 0.15s ease;
+    color 0.15s ease;
 }
 
 @media (hover: hover) and (pointer: fine) {
   .pgroups__railitem:hover:not([data-active='true']) {
-    background: #fff;
+    background: var(--surface);
     color: var(--ink);
   }
 }
 
 .pgroups__railitem[data-active='true'] {
-  background: #fff;
-  color: var(--accent);
-  font-weight: 700;
-  box-shadow: 0 1px 4px rgba(18, 18, 18, 0.1);
+  background: var(--accent);
+  border-bottom-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+/* The ring would be clipped by the rail's own overflow, so it goes inside. */
+.pgroups__railitem:focus-visible {
+  outline-offset: -3px;
+}
+
+.pgroups__railitem[data-active='true']:focus-visible {
+  outline-color: #fff;
 }
 
 .pgroups__main {
   flex: 1;
   min-width: 0;
-  padding-left: 14px;
+  padding-left: 16px;
+}
+
+/* More air between the rail and the grid once there is width to spare. */
+@media (min-width: 900px) {
+  .pgroups__main {
+    padding-left: 36px;
+  }
 }
 
 /*
@@ -454,6 +719,22 @@ h3 {
  * reference menu this view is modelled on.
  */
 @media (max-width: 639px) {
+  /* A narrower rail in smaller type, so the product rows get the width.
+     Names may wrap to two lines here, which is fine. */
+  .pgroups__rail {
+    flex-basis: 92px;
+  }
+
+  .pgroups__railitem {
+    padding: 11px 8px;
+    font-size: 10px;
+    letter-spacing: 0.05em;
+  }
+
+  .pgroups__main {
+    padding-left: 12px;
+  }
+
   .pgroups__main .grid {
     grid-template-columns: 1fr;
     gap: 10px;
@@ -461,6 +742,7 @@ h3 {
 
   .pgroups__main .card {
     display: flex;
+    flex-direction: row;
     align-items: center;
     gap: 12px;
   }
@@ -473,6 +755,8 @@ h3 {
 
   .pgroups__main .card__body {
     min-width: 0;
+    padding: 10px 12px 10px 0;
+    border-top: 0;
   }
 
   .pgroups__main .card__name {
@@ -480,13 +764,40 @@ h3 {
   }
 }
 
+/* The first section starts flush with the rail, so the first title's
+   capitals line up with the top of the rail's highlighted item instead of
+   sitting 16px below the rail. Later sections get their room from the
+   divider rule below. */
 .pgroups__section {
-  padding-top: 16px;
+  padding-top: 0;
 }
 
+/* Each category after the first opens on a hairline with room either side,
+   so it is clear where one category's products end and the next begin. */
+.pgroups__section + .pgroups__section {
+  margin-top: 40px;
+  padding-top: 32px;
+  border-top: 1px solid var(--border);
+}
+
+/* Big enough to read as a heading over the grid, not as a card label. */
 .pgroups__title {
-  font-size: 17px;
-  margin-bottom: 12px;
+  font-size: 22px;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  margin-bottom: 20px;
+}
+
+@media (min-width: 900px) {
+  .pgroups__section + .pgroups__section {
+    margin-top: 56px;
+    padding-top: 40px;
+  }
+
+  .pgroups__title {
+    font-size: 28px;
+    margin-bottom: 24px;
+  }
 }
 
 /* --------------------------------------------------------------- hero */
@@ -866,21 +1177,36 @@ h3 {
  * :hover on tap and leave it applied until you touch elsewhere.
  */
 .card {
-  display: block;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  /* Dashed and lighter than --border, so the tile reads as an outline
+     rather than a box. Hover firms it up (below). */
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  box-shadow:
+    0 1px 2px rgba(18, 18, 18, 0.03),
+    0 4px 14px rgba(18, 18, 18, 0.04);
+  overflow: hidden;
+  transition:
+    box-shadow 0.2s ease,
+    border-color 0.2s ease,
+    transform 0.2s ease;
 }
 
 .card__media {
   aspect-ratio: 1;
-  background: var(--surface);
-  border-radius: var(--radius);
+  background: var(--bg);
   display: grid;
   place-items: center;
   overflow: hidden;
-  margin-bottom: 10px;
   position: relative;
-  transition:
-    box-shadow 0.18s ease,
-    background 0.18s ease;
+  transition: background 0.18s ease;
+}
+
+.card__body {
+  padding: 12px 14px 14px;
+  border-top: 1px dashed var(--border);
 }
 
 .card__media img {
@@ -907,9 +1233,13 @@ h3 {
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .card:hover .card__media {
-    background: #eeeef0;
-    box-shadow: inset 0 0 0 1px var(--border);
+  /* The card lifts a little and its shadow deepens. */
+  .card:hover {
+    border-color: #b4b4bb;
+    box-shadow:
+      0 2px 4px rgba(18, 18, 18, 0.05),
+      0 12px 28px rgba(18, 18, 18, 0.09);
+    transform: translateY(-2px);
   }
 
   /* Scale the photo, not the tile, so the rounded corner stays put. */
@@ -928,11 +1258,13 @@ h3 {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .card,
   .card__media,
   .card__media img {
     transition: none;
   }
 
+  .card:hover,
   .card:hover .card__media img {
     transform: none;
   }
@@ -1024,22 +1356,149 @@ h3 {
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
-  padding: 24px 0 4px;
+  padding: 40px 0 18px;
 }
 
+/* A section title, not a label: clearly bigger than the 14px card names
+   under it, and well clear of the hero above. */
 .section-head h2 {
-  font-size: 19px;
+  font-size: 24px;
+  letter-spacing: -0.01em;
 }
 
-.section-head a {
-  font-size: 13px;
-  color: var(--muted);
+/* A short red rule under the title, so it reads as the head of what follows
+   rather than one more line above the grid. */
+.section-head h2::after {
+  content: '';
+  display: block;
+  width: 40px;
+  height: 3px;
+  margin-top: 12px;
+  background: var(--accent);
 }
 
+@media (min-width: 900px) {
+  .section-head {
+    padding: 64px 0 28px;
+  }
+
+  .section-head h2 {
+    font-size: 30px;
+  }
+
+  .section-head h2::after {
+    width: 48px;
+    margin-top: 16px;
+  }
+}
+
+/* A row of its own: big enough to read and tap, and set well apart from
+   the header above and the content below. */
 .crumbs {
-  font-size: 12px;
+  font-size: 14px;
   color: var(--muted);
-  padding: 12px 0;
+  padding: 20px 0 24px;
+}
+
+@media (min-width: 900px) {
+  .crumbs {
+    padding: 28px 0 36px;
+  }
+}
+
+/* The trail above a page (components/breadcrumbs.tsx): the same spacing as
+   .crumbs, which stays for the plain notes that borrow its look. Earlier
+   steps are muted links. The page itself is in ink, like shadcn's. */
+.breadcrumb {
+  font-size: 14px;
+  color: var(--muted);
+  padding: 20px 0 24px;
+}
+
+.breadcrumb__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.breadcrumb__item a {
+  transition: color 0.15s;
+}
+
+.breadcrumb__item a:hover {
+  color: var(--ink);
+}
+
+.breadcrumb__sep {
+  display: flex;
+  color: #a1a1aa;
+}
+
+.breadcrumb__current {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+/* The "…" that stands in for the folded steps; phones only. */
+.breadcrumb__more {
+  display: none;
+}
+
+/* Phones: one line, smaller type. Steps past the catalogue fold into "…", earlier
+   steps keep their width, and the current page takes what is left, cut
+   with an ellipsis if it is long. */
+@media (max-width: 639px) {
+  .breadcrumb {
+    font-size: 12px;
+    padding: 14px 0 18px;
+  }
+
+  .breadcrumb__list {
+    flex-wrap: nowrap;
+    gap: 4px;
+  }
+
+  .breadcrumb__item,
+  .breadcrumb__sep {
+    flex-shrink: 0;
+  }
+
+  .breadcrumb__sep svg {
+    width: 12px;
+    height: 12px;
+  }
+
+  .breadcrumb__item[data-folded='true'],
+  .breadcrumb__sep[data-folded='true'] {
+    display: none;
+  }
+
+  .breadcrumb__more {
+    display: flex;
+    flex-shrink: 0;
+  }
+
+  .breadcrumb__item--current {
+    flex-shrink: 1;
+    min-width: 0;
+  }
+
+  .breadcrumb__current {
+    display: block;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+}
+
+@media (min-width: 900px) {
+  .breadcrumb {
+    padding: 28px 0 36px;
+  }
 }
 
 .pdp__gallery {
@@ -1288,31 +1747,59 @@ h3 {
 
 .prose {
   color: var(--ink-soft);
-  padding: 24px 0;
+  padding: 32px 0;
   border-top: 1px solid var(--border);
-  margin-top: 24px;
+  margin-top: 32px;
 }
 
 .prose h2 {
-  font-size: 16px;
-  margin-bottom: 10px;
+  font-size: 18px;
+  margin-bottom: 16px;
 }
 
 /* Admin-authored description HTML: only the tags lib/rich-text allows can
-   land here, so this list is the whole of it. */
-.prose__body p {
-  margin-bottom: 12px;
+   land here, so this list is the whole of it. A looser line and more room
+   between blocks, so a long description reads as sections, not a wall. */
+/* No heading above it: the description is the reading text of the page, so
+   it is set larger and darker than the 14px UI text. Full width, so the
+   dashed section rules span the page like the solid rule above. */
+.prose__body {
+  font-size: 15px;
+  line-height: 1.8;
+  color: #27272a;
 }
 
+.prose__body p {
+  margin-bottom: 18px;
+}
+
+@media (min-width: 900px) {
+  .prose__body {
+    font-size: 16px;
+  }
+}
+
+/* Section headings. lib/product-description turns every way admins mark a
+   section (a bold-only line, a bold label with a colon) into one of these,
+   so each section after the first gets a dashed rule above it. */
 .prose__body h3 {
-  font-size: 15px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: var(--ink);
-  margin: 18px 0 8px;
+  margin: 0 0 12px;
+}
+
+.prose__body > h3:not(:first-child) {
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px dashed #d4d4d8;
 }
 
 .prose__body ul,
 .prose__body ol {
-  margin: 0 0 12px;
+  margin: 0 0 16px;
   padding-left: 20px;
 }
 
@@ -1325,7 +1812,27 @@ h3 {
 }
 
 .prose__body li {
-  margin-bottom: 6px;
+  margin-bottom: 8px;
+}
+
+.prose__sku {
+  margin-top: 24px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* ------------------------------------------- product page: more products */
+
+/* Under the description: the way back to the catalogue, then the category's
+   best sellers. The rule above matches the one over the description. */
+.pdp-more {
+  border-top: 1px solid var(--border);
+  padding-top: 32px;
+}
+
+.pdp-more__back {
+  width: auto;
+  gap: 10px;
 }
 
 .prose__body strong {
@@ -1433,12 +1940,15 @@ h3 {
   }
 }
 
+/* Exactly the site header's height, bar plus rule, so its bottom rule
+   lines up with the page's header rule behind the scrim. */
 .drawer__head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 14px var(--gutter);
+  height: calc(var(--header-bar) + 1px);
+  padding: 0 var(--gutter);
   border-bottom: 1px solid var(--border);
   flex: 0 0 auto;
 }
@@ -1492,6 +2002,131 @@ h3 {
 
 .drawer__foot .btn {
   margin-top: 12px;
+}
+
+/* ------------------------------------------------- cart suggestions */
+
+/*
+ * Under an empty cart: best sellers, each a row with a red square + that
+ * adds it in one tap. The + wears the header's "Цаг захиалах" red, the one
+ * colour on the page that means "do this".
+ */
+.suggest {
+  border-top: 1px solid var(--border);
+  padding-top: 20px;
+  padding-bottom: 8px;
+}
+
+/* Spaced capitals, like the category rail on /products. */
+.suggest__title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.suggest__list {
+  list-style: none;
+  padding: 0;
+}
+
+.suggest__item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.suggest__media {
+  flex: 0 0 64px;
+  width: 64px;
+  height: 64px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: var(--surface);
+  border-radius: var(--radius);
+}
+
+.suggest__media .card__ph {
+  font-size: 8px;
+}
+
+.suggest__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.suggest__name {
+  display: block;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.suggest__name:hover {
+  color: var(--accent);
+}
+
+.suggest__price {
+  margin-top: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.suggest__add {
+  flex: 0 0 40px;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    transform 0.1s ease,
+    opacity 0.15s ease;
+}
+
+.suggest__add:hover:not(:disabled) {
+  background: var(--accent-dark);
+}
+
+.suggest__add:active:not(:disabled) {
+  transform: scale(0.92);
+}
+
+/* While one + is adding, the others wait, visibly; the busy one stays full
+   red with its spinner. */
+.suggest__add:disabled {
+  cursor: default;
+}
+
+.suggest__add:disabled:not([aria-busy='true']) {
+  opacity: 0.4;
+}
+
+.suggest__spin {
+  animation: suggest-spin 0.7s linear infinite;
+}
+
+@keyframes suggest-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .suggest__spin {
+    animation-duration: 2s;
+  }
 }
 
 /* --------------------------------------------------------------- cart */
@@ -1552,6 +2187,13 @@ h3 {
   margin-top: 10px;
 }
 
+/* The small stepper sits inside a cart line, not above a buy bar, so it
+   drops .qty's breathing-room margin — that margin is what pushed the line
+   total below the stepper's centre and "Устгах" 28px further down. */
+.qty--sm {
+  margin-bottom: 0;
+}
+
 .qty--sm button {
   width: 36px;
   height: 36px;
@@ -1608,10 +2250,10 @@ h3 {
   padding-bottom: 24px;
 }
 
+/* The last cart line's own bottom border is the divider above this form;
+   a border here too drew two rules 4px apart. */
 .drawer__form {
   padding-top: 20px;
-  margin-top: 4px;
-  border-top: 1px solid var(--border);
   padding-bottom: 4px;
 }
 
@@ -1632,19 +2274,26 @@ h3 {
   margin-bottom: 6px;
 }
 
+/*
+ * A fixed 48px, not a min-height plus vertical padding: 12px + 12px around a
+ * 24.8px line came to 51px for text, 50px for select and 53px for date and
+ * time, so fields side by side never lined up with each other or with a 48px
+ * .btn next to them.
+ */
 .field input,
 .field select,
 .field textarea {
   width: 100%;
-  min-height: 48px; /* comfortable touch target */
-  padding: 12px;
+  height: 48px; /* comfortable touch target */
+  padding: 0 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: #fff;
 }
 
 .field textarea {
-  min-height: auto;
+  height: auto;
+  padding: 12px;
 }
 
 .field input:focus-visible,
@@ -1960,25 +2609,6 @@ button:focus-visible {
   max-width: 46ch;
 }
 
-.footer__links {
-  display: flex;
-  gap: 20px;
-  flex-wrap: wrap;
-  margin-bottom: 20px;
-  padding-bottom: 20px;
-  border-bottom: 1px solid #262626;
-}
-
-.footer__links a {
-  color: #fff;
-  font-size: 14px;
-  font-weight: 500;
-}
-
-.footer__links a:hover {
-  color: var(--accent);
-}
-
 /*
  * Address, phone and social. Stacked on a phone and a row from a tablet up —
  * auto-fit rather than a fixed three columns so the middle one (a single phone
@@ -2025,6 +2655,27 @@ button:focus-visible {
   text-decoration: underline;
 }
 
+/* The chip, inverted for the near-black footer. */
+.footer .footer__copy {
+  border-color: #3f3f46;
+  background: #18181b;
+  color: #e4e4e7;
+}
+
+.footer .footer__copy:hover {
+  border-color: #71717a;
+  background: #27272a;
+  color: #fff;
+}
+
+.footer .footer__copy[data-copied='true'] {
+  border-color: #22c55e;
+}
+
+.footer .footer__copy .copy-icon--done {
+  color: #4ade80;
+}
+
 /* Sign-off on the left, site credit opposite it; the credit drops under the
    note when the row is too narrow for both. */
 .footer__bottom {
@@ -2033,6 +2684,66 @@ button:focus-visible {
   align-items: flex-end;
   justify-content: space-between;
   gap: 12px 24px;
+}
+
+/* The payment providers' column: each mark turned white (brightness(0)
+   flattens it to black, invert(1) to white) to sit on the black like the
+   text beside it, with its name on wider screens. */
+.footer__pay {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.footer__payitem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #e4e4e7;
+}
+
+.footer__payitem img,
+.footer__payitem svg {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+}
+
+.footer__payitem img {
+  object-fit: contain;
+  filter: brightness(0) invert(1);
+}
+
+/* Drawn inline, so it takes white from color instead of the filter. */
+.footer__payitem svg {
+  color: #fff;
+}
+
+/* Phones: the marks alone, side by side. The name is hidden visually only,
+   so the list still reads "QPay, StorePay, Bank". */
+@media (max-width: 639px) {
+  .footer__pay {
+    flex-direction: row;
+    gap: 18px;
+  }
+
+  .footer__payitem img,
+  .footer__payitem svg {
+    width: 24px;
+    height: 24px;
+  }
+
+  .footer__payname {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
 }
 
 .footer__note {
@@ -2053,4 +2764,182 @@ button:focus-visible {
   padding: 56px 0;
   text-align: center;
   color: var(--muted);
+}
+
+/* ------------------------------------------------------- phone copy */
+
+/*
+ * The shop's number as a copy button inside running text (components/
+ * phone-copy.tsx), set like inline code: a bordered, tinted chip in the
+ * monospace face — the booking pages' Inter included — with the copy icon
+ * after the number. It is the same box before and after a copy; only the
+ * icon swaps and the border goes green.
+ */
+.phone-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 0.95em;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+  vertical-align: baseline;
+  cursor: copy;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+.phone-copy:hover {
+  border-color: #d4d4d8;
+  background: #ececee;
+}
+
+.phone-copy[data-copied='true'] {
+  border-color: var(--ok);
+}
+
+.copy-icon {
+  flex: 0 0 auto;
+  display: block;
+  color: var(--muted);
+}
+
+/* The tick pops in and its stroke draws itself, once per successful copy
+   (the icon remounts each time, which restarts the animation). */
+.copy-icon--done {
+  color: var(--ok);
+  animation: copy-pop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.copy-icon--done path {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
+  animation: copy-draw 0.3s ease-out 0.05s backwards;
+}
+
+@keyframes copy-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.4) rotate(-12deg);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes copy-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .copy-icon--done,
+  .copy-icon--done path {
+    animation: none;
+  }
+}
+
+/* Read by screen readers, not shown. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ------------------------------------------------------- back to top */
+
+/*
+ * Square, bottom right, dressed like the header's "Цаг захиалах" button
+ * (.header__book): accent fill, white glyph, darker accent on hover. That
+ * also keeps it visible over the near-black footer, where an ink square all
+ * but disappeared. Hidden it sits 16px low and transparent; shown it rises
+ * and fades in, slightly springy. visibility flips at the end of the
+ * hide transition (and at the start of the show one) so the button never
+ * catches clicks or focus while invisible.
+ */
+.totop {
+  position: fixed;
+  right: var(--gutter);
+  bottom: calc(var(--gutter) + var(--safe-bottom));
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(16px) scale(0.92);
+  transition:
+    opacity 0.25s ease,
+    transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1),
+    visibility 0s linear 0.35s,
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.totop[data-shown='true'] {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+  transition:
+    opacity 0.25s ease,
+    transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1),
+    visibility 0s,
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.totop svg {
+  transition: transform 0.2s ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .totop:hover {
+    background: var(--accent-dark);
+  }
+
+  .totop:hover svg {
+    transform: translateY(-2px);
+  }
+}
+
+.totop:active {
+  transform: scale(0.94);
+}
+
+/* Clear of the product page's buy bar, which is pinned to the bottom of a
+   phone screen. */
+@media (max-width: 899px) {
+  body:has(.buybar) .totop {
+    bottom: calc(84px + var(--safe-bottom));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .totop,
+  .totop[data-shown='true'],
+  .totop svg {
+    transition: none;
+  }
 }

@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router'
 import { z } from 'zod'
-import { BookingBar, BookingShell, BookingTitle } from '~/components/booking/shell'
-import { CalendarIcon, CheckIcon, ClockIcon, PhoneIcon, PinIcon } from '~/components/booking/icons'
+import { BookingBar, BookingShell, BookingTitle, PhoneCopyBar } from '~/components/booking/shell'
+import { PhoneCopy } from '~/components/phone-copy'
+import { CalendarIcon, CheckIcon, ClockIcon, PinIcon } from '~/components/booking/icons'
 import { SummaryCard } from '~/components/booking/summary'
 import { BookingApiError, bookingApi } from '~/lib/booking/api'
 import type { BookingStatus } from '~/lib/booking/api'
@@ -221,7 +222,7 @@ function Confirmed({ booking }: { booking: BookingStatus }) {
             Баталгаажлаа
           </BookingTitle>
           <p className="bk-muted bk-done__no">
-            Захиалга № {booking.bookingNo} · Өөрчлөх бол <a href={SHOP.tel}>{SHOP.phone}</a>
+            Захиалга № {booking.bookingNo} · Өөрчлөх бол <PhoneCopy />
           </p>
         </div>
 
@@ -304,15 +305,7 @@ function Cancelled({ booking }: { booking: BookingStatus }) {
           байвал залгана уу.
         </p>
         <div className="bk-center__actions">
-          <BookingBar
-            href={SHOP.tel}
-            label={
-              <>
-                <PhoneIcon size={18} /> Залгах
-              </>
-            }
-            value={SHOP.phone}
-          />
+          <PhoneCopyBar />
           <Link to="/booking" className="bk-bar" data-tone="light">
             <span className="bk-bar__label">Шинэ цаг захиалах</span>
           </Link>

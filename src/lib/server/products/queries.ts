@@ -103,6 +103,19 @@ export const listCategories = createServerFn({ method: 'GET' }).handler(
   },
 )
 
+/**
+ * A product's first image. A correlated subquery rather than another join:
+ * product_images would multiply the rows a listing's GROUP BY (or its
+ * one-row-per-variant select) is already working over.
+ */
+const firstImageUrl = sql<string | null>`(
+  select ${productImages.url}
+  from ${productImages}
+  where ${productImages.productId} = ${products.id}
+  order by ${productImages.sortOrder}
+  limit 1
+)`
+
 export const listProducts = createServerFn({ method: 'GET' })
   .validator(listProductsInput)
   .handler(async ({ data }): Promise<ProductCard[]> => {
@@ -118,15 +131,7 @@ export const listProducts = createServerFn({ method: 'GET' })
         totalStock: sql<number>`coalesce(sum(${productVariants.stockQty}), 0)`,
         variantCount: sql<number>`count(${productVariants.id})`,
         size: sql<string | null>`min(${productVariants.size})`,
-        // Correlated subquery rather than another join: product_images would
-        // multiply the rows this GROUP BY is already aggregating over.
-        imageUrl: sql<string | null>`(
-          select ${productImages.url}
-          from ${productImages}
-          where ${productImages.productId} = ${products.id}
-          order by ${productImages.sortOrder}
-          limit 1
-        )`,
+        imageUrl: firstImageUrl,
       })
       .from(products)
       .innerJoin(
@@ -205,6 +210,77 @@ async function sortByUnitsSold(rows: Array<{ slug: string }>): Promise<void> {
   const unitsBySlug = new Map(sold.map((s) => [s.slug, s.units]))
   rows.sort((a, b) => (unitsBySlug.get(b.slug) ?? 0) - (unitsBySlug.get(a.slug) ?? 0))
 }
+
+/** How many products the empty cart suggests. */
+const CART_SUGGESTION_LIMIT = 4
+
+/** A product the empty cart offers to add in one tap. */
+export interface CartSuggestion {
+  slug: string
+  name: string
+  size: string | null
+  /** The one variant the + adds. */
+  variantId: string
+  /** In mungu. */
+  price: number
+  imageUrl: string | null
+}
+
+/**
+ * Products for the empty cart drawer: best sellers first (units on paid
+ * orders, as the 'bestseller' sort counts them), then the home page's own
+ * order for anything that has not sold yet — so a new shop with no orders
+ * suggests exactly what its home page features.
+ *
+ * Only products with a single active variant that is in stock. The drawer
+ * adds with one tap and no picker, and for a product sold in several sizes or
+ * colours that tap would have to guess which one the customer meant.
+ */
+export const listCartSuggestions = createServerFn({ method: 'GET' }).handler(
+  async (): Promise<CartSuggestion[]> => {
+    const rows = await db
+      .select({
+        slug: products.slug,
+        name: products.nameMn,
+        variantId: productVariants.id,
+        size: productVariants.size,
+        price: productVariants.price,
+        stockQty: productVariants.stockQty,
+        imageUrl: firstImageUrl,
+      })
+      .from(products)
+      .innerJoin(
+        productVariants,
+        and(eq(productVariants.productId, products.id), eq(productVariants.isActive, true)),
+      )
+      .where(eq(products.status, 'active'))
+      // The home page's order, which the units-sold sort below keeps for ties.
+      .orderBy(asc(products.createdAt))
+
+    // One entry per product, in first-seen (catalogue) order.
+    const variantsBySlug = new Map<string, typeof rows>()
+    for (const row of rows) {
+      const variants = variantsBySlug.get(row.slug)
+      if (variants) variants.push(row)
+      else variantsBySlug.set(row.slug, [row])
+    }
+
+    const candidates = [...variantsBySlug.values()]
+      .filter((variants) => variants.length === 1 && variants[0]!.stockQty > 0)
+      .map((variants) => variants[0]!)
+
+    await sortByUnitsSold(candidates)
+
+    return candidates.slice(0, CART_SUGGESTION_LIMIT).map((row) => ({
+      slug: row.slug,
+      name: row.name,
+      size: row.size,
+      variantId: row.variantId,
+      price: row.price,
+      imageUrl: row.imageUrl,
+    }))
+  },
+)
 
 export interface ProductGroup {
   slug: string

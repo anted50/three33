@@ -9,15 +9,21 @@ import {
 import { useNavigate, useRouter } from '@tanstack/react-router'
 import { Link } from '@tanstack/react-router'
 import { usePostHog } from '@posthog/react'
+import { assert } from '~/lib/assert'
 import { formatMnt } from '~/lib/money'
 import { sizeSuffix } from '~/lib/product-name'
 import {
+  addToCart,
   getCart,
   getLiveCheckout,
   getShippingRates,
   setCartQty,
   type CartView,
 } from '~/lib/server/cart/cart'
+import {
+  listCartSuggestions,
+  type CartSuggestion,
+} from '~/lib/server/products/queries'
 import { createOrder, getCheckoutMethods } from '~/lib/server/orders/create'
 import type { ProviderName } from '~/lib/server/payments/registry'
 import {
@@ -96,6 +102,9 @@ function CartDrawer() {
   const [methods, setMethods] = useState<ProviderName[]>(['qpay'])
   const [method, setMethod] = useState<ProviderName>('qpay')
 
+  /** Shown under an empty cart; see listCartSuggestions. */
+  const [suggestions, setSuggestions] = useState<CartSuggestion[]>([])
+
   // Load on open, and reload each time it reopens — stock or prices may have
   // moved while the drawer was shut.
   useEffect(() => {
@@ -113,6 +122,18 @@ function CartDrawer() {
     void getLiveCheckout().then((found) => {
       if (!cancelled) setLive(found)
     })
+    // Fetched alongside the cart rather than after it turns out empty, so
+    // the suggestions arrive with the empty state instead of popping in a
+    // round trip later. They are extras: a failure is logged and the empty
+    // state shows without them, rather than failing the drawer.
+    void listCartSuggestions()
+      .then((found) => {
+        if (!cancelled) setSuggestions(found)
+      })
+      .catch((error: unknown) => {
+        console.error('Cart suggestions failed to load', error)
+        if (!cancelled) setSuggestions([])
+      })
     void getCheckoutMethods().then((available) => {
       if (cancelled) return
       setMethods(available)
@@ -264,17 +285,27 @@ function CartDrawer() {
           {cart === null ? (
             <p className="adm__muted drawer__state">Ачааллаж байна…</p>
           ) : empty ? (
-            <div className="drawer__state">
-              <p>Таны сагс хоосон байна.</p>
-              <Link
-                to="/products"
-                className="btn btn--ghost"
-                onClick={closeCart}
-                style={{ marginTop: 16 }}
-              >
-                Бүтээгдэхүүн үзэх
-              </Link>
-            </div>
+            <>
+              <div className="drawer__state">
+                <p>Таны сагс хоосон байна.</p>
+                <Link
+                  to="/products"
+                  className="btn btn--ghost"
+                  onClick={closeCart}
+                  style={{ marginTop: 16 }}
+                >
+                  Бүтээгдэхүүн үзэх
+                </Link>
+              </div>
+
+              {suggestions.length > 0 && (
+                <CartSuggestions
+                  suggestions={suggestions}
+                  onAdded={setCart}
+                  onLeave={closeCart}
+                />
+              )}
+            </>
           ) : (
             <>
               <ul className="lines">
@@ -461,6 +492,133 @@ function CartDrawer() {
         )}
       </aside>
     </div>
+  )
+}
+
+/**
+ * "Эрэлттэй бүтээгдэхүүн" under an empty cart: a few bestsellers, each with a
+ * + that adds one straight to the cart without leaving the drawer.
+ *
+ * Owns its own busy and error state, so a failed add shows here and never
+ * touches checkout. `onAdded` gets the cart the server answered with;
+ * `onLeave` runs when a tap goes to the product page, to close the drawer.
+ */
+function CartSuggestions({
+  suggestions,
+  onAdded,
+  onLeave,
+}: {
+  suggestions: CartSuggestion[]
+  onAdded: (cart: CartView) => void
+  onLeave: () => void
+}) {
+  const posthog = usePostHog()
+  const router = useRouter()
+  /** The variant a + tap is adding, so only that button shows it is busy. */
+  const [adding, setAdding] = useState<string | null>(null)
+  const [addError, setAddError] = useState<string | null>(null)
+
+  async function add(item: CartSuggestion) {
+    assert(adding === null, 'one suggestion is added at a time')
+    setAddError(null)
+    setAdding(item.variantId)
+    try {
+      const next = await addToCart({ data: { variantId: item.variantId, qty: 1 } })
+      onAdded(next)
+      posthog?.capture('product_added_to_cart', {
+        product_slug: item.slug,
+        quantity: 1,
+        unit_price: item.price,
+        variant_id: item.variantId,
+        source: 'cart_suggestion',
+      })
+      // Keeps the header count in step.
+      await router.invalidate()
+    } catch (err) {
+      setAddError(err instanceof Error ? err.message : 'Нэмэхэд алдаа гарлаа')
+    } finally {
+      setAdding(null)
+    }
+  }
+
+  return (
+    <section className="suggest" aria-labelledby="suggest-title">
+      <h3 id="suggest-title" className="suggest__title">
+        Эрэлттэй бүтээгдэхүүн
+      </h3>
+      {addError && <p className="error">{addError}</p>}
+      <ul className="suggest__list">
+        {suggestions.map((item) => {
+          const name = `${item.name}${sizeSuffix(item.name, item.size)}`
+          return (
+            <li key={item.variantId} className="suggest__item">
+              <Link
+                to="/products/$slug"
+                params={{ slug: item.slug }}
+                className="suggest__media"
+                onClick={onLeave}
+                tabIndex={-1}
+                aria-hidden
+              >
+                {item.imageUrl ? (
+                  <img src={item.imageUrl} alt="" />
+                ) : (
+                  <span className="card__ph">{item.name}</span>
+                )}
+              </Link>
+              <div className="suggest__body">
+                <Link
+                  to="/products/$slug"
+                  params={{ slug: item.slug }}
+                  className="suggest__name"
+                  onClick={onLeave}
+                >
+                  {name}
+                </Link>
+                <p className="suggest__price">{formatMnt(item.price)}</p>
+              </div>
+              <button
+                type="button"
+                className="suggest__add"
+                aria-label={`${name} сагсанд нэмэх`}
+                aria-busy={adding === item.variantId}
+                disabled={adding !== null}
+                onClick={() => void add(item)}
+              >
+                {adding === item.variantId ? <Spinner /> : <PlusIcon />}
+              </button>
+            </li>
+          )
+        })}
+      </ul>
+    </section>
+  )
+}
+
+function PlusIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M12 5v14M5 12h14"
+        stroke="currentColor"
+        strokeWidth="2.2"
+        strokeLinecap="square"
+      />
+    </svg>
+  )
+}
+
+/** A quarter-arc that spins while a + tap is in flight. */
+function Spinner() {
+  return (
+    <svg className="suggest__spin" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M12 3a9 9 0 0 1 9 9"
+        stroke="currentColor"
+        strokeWidth="2.2"
+        strokeLinecap="square"
+      />
+    </svg>
   )
 }
 

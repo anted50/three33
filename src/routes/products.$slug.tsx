@@ -6,19 +6,37 @@ import {
   notFound,
   useRouter,
 } from '@tanstack/react-router'
+import { Breadcrumbs } from '~/components/breadcrumbs'
 import { Page } from '~/components/layout'
 import { useCartDrawer } from '~/components/cart-drawer'
-import { StockPill } from '~/components/product-card'
+import { ProductCard, StockPill } from '~/components/product-card'
 import { formatMnt } from '~/lib/money'
-import { toRichHtml } from '~/lib/rich-text'
+import { toDescriptionHtml } from '~/lib/product-description'
 import { addToCart } from '~/lib/server/cart/cart'
-import { getProduct } from '~/lib/server/products/queries'
+import { getProduct, listProducts } from '~/lib/server/products/queries'
+
+/** How many same-category products the page suggests under the description. */
+const RELATED_LIMIT = 4
 
 export const Route = createFileRoute('/products/$slug')({
   loader: async ({ params }) => {
     const product = await getProduct({ data: { slug: params.slug } })
     if (!product) throw notFound()
-    return product
+
+    // Same category, most units sold first (ties keep catalogue order), this
+    // product left out. A category is a handful of products, so trimming
+    // here is cheaper than another query shape.
+    const related = product.categorySlug
+      ? (
+          await listProducts({
+            data: { category: product.categorySlug, sort: 'bestseller' },
+          })
+        )
+          .filter((card) => card.slug !== product.slug)
+          .slice(0, RELATED_LIMIT)
+      : []
+
+    return { ...product, related }
   },
   component: ProductDetail,
   notFoundComponent: () => (
@@ -56,7 +74,7 @@ function ProductDetail() {
   const variant =
     product.variants.find((v) => v.id === variantId) ?? product.variants[0]
 
-  const description = toRichHtml(product.description)
+  const description = toDescriptionHtml(product.description)
 
   if (!variant) {
     return (
@@ -74,19 +92,23 @@ function ProductDetail() {
   return (
     <Page>
       <div className="wrap">
-        <p className="crumbs">
-          <Link to="/">Нүүр</Link> ›{' '}
-          <Link to="/products">Бүтээгдэхүүн</Link>
-          {product.categorySlug && (
-            <>
-              {' '}
-              ›{' '}
-              <Link to="/products" search={{ category: product.categorySlug }}>
-                {product.categoryName}
-              </Link>
-            </>
-          )}
-        </p>
+        <Breadcrumbs
+          trail={[
+            <Link to="/">Нүүр</Link>,
+            <Link to="/products">Бүтээгдэхүүн</Link>,
+            ...(product.categorySlug
+              ? [
+                  <Link
+                    to="/products"
+                    search={{ category: product.categorySlug }}
+                  >
+                    {product.categoryName}
+                  </Link>,
+                ]
+              : []),
+          ]}
+          current={product.name}
+        />
 
         <div className="pdp">
           <div className="pdp__gallery">
@@ -219,7 +241,6 @@ function ProductDetail() {
 
           {description && (
             <div className="prose">
-              <h2>Дэлгэрэнгүй</h2>
               {/* Sanitised by lib/rich-text on the way in and again here, so
                   a description written before the editor existed — or saved
                   by an older build — still can't inject anything. */}
@@ -227,10 +248,29 @@ function ProductDetail() {
                 className="prose__body"
                 dangerouslySetInnerHTML={{ __html: description }}
               />
-              <p className="crumbs">SKU: {variant.sku}</p>
+              <p className="prose__sku">SKU: {variant.sku}</p>
             </div>
           )}
         </div>
+
+        <section className="pdp-more">
+          <Link to="/products" className="btn btn--ghost pdp-more__back">
+            <span aria-hidden>←</span> Бүх бүтээгдэхүүн
+          </Link>
+
+          {product.related.length > 0 && (
+            <>
+              <div className="section-head">
+                <h2>Recommended</h2>
+              </div>
+              <div className="grid">
+                {product.related.map((card) => (
+                  <ProductCard key={card.slug} product={card} />
+                ))}
+              </div>
+            </>
+          )}
+        </section>
       </div>
     </Page>
   )

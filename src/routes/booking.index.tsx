@@ -2,8 +2,9 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router'
 import { z } from 'zod'
-import { BookingBar, BookingShell, BookingTitle, useIsDesktop } from '~/components/booking/shell'
-import { CheckIcon, PhoneIcon, PlusIcon, ScissorsIcon } from '~/components/booking/icons'
+import { BookingBar, BookingShell, BookingTitle, PhoneCopyBar, useIsDesktop } from '~/components/booking/shell'
+import { PhoneCopy } from '~/components/phone-copy'
+import { CheckIcon, PlusIcon, ScissorsIcon } from '~/components/booking/icons'
 import { DayPicker } from '~/components/booking/day-picker'
 import { TimeGrid } from '~/components/booking/time-grid'
 import { DateTile, SummaryCard, whenLine } from '~/components/booking/summary'
@@ -275,7 +276,7 @@ function BookingFlow() {
                   <div className="bk-empty">
                     <p>Ойрын {SLOT_DAYS} хоногт сул цаг алга.</p>
                     <p className="bk-muted">
-                      Утсаар холбогдоно уу: <a href={SHOP.tel}>{SHOP.phone}</a>
+                      Утсаар холбогдоно уу: <PhoneCopy />
                     </p>
                   </div>
                 ) : (
@@ -357,15 +358,7 @@ function BookingClosed() {
         <h2 className="bk-center__title">Онлайн захиалга түр хаалттай</h2>
         <p className="bk-muted">Цаг авах бол утсаар холбогдоно уу.</p>
         <div className="bk-center__actions">
-          <BookingBar
-            href={SHOP.tel}
-            label={
-              <>
-                <PhoneIcon size={18} /> Залгах
-              </>
-            }
-            value={SHOP.phone}
-          />
+          <PhoneCopyBar />
         </div>
       </div>
     </BookingShell>

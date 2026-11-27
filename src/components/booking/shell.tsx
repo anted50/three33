@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Footer, Header } from '~/components/layout'
 import { SHOP } from '~/lib/booking/shop'
+import { CopiedIcon, CopyIcon, usePhoneCopy } from '~/components/phone-copy'
 import { BackIcon } from './icons'
 
 /**
@@ -65,7 +66,6 @@ export function BookingBar({
   tone = 'dark',
   type = 'button',
   form,
-  href,
 }: {
   label: ReactNode
   value?: ReactNode
@@ -74,21 +74,38 @@ export function BookingBar({
   tone?: 'dark' | 'red' | 'light'
   type?: 'button' | 'submit'
   form?: string
-  /** A plain link instead of a button — for tel: and the like. */
-  href?: string
 }) {
-  if (href) {
-    return (
-      <a href={href} className="bk-bar" data-tone={tone}>
-        <span className="bk-bar__label">{label}</span>
-        {value !== undefined && <span className="bk-bar__value">{value}</span>}
-      </a>
-    )
-  }
   return (
     <button type={type} form={form} className="bk-bar" data-tone={tone} onClick={onClick} disabled={disabled}>
       <span className="bk-bar__label">{label}</span>
       {value !== undefined && <span className="bk-bar__value">{value}</span>}
+    </button>
+  )
+}
+
+/**
+ * The bar that used to dial the shop. It copies the number instead (see
+ * components/phone-copy.tsx for why), and says so in place of the label for
+ * a moment once it has.
+ */
+export function PhoneCopyBar() {
+  const { copied, copy, numberRef } = usePhoneCopy()
+  return (
+    <button type="button" className="bk-bar" data-tone="dark" onClick={copy}>
+      <span className="bk-bar__label" role="status">
+        {copied ? (
+          <>
+            <CopiedIcon size={18} /> Хуулсан
+          </>
+        ) : (
+          <>
+            <CopyIcon size={18} /> Дугаар хуулах
+          </>
+        )}
+      </span>
+      <span className="bk-bar__value" ref={numberRef}>
+        {SHOP.phone}
+      </span>
     </button>
   )
 }

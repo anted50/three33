@@ -1,0 +1,33 @@
+version: 2
+
+# Keeps .github/workflows/ci.yml's pinned action SHAs and the npm lockfile
+# current. PRs go to staging, the same as a feature branch, so CI verifies
+# them before anything deploys.
+#
+# One grouped PR per ecosystem per week, so updates arrive as one review,
+# not a stream. The cooldown skips releases younger than a week: most
+# hijacked packages are caught and pulled within days of publishing.
+
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: staging
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ['*']
+
+  - package-ecosystem: npm
+    directory: /
+    target-branch: staging
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    groups:
+      npm-minor-and-patch:
+        update-types: [minor, patch]

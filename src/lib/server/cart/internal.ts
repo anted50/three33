@@ -2,11 +2,11 @@ import { randomBytes } from 'node:crypto'
 import { getCookie, setCookie } from '@tanstack/react-start/server'
 import { asc, eq, sql } from 'drizzle-orm'
 import { db } from '~/db'
-import { carts, productImages, productVariants, products } from '~/db/schema'
+import { cartItems, carts, productImages, productVariants, products } from '~/db/schema'
 import { lineTotal, sumMungu, type Mungu } from '~/lib/money'
 import { CART_COOKIE, CART_MAX_AGE, cartCookieOptions } from '../cookies'
-import { clampQty } from './pricing'
-import { cartItems } from '~/db/schema'
+import { assert } from '~/lib/assert'
+import { clampQty, MAX_CART_LINES } from './pricing'
 
 /**
  * Server-only cart internals.
@@ -116,7 +116,12 @@ export async function readCart(cartId: string): Promise<CartView> {
     .innerJoin(products, eq(products.id, productVariants.productId))
     .where(eq(cartItems.cartId, cartId))
     .orderBy(asc(cartItems.id))
+    // addToCart's line cap is a count-then-insert, so two concurrent adds can
+    // both pass it. The limit keeps this read, and the checkout built from it,
+    // within MAX_CART_LINES either way; the oldest lines win.
+    .limit(MAX_CART_LINES)
 
+  assert(rows.length <= MAX_CART_LINES, 'a cart read is bounded by MAX_CART_LINES')
   const lines: CartLine[] = []
 
   for (const row of rows) {
@@ -143,8 +148,8 @@ export async function readCart(cartId: string): Promise<CartView> {
 
   return {
     lines,
-    subtotal: sumMungu(lines.map((l) => l.lineTotal)),
-    itemCount: lines.reduce((n, l) => n + l.qty, 0),
+    subtotal: sumMungu(lines.map((line) => line.lineTotal)),
+    itemCount: lines.reduce((itemCount, line) => itemCount + line.qty, 0),
   }
 }
 

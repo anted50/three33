@@ -7,13 +7,18 @@ import {
   useRouter,
 } from '@tanstack/react-router'
 import { Breadcrumbs } from '~/components/breadcrumbs'
+import { assert } from '~/lib/assert'
 import { Page } from '~/components/layout'
 import { useCartDrawer } from '~/components/cart-drawer'
 import { ProductCard, StockPill } from '~/components/product-card'
 import { formatMnt } from '~/lib/money'
 import { toDescriptionHtml } from '~/lib/product-description'
 import { addToCart } from '~/lib/server/cart/cart'
-import { getProduct, listProducts } from '~/lib/server/products/queries'
+import {
+  getProduct,
+  listProducts,
+  type ProductCard as ProductCardData,
+} from '~/lib/server/products/queries'
 
 /** How many same-category products the page suggests under the description. */
 const RELATED_LIMIT = 4
@@ -50,27 +55,28 @@ export const Route = createFileRoute('/products/$slug')({
   ),
 })
 
+type Product = NonNullable<Awaited<ReturnType<typeof getProduct>>> & {
+  related: ProductCardData[]
+}
+type Variant = Product['variants'][number]
+
+/**
+ * Keyed by slug so a tap on a "Recommended" card — same route, new product —
+ * starts the page fresh. Without the key React keeps the component, and the
+ * old product's size, quantity and photo index carry over to the new one.
+ */
 function ProductDetail() {
   const product = Route.useLoaderData()
-  const posthog = usePostHog()
-  const router = useRouter()
-  const { openCart } = useCartDrawer()
-  const [adding, setAdding] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  return <ProductPage key={product.slug} product={product} />
+}
 
+function ProductPage({ product }: { product: Product }) {
   // Default to the first variant that is actually buyable, so the buy button
   // isn't disabled on arrival just because the cheapest size sold out.
   const [variantId, setVariantId] = useState(
     () =>
       (product.variants.find((v) => v.stockQty > 0) ?? product.variants[0])?.id,
   )
-  const [qty, setQty] = useState(1)
-
-  // The gallery is product-wide: every uploaded image is browsable, and picking
-  // a size never swaps the photo out from under you.
-  const [imageIndex, setImageIndex] = useState(0)
-  const activeImage = product.images[imageIndex] ?? product.images[0]
-
   const variant =
     product.variants.find((v) => v.id === variantId) ?? product.variants[0]
 
@@ -86,158 +92,19 @@ function ProductDetail() {
     )
   }
 
-  const max = Math.max(variant.stockQty, 0)
-  const soldOut = max === 0
-
   return (
     <Page>
       <div className="wrap">
-        <Breadcrumbs
-          trail={[
-            <Link to="/">Нүүр</Link>,
-            <Link to="/products">Бүтээгдэхүүн</Link>,
-            ...(product.categorySlug
-              ? [
-                  <Link
-                    to="/products"
-                    search={{ category: product.categorySlug }}
-                  >
-                    {product.categoryName}
-                  </Link>,
-                ]
-              : []),
-          ]}
-          current={product.name}
-        />
+        <ProductCrumbs product={product} />
 
         <div className="pdp">
-          <div className="pdp__gallery">
-            <div className="pdp__media">
-              {activeImage ? (
-                <img
-                  src={activeImage.url}
-                  alt={activeImage.alt ?? product.name}
-                />
-              ) : (
-                <span className="card__ph">{product.name}</span>
-              )}
-            </div>
+          <ProductGallery product={product} />
 
-            {product.images.length > 1 && (
-              <div className="pdp__thumbs">
-                {product.images.map((image, index) => (
-                  <button
-                    key={`${image.url}-${index}`}
-                    type="button"
-                    className="pdp__thumb"
-                    data-active={index === imageIndex}
-                    aria-label={`Зураг ${index + 1}`}
-                    onClick={() => setImageIndex(index)}
-                  >
-                    <img src={image.url} alt={image.alt ?? ''} loading="lazy" />
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div>
-            <h1>{product.name}</h1>
-            <StockPill stock={max} />
-
-            <p className="pdp__price">
-              {formatMnt(variant.price)}
-              {variant.compareAtPrice ? (
-                <span className="pdp__was">
-                  {formatMnt(variant.compareAtPrice)}
-                </span>
-              ) : null}
-            </p>
-
-            {product.variants.length > 1 && (
-              <>
-                <p className="label">Хэмжээ</p>
-                <div className="sizes">
-                  {product.variants.map((v) => (
-                    <button
-                      key={v.id}
-                      type="button"
-                      className="size"
-                      data-active={v.id === variant.id}
-                      disabled={v.stockQty === 0}
-                      onClick={() => {
-                        setVariantId(v.id)
-                        setQty(1)
-                      }}
-                    >
-                      {v.size ?? v.sku}
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
-
-            <p className="label">Тоо ширхэг</p>
-            <div className="qty">
-              <button
-                type="button"
-                onClick={() => setQty((q) => Math.max(1, q - 1))}
-                disabled={qty <= 1 || soldOut}
-                aria-label="Хасах"
-              >
-                −
-              </button>
-              <span>{qty}</span>
-              <button
-                type="button"
-                onClick={() => setQty((q) => Math.min(max, q + 1))}
-                disabled={qty >= max || soldOut}
-                aria-label="Нэмэх"
-              >
-                +
-              </button>
-            </div>
-
-            {error && <p className="error">{error}</p>}
-
-            <div className="buybar">
-              <button
-                type="button"
-                className="btn"
-                disabled={soldOut || adding}
-                onClick={async () => {
-                  setError(null)
-                  setAdding(true)
-                  try {
-                    await addToCart({ data: { variantId: variant.id, qty } })
-                    posthog?.capture('product_added_to_cart', {
-                      product_slug: product.slug,
-                      quantity: qty,
-                      unit_price: variant.price,
-                      variant_id: variant.id,
-                    })
-                    // Invalidate so the header badge picks up the new count.
-                    await router.invalidate()
-                    // Drawer instead of navigating away — you stay on the
-                    // product you were looking at.
-                    openCart()
-                    setAdding(false)
-                  } catch (err) {
-                    setError(
-                      err instanceof Error ? err.message : 'Нэмэхэд алдаа гарлаа',
-                    )
-                    setAdding(false)
-                  }
-                }}
-              >
-                {soldOut
-                  ? 'Дууссан'
-                  : adding
-                    ? 'Нэмж байна…'
-                    : 'Сагсанд нэмэх'}
-              </button>
-            </div>
-          </div>
+          <BuyBox
+            product={product}
+            variant={variant}
+            onPickVariant={setVariantId}
+          />
 
           {description && (
             <div className="prose">
@@ -273,5 +140,211 @@ function ProductDetail() {
         </section>
       </div>
     </Page>
+  )
+}
+
+function ProductCrumbs({ product }: { product: Product }) {
+  return (
+    <Breadcrumbs
+      trail={[
+        <Link to="/">Нүүр</Link>,
+        <Link to="/products">Бүтээгдэхүүн</Link>,
+        ...(product.categorySlug
+          ? [
+              <Link
+                to="/products"
+                search={{ category: product.categorySlug }}
+              >
+                {product.categoryName}
+              </Link>,
+            ]
+          : []),
+      ]}
+      current={product.name}
+    />
+  )
+}
+
+/**
+ * The gallery is product-wide: every uploaded image is browsable, and picking
+ * a size never swaps the photo out from under you.
+ */
+function ProductGallery({ product }: { product: Product }) {
+  const [imageIndex, setImageIndex] = useState(0)
+  const activeImage = product.images[imageIndex] ?? product.images[0]
+
+  return (
+    <div className="pdp__gallery">
+      <div className="pdp__media">
+        {activeImage ? (
+          <img
+            src={activeImage.url}
+            alt={activeImage.alt ?? product.name}
+          />
+        ) : (
+          <span className="card__ph">{product.name}</span>
+        )}
+      </div>
+
+      {product.images.length > 1 && (
+        <div className="pdp__thumbs">
+          {product.images.map((image, index) => (
+            <button
+              key={`${image.url}-${index}`}
+              type="button"
+              className="pdp__thumb"
+              data-active={index === imageIndex}
+              aria-label={`Зураг ${index + 1}`}
+              onClick={() => setImageIndex(index)}
+            >
+              <img src={image.url} alt={image.alt ?? ''} loading="lazy" />
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Name, price, size and quantity, and the button that adds to the cart. */
+function BuyBox({
+  product,
+  variant,
+  onPickVariant,
+}: {
+  product: Product
+  variant: Variant
+  onPickVariant: (variantId: string) => void
+}) {
+  const [qty, setQty] = useState(1)
+  const max = Math.max(variant.stockQty, 0)
+  const soldOut = max === 0
+
+  return (
+    <div>
+      <h1>{product.name}</h1>
+      <StockPill stock={max} />
+
+      <p className="pdp__price">
+        {formatMnt(variant.price)}
+        {variant.compareAtPrice ? (
+          <span className="pdp__was">
+            {formatMnt(variant.compareAtPrice)}
+          </span>
+        ) : null}
+      </p>
+
+      {product.variants.length > 1 && (
+        <>
+          <p className="label">Хэмжээ</p>
+          <div className="sizes">
+            {product.variants.map((v) => (
+              <button
+                key={v.id}
+                type="button"
+                className="size"
+                data-active={v.id === variant.id}
+                disabled={v.stockQty === 0}
+                onClick={() => {
+                  onPickVariant(v.id)
+                  setQty(1)
+                }}
+              >
+                {v.size ?? v.sku}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
+      <p className="label">Тоо ширхэг</p>
+      <div className="qty">
+        <button
+          type="button"
+          onClick={() => setQty((q) => Math.max(1, q - 1))}
+          disabled={qty <= 1 || soldOut}
+          aria-label="Хасах"
+        >
+          −
+        </button>
+        <span>{qty}</span>
+        <button
+          type="button"
+          onClick={() => setQty((q) => Math.min(max, q + 1))}
+          disabled={qty >= max || soldOut}
+          aria-label="Нэмэх"
+        >
+          +
+        </button>
+      </div>
+
+      <AddToCart product={product} variant={variant} qty={qty} soldOut={soldOut} />
+    </div>
+  )
+}
+
+/**
+ * Adds and opens the drawer instead of navigating away — you stay on the
+ * product you were looking at. The error, if any, shows above the button.
+ */
+function AddToCart({
+  product,
+  variant,
+  qty,
+  soldOut,
+}: {
+  product: Product
+  variant: Variant
+  qty: number
+  soldOut: boolean
+}) {
+  const posthog = usePostHog()
+  const router = useRouter()
+  const { openCart } = useCartDrawer()
+  const [adding, setAdding] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function add() {
+    if (adding) return
+    assert(qty >= 1, 'at least one unit is added')
+    setError(null)
+    setAdding(true)
+    try {
+      await addToCart({ data: { variantId: variant.id, qty } })
+      posthog?.capture('product_added_to_cart', {
+        product_slug: product.slug,
+        quantity: qty,
+        unit_price: variant.price,
+        variant_id: variant.id,
+      })
+      // Invalidate so the header badge picks up the new count.
+      await router.invalidate()
+      openCart()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Нэмэхэд алдаа гарлаа')
+    } finally {
+      setAdding(false)
+    }
+  }
+
+  return (
+    <>
+      {error && <p className="error">{error}</p>}
+
+      <div className="buybar">
+        <button
+          type="button"
+          className="btn"
+          disabled={soldOut || adding}
+          onClick={() => void add()}
+        >
+          {soldOut
+            ? 'Дууссан'
+            : adding
+              ? 'Нэмж байна…'
+              : 'Сагсанд нэмэх'}
+        </button>
+      </div>
+    </>
   )
 }

@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm'
+import { eq, inArray } from 'drizzle-orm'
 import { db } from '~/db'
 import { atomic } from '~/db/atomic'
 import { settings } from '~/db/schema'
@@ -25,17 +25,27 @@ export async function loadShippingRates(): Promise<ShippingRates> {
   const rows = await db
     .select({ key: settings.key, value: settings.value })
     .from(settings)
+    .where(inArray(settings.key, [SHIPPING_FEE, FREE_THRESHOLD]))
+    .limit(2)
 
-  const stored = new Map(rows.map((r) => [r.key, Number(r.value)]))
-  const fee = stored.get(SHIPPING_FEE)
-  const freeThreshold = stored.get(FREE_THRESHOLD)
-
+  const stored = new Map(rows.map((row) => [row.key, row.value]))
   return {
-    fee: Number.isFinite(fee) ? (fee as number) : DEFAULT_RATES.fee,
-    freeThreshold: Number.isFinite(freeThreshold)
-      ? (freeThreshold as number)
-      : DEFAULT_RATES.freeThreshold,
+    fee: storedAmount(stored.get(SHIPPING_FEE), DEFAULT_RATES.fee),
+    freeThreshold: storedAmount(stored.get(FREE_THRESHOLD), DEFAULT_RATES.freeThreshold),
   }
+}
+
+/**
+ * A stored amount in mungu, or `fallback` when it is missing or is not what
+ * saveShippingRates would have written (a whole, non-negative number), so a
+ * hand-edited row can never put fractional money into a cart total.
+ */
+function storedAmount(value: string | undefined, fallback: number): number {
+  assert(Number.isSafeInteger(fallback), 'the default is whole mungu')
+  if (value === undefined) return fallback
+  const amount = Number(value)
+  if (Number.isSafeInteger(amount) && amount >= 0) return amount
+  return fallback
 }
 
 export async function saveShippingRates(rates: ShippingRates): Promise<void> {

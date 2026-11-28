@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { db } from '~/db'
 import { atomic, changed } from '~/db/atomic'
 import { appointments } from '~/db/schema'
+import { assert } from '~/lib/assert'
 import { badRequest, conflict, notFound } from '../api/errors'
 import { email, isoDate, phone } from '../api/input'
 import { inBackground } from '../background'
@@ -42,11 +43,18 @@ export const adminBookingInput = z.object({
 /** Everything but the status-page token hash, which never leaves the server. */
 const { accessTokenHash: _hidden, invoicePayload: _invoice, ...visible } = getTableColumns(appointments)
 
+/**
+ * Most rows one list returns. Cancelled bookings are not kept apart by the
+ * no-overlap trigger, so the date range alone does not bound the list; a
+ * range holding more than this is refused rather than cut short.
+ */
+const APPOINTMENTS_LIST_MAX = 5_000
+
 /** The admin list covers a range, never the whole table: same bound as the schedule view. */
 export async function listAppointments(query: z.infer<typeof appointmentsQuery>) {
   if (query.to < query.from) throw badRequest('"to" is before "from"')
   if (dayCount(query.from, query.to) > MAX_SCHEDULE_DAYS) throw badRequest(`At most ${MAX_SCHEDULE_DAYS} days at a time`)
-  return db
+  const rows = await db
     .select(visible)
     .from(appointments)
     .where(
@@ -58,6 +66,9 @@ export async function listAppointments(query: z.infer<typeof appointmentsQuery>)
       ),
     )
     .orderBy(asc(appointments.startsAt))
+    .limit(APPOINTMENTS_LIST_MAX + 1)
+  if (rows.length > APPOINTMENTS_LIST_MAX) throw badRequest(`More than ${APPOINTMENTS_LIST_MAX} bookings; ask for fewer days`)
+  return rows
 }
 
 export async function getAppointment(id: string) {
@@ -75,6 +86,8 @@ export async function getAppointment(id: string) {
 export async function createAdminBooking(input: z.infer<typeof adminBookingInput>) {
   const service = await bookableService(input.serviceId)
   const startsAt = new Date(input.startsAt)
+  const endsAt = addMinutes(startsAt, service.durationMinutes)
+  assert(endsAt > startsAt, 'a service has a positive length')
   const id = crypto.randomUUID()
   await atomic([
     db.insert(appointments).values({
@@ -86,7 +99,7 @@ export async function createAdminBooking(input: z.infer<typeof adminBookingInput
       durationMinutes: service.durationMinutes,
       status: 'booked',
       startsAt,
-      endsAt: addMinutes(startsAt, service.durationMinutes),
+      endsAt,
       customerName: input.customerName,
       customerPhone: input.customerPhone,
       customerEmail: input.customerEmail ?? null,
@@ -109,11 +122,13 @@ export async function reschedule(id: string, input: z.infer<typeof rescheduleInp
   const row = await getAppointment(id)
   if (row.status !== 'booked') throw conflict('NOT_BOOKED', `Booking is ${row.status}`)
   const startsAt = new Date(input.startsAt)
+  const endsAt = addMinutes(startsAt, row.durationMinutes)
+  assert(endsAt > startsAt, 'a booking has a positive length')
   await atomic([
     // Conditional on still being booked: a cancel in between wins.
     db
       .update(appointments)
-      .set({ startsAt, endsAt: addMinutes(startsAt, row.durationMinutes) })
+      .set({ startsAt, endsAt })
       .where(and(eq(appointments.id, id), eq(appointments.status, 'booked'))),
     changed('NOT_BOOKED'),
   ])

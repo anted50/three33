@@ -21,7 +21,7 @@ vi.mock('../payments/registry', () => ({ getProvider: () => provider }))
 vi.mock('./receipt', () => ({ sendOrderReceipt: vi.fn(async () => {}) }))
 
 const { settleOrder, markPaid, orderStillPending, ALREADY_SETTLED } = await import('./settle')
-const { expireCheckout } = await import('./expire')
+const { expireCheckout, retireOrder } = await import('./expire')
 
 let seq = 0
 
@@ -140,10 +140,26 @@ describe('two settlements racing', () => {
   })
 })
 
+describe('markPaid', () => {
+  it('builds a manual sale of 100 catalog lines, which has no cart to clear', async () => {
+    // Goal: the D1 parameter bound applies to the cart-clearing statement
+    // only. It used to be asserted for every order, so an admin sale at the
+    // 100-line cap failed although it clears no cart at all.
+    const o = await pendingOrder({ stock: 100, qty: 1 })
+    const [payment] = await db.select().from(payments).where(eq(payments.orderId, o.orderId))
+    const lines = Array.from({ length: 100 }, () => ({ variantId: o.variantId, qty: 1 }))
+
+    const statements = await markPaid({ id: o.orderId, cartId: null }, payment!.id, { paymentId: 'MANUAL-100', rawCallback: null }, lines)
+
+    // The payment, two stock statements per line, the order; no cart delete.
+    expect(statements).toHaveLength(1 + 2 * 100 + 1)
+  })
+})
+
 describe('expireCheckout', () => {
   it('cancels the invoice, then expires the order and its payment', async () => {
     const o = await pendingOrder({ stock: 1, qty: 1 })
-    expect(await expireCheckout(o.orderId, 'expired')).toBe(true)
+    expect(await expireCheckout(o.orderId, 'expired')).toBe('retired')
     expect(provider.cancelInvoice).toHaveBeenCalledOnce()
     const [order] = await db.select().from(orders).where(eq(orders.id, o.orderId))
     const [payment] = await db.select().from(payments).where(eq(payments.orderId, o.orderId))
@@ -155,8 +171,38 @@ describe('expireCheckout', () => {
     const o = await pendingOrder({ stock: 1, qty: 1 })
     provider.checkInvoice.mockResolvedValue({ outcome: 'paid', paidAmount: 1000, providerPaymentId: 'PAY-D', raw: {} })
     await settleOrder(o.orderNo)
-    expect(await expireCheckout(o.orderId, 'expired')).toBe(false)
+    expect(await expireCheckout(o.orderId, 'expired')).toBe('not_pending')
     const [order] = await db.select().from(orders).where(eq(orders.id, o.orderId))
     expect(order!.status).toBe('paid')
+  })
+
+  it('keeps the order pending when the provider will not cancel the invoice', async () => {
+    // Goal: an invoice that is still payable never sits behind an expired
+    // order. Method: the provider throws on cancel, as it does for a paid
+    // invoice or a timeout; the order and payment must be left untouched.
+    const o = await pendingOrder({ stock: 1, qty: 1 })
+    provider.cancelInvoice.mockRejectedValueOnce(new Error('provider down'))
+
+    expect(await expireCheckout(o.orderId, 'expired')).toBe('cancel_failed')
+
+    const [order] = await db.select().from(orders).where(eq(orders.id, o.orderId))
+    const [payment] = await db.select().from(payments).where(eq(payments.orderId, o.orderId))
+    expect(order!.status).toBe('pending_payment')
+    expect(payment!.status).not.toBe('expired')
+  })
+})
+
+describe('retireOrder', () => {
+  it('retires a pending order without asking the provider', async () => {
+    // Goal: the sweep's last resort moves the order out of pending on its
+    // own. Method: no provider call is made, and the order ends up expired.
+    const o = await pendingOrder({ stock: 1, qty: 1 })
+    provider.cancelInvoice.mockClear()
+
+    expect(await retireOrder(o.orderId, 'expired')).toBe(true)
+
+    expect(provider.cancelInvoice).not.toHaveBeenCalled()
+    const [order] = await db.select().from(orders).where(eq(orders.id, o.orderId))
+    expect(order!.status).toBe('expired')
   })
 })

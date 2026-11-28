@@ -1,6 +1,6 @@
 import { createServerFn } from '@tanstack/react-start'
 import { getRequestHeader } from '@tanstack/react-start/server'
-import { and, count, eq, gt, inArray } from 'drizzle-orm'
+import { and, count, eq, gt, inArray, type SQL } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '~/db'
 import { atomic, insertRows } from '~/db/atomic'
@@ -30,6 +30,7 @@ import { meetsMinimum, PAYMENT_METHOD_MIN_TOTAL } from '~/lib/payment-methods'
 import { mintOrderToken, setCheckoutCookie } from './access'
 import { basketFingerprint, sameBasket } from './basket'
 import { expireCheckout } from './expire'
+import { ORDER_LINES_MAX } from './limits'
 import { generateOrderNo } from './order-no'
 import { decideRateLimit, RATE_WINDOW_MS } from './rate-limit'
 
@@ -57,6 +58,8 @@ export const checkoutInput = z.object({
    * send this keep working unchanged. */
   method: z.enum(['qpay', 'storepay']).default('qpay'),
 })
+
+type CheckoutInput = z.infer<typeof checkoutInput>
 
 export interface CheckoutResult {
   orderNo: string
@@ -124,7 +127,7 @@ export const createOrder = createServerFn({ method: 'POST' })
     assert(cart.lines.length <= MAX_CART_LINES, 'carts never hold more than MAX_CART_LINES lines')
 
     const ip = clientIp(getRequestHeader)
-    const record = (outcome: CheckoutOutcome, orderId?: string) =>
+    const record: RecordAttempt = (outcome, orderId) =>
       db.insert(checkoutAttempts).values({ ip, phone: data.phone, cartId, orderId: orderId ?? null, outcome })
 
     await enforceRateLimit(ip, data.phone, record)
@@ -140,61 +143,95 @@ export const createOrder = createServerFn({ method: 'POST' })
       return reused.result
     }
 
-    const orderNo = generateOrderNo()
-    const { token, hash } = mintOrderToken()
-    const expiresAt = new Date(Date.now() + INVOICE_TTL_MS)
-
-    /**
-     * The invoice comes first. If the provider refuses or times out, the
-     * customer sees an error and still has their cart — no order row exists
-     * to reconcile, chase or explain.
-     */
-    let invoice: CreatedInvoice
-    try {
-      invoice = await getProvider(data.method).createInvoice({
-        orderNo,
-        amount: totals.total,
-        // Shows on the payer's bank statement / StorePay app, so it names
-        // the shop, not a label the shop happens to stock.
-        description: `Three33 ${orderNo}`,
-        callbackUrl: providerCallbackUrl(data.method, orderNo),
-        customer: {
-          // No name is collected at checkout; QPay still requires a payer
-          // name, so the phone number stands in for it. StorePay ignores it.
-          name: data.phone,
-          phone: data.phone,
-          email: data.email || undefined,
-        },
-      })
-    } catch (error) {
-      await record('invoice_failed')
-      throw error
-    }
-
-    const orderId = crypto.randomUUID()
-    await saveOrder({ orderId, orderNo, cartId, data, pricedLines, totals, invoice, expiresAt, accessTokenHash: hash })
-
-    /**
-     * The cart is deliberately NOT emptied here. It is what the customer comes
-     * back to if they close the tab on the QR, and clearing it before the money
-     * arrived is what made an abandoned checkout unrecoverable. It is cleared
-     * when the payment settles instead — see settle.ts.
-     */
-    setCheckoutCookie(orderNo, token)
-    await record('created', orderId)
-
-    return {
-      orderNo,
-      provider: data.method,
-      invoiceId: invoice.invoiceId,
-      ...invoicePayloadOf(invoice),
-      total: totals.total,
-      expiresAt: expiresAt.getTime(),
-      token,
-    }
+    return issueCheckout({ cartId, data, pricedLines, totals, record })
   })
 
 type CheckoutOutcome = 'created' | 'reused' | 'rate_limited' | 'invoice_failed'
+
+/** Writes one checkout_attempts row; the rate limit counts these. */
+type RecordAttempt = (outcome: CheckoutOutcome, orderId?: string) => Promise<unknown>
+
+/**
+ * A new order and a new invoice, for a cart with no live invoice to reuse.
+ * The invoice is requested before any order row is written — see createOrder.
+ */
+async function issueCheckout(checkout: {
+  cartId: string
+  data: CheckoutInput
+  pricedLines: PricedOrderLine[]
+  totals: CartTotals
+  record: RecordAttempt
+}): Promise<CheckoutResult> {
+  const { data, totals, record } = checkout
+  const orderNo = generateOrderNo()
+  const { token, hash } = mintOrderToken()
+  const expiresAt = new Date(Date.now() + INVOICE_TTL_MS)
+
+  /**
+   * The invoice comes first. If the provider refuses or times out, the
+   * customer sees an error and still has their cart — no order row exists
+   * to reconcile, chase or explain.
+   */
+  let invoice: CreatedInvoice
+  try {
+    invoice = await requestInvoice(data, orderNo, totals.total)
+  } catch (error) {
+    await record('invoice_failed')
+    throw error
+  }
+
+  const orderId = crypto.randomUUID()
+  await saveOrder({
+    orderId,
+    orderNo,
+    cartId: checkout.cartId,
+    data,
+    pricedLines: checkout.pricedLines,
+    totals,
+    invoice,
+    expiresAt,
+    accessTokenHash: hash,
+  })
+
+  /**
+   * The cart is deliberately NOT emptied here. It is what the customer comes
+   * back to if they close the tab on the QR, and clearing it before the money
+   * arrived is what made an abandoned checkout unrecoverable. It is cleared
+   * when the payment settles instead — see settle.ts.
+   */
+  setCheckoutCookie(orderNo, token)
+  await record('created', orderId)
+
+  return {
+    orderNo,
+    provider: data.method,
+    invoiceId: invoice.invoiceId,
+    ...invoicePayloadOf(invoice),
+    total: totals.total,
+    expiresAt: expiresAt.getTime(),
+    token,
+  }
+}
+
+/** Asks the chosen provider for an invoice of `total` mungu. Writes nothing. */
+function requestInvoice(data: CheckoutInput, orderNo: string, total: number): Promise<CreatedInvoice> {
+  assert(total > 0, 'an invoice is never for nothing')
+  return getProvider(data.method).createInvoice({
+    orderNo,
+    amount: total,
+    // Shows on the payer's bank statement / StorePay app, so it names
+    // the shop, not a label the shop happens to stock.
+    description: `Three33 ${orderNo}`,
+    callbackUrl: providerCallbackUrl(data.method, orderNo),
+    customer: {
+      // No name is collected at checkout; QPay still requires a payer
+      // name, so the phone number stands in for it. StorePay ignores it.
+      name: data.phone,
+      phone: data.phone,
+      email: data.email || undefined,
+    },
+  })
+}
 
 interface PricedOrderLine {
   variantId: string
@@ -286,7 +323,7 @@ async function saveOrder(order: {
   orderId: string
   orderNo: string
   cartId: string
-  data: z.infer<typeof checkoutInput>
+  data: CheckoutInput
   pricedLines: PricedOrderLine[]
   totals: CartTotals
   invoice: CreatedInvoice
@@ -294,6 +331,7 @@ async function saveOrder(order: {
   accessTokenHash: string
 }): Promise<void> {
   const { orderId, orderNo, data, totals, invoice } = order
+  assert(order.pricedLines.length > 0, 'an order has at least one line')
   assert(totals.total > 0, 'a non-empty cart has a positive total')
   try {
     await atomic([
@@ -346,42 +384,45 @@ async function saveOrder(order: {
  * counter has to move on rejected attempts too, or holding at the limit would
  * cost nothing.
  */
-async function enforceRateLimit(
-  ip: string | null,
-  phone: string,
-  record: (outcome: 'rate_limited') => Promise<unknown>,
-): Promise<void> {
+async function enforceRateLimit(ip: string | null, phone: string, record: RecordAttempt): Promise<void> {
   const since = new Date(Date.now() - RATE_WINDOW_MS)
 
-  const countSince = async (where: ReturnType<typeof and>) => {
-    const [row] = await db
-      .select({ n: count() })
-      .from(checkoutAttempts)
-      .where(where)
-    return row?.n ?? 0
-  }
-
   const [byPhone, byIp] = await Promise.all([
-    countSince(
-      and(
-        eq(checkoutAttempts.phone, phone),
-        gt(checkoutAttempts.createdAt, since),
-      ),
-    ),
-    ip
-      ? countSince(
-          and(eq(checkoutAttempts.ip, ip), gt(checkoutAttempts.createdAt, since)),
-        )
-      : Promise.resolve(null),
+    countAttemptsSince(eq(checkoutAttempts.phone, phone), since),
+    // No address (the proxy stripped it) means no IP limit; the phone one still applies.
+    ip ? countAttemptsSince(eq(checkoutAttempts.ip, ip), since) : Promise.resolve(null),
   ])
 
   const decision = decideRateLimit({ byIp, byPhone })
   if (decision.allowed) return
 
   await record('rate_limited')
-  throw new Error(
-    'Хэт олон захиалга үүсгэлээ. Түр хүлээгээд дахин оролдоно уу.',
-  )
+  throw new Error('Хэт олон захиалга үүсгэлээ. Түр хүлээгээд дахин оролдоно уу.')
+}
+
+/** Checkout attempts matching `key` recorded after `since`. */
+async function countAttemptsSince(key: SQL, since: Date): Promise<number> {
+  const [row] = await db
+    .select({ attempts: count() })
+    .from(checkoutAttempts)
+    .where(and(key, gt(checkoutAttempts.createdAt, since)))
+  const attempts = row?.attempts ?? 0
+  assert(Number.isInteger(attempts), 'count() is a whole number')
+  assert(attempts >= 0, 'count() is never negative')
+  return attempts
+}
+
+/**
+ * Retires the cart's old checkout before a new invoice is issued. When its
+ * invoice cannot be cancelled, checkout stops here: issuing a second invoice
+ * would leave two payable for one cart. The old order stays pending, and the
+ * customer's retry tries the cancel again.
+ */
+async function retireLiveCheckout(orderId: string): Promise<void> {
+  const result = await expireCheckout(orderId, 'cancelled')
+  if (result === 'cancel_failed') {
+    throw new Error('Өмнөх нэхэмжлэхийг цуцалж чадсангүй. Түр хүлээгээд дахин оролдоно уу.')
+  }
 }
 
 /**
@@ -399,6 +440,47 @@ async function reuseLiveCheckout(
   fingerprint: string,
   method: ProviderName,
 ): Promise<{ orderId: string; result: CheckoutResult } | null> {
+  const live = await findLiveCheckout(cartId)
+  if (live === null) return null
+
+  if (live.provider !== method) {
+    await retireLiveCheckout(live.id)
+    return null
+  }
+
+  if (!sameBasket(await liveBasketFingerprint(live.id, live.total), fingerprint)) {
+    await retireLiveCheckout(live.id)
+    return null
+  }
+
+  /**
+   * Rotate the token rather than trying to recover the old one — only its hash
+   * was ever stored. The customer is being handed a fresh link either way, and
+   * a link from a previous visit going dead is the correct outcome.
+   */
+  const { token, hash } = mintOrderToken()
+  await db.update(orders).set({ accessTokenHash: hash }).where(eq(orders.id, live.id))
+  setCheckoutCookie(live.orderNo, token)
+
+  return {
+    orderId: live.id,
+    result: {
+      orderNo: live.orderNo,
+      provider: method,
+      invoiceId: live.invoiceId,
+      qrText: live.payload.qrText,
+      qrImage: live.payload.qrImage,
+      shortUrl: live.payload.shortUrl,
+      links: live.payload.links,
+      total: live.total,
+      expiresAt: live.expiresAt.getTime(),
+      token,
+    },
+  }
+}
+
+/** This cart's unexpired pending order and its invoice, if it has one that can be shown again. */
+async function findLiveCheckout(cartId: string) {
   const [live] = await db
     .select({
       id: orders.id,
@@ -411,60 +493,27 @@ async function reuseLiveCheckout(
     })
     .from(orders)
     .innerJoin(payments, eq(payments.orderId, orders.id))
-    .where(
-      and(
-        eq(orders.cartId, cartId),
-        eq(orders.status, 'pending_payment'),
-        gt(orders.expiresAt, new Date()),
-      ),
-    )
+    .where(and(eq(orders.cartId, cartId), eq(orders.status, 'pending_payment'), gt(orders.expiresAt, new Date())))
     .limit(1)
 
   if (!live?.invoiceId || !live.payload) return null
+  return { ...live, invoiceId: live.invoiceId, payload: live.payload }
+}
 
-  if (live.provider !== method) {
-    await expireCheckout(live.id, 'cancelled')
-    return null
-  }
-
+/** The fingerprint of what a pending order froze, to compare with the cart now. */
+async function liveBasketFingerprint(orderId: string, total: number): Promise<string> {
   const lines = await db
     .select({ variantId: orderItems.variantId, qty: orderItems.qty })
     .from(orderItems)
-    .where(eq(orderItems.orderId, live.id))
+    .where(eq(orderItems.orderId, orderId))
+    .limit(ORDER_LINES_MAX + 1)
+  assert(lines.length > 0, 'an order has at least one line')
+  assert(lines.length <= ORDER_LINES_MAX, 'an order holds at most ORDER_LINES_MAX lines')
 
-  const existing = basketFingerprint(
-    lines.map((l) => ({ variantId: l.variantId ?? '', qty: l.qty })),
-    live.total,
+  // A line whose variant was since deleted fingerprints as '', which no cart
+  // line matches: the basket is different, and the old invoice is retired.
+  return basketFingerprint(
+    lines.map((line) => ({ variantId: line.variantId ?? '', qty: line.qty })),
+    total,
   )
-
-  if (!sameBasket(existing, fingerprint)) {
-    await expireCheckout(live.id, 'cancelled')
-    return null
-  }
-
-  /**
-   * Rotate the token rather than trying to recover the old one — only its hash
-   * was ever stored. The customer is being handed a fresh link either way, and
-   * a link from a previous visit going dead is the correct outcome.
-   */
-  const { token, hash } = mintOrderToken()
-  await db
-    .update(orders)
-    .set({ accessTokenHash: hash })
-    .where(eq(orders.id, live.id))
-
-  setCheckoutCookie(live.orderNo, token)
-
-  return {
-    orderId: live.id,
-    result: {
-      orderNo: live.orderNo,
-      provider: live.provider as ProviderName,
-      invoiceId: live.invoiceId,
-      ...live.payload,
-      total: live.total,
-      expiresAt: live.expiresAt.getTime(),
-      token,
-    },
-  }
 }

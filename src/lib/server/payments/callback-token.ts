@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
+import { assert } from '~/lib/assert'
 
 /**
  * Our callback URLs are public — each provider has to reach its own, so
@@ -52,6 +53,19 @@ export function buildCallbackUrl(
 }
 
 /**
+ * The token segment as the route receives it, minus anything StorePay glued
+ * onto the end. A real token is lowercase hex, so the leading hex run is the
+ * token; a trailing `&id=…` (appended without a `?`) is dropped. Anything
+ * that isn't a real token still fails verifyCallbackToken afterwards.
+ */
+export function cleanPathToken(raw: string): string {
+  const match = /^[0-9a-f]*/.exec(raw)
+  // `*` matches the empty string, so there is always a match at position 0.
+  assert(match !== null, 'the leading-hex pattern always matches')
+  return match[0]
+}
+
+/**
  * Same signed callback, with the order number and token in the path:
  * `<base>/<orderNo>/<token>`.
  *
@@ -60,16 +74,6 @@ export function buildCallbackUrl(
  * turns `t=abc` into `t=abc?id=123` and every genuine callback fails the HMAC.
  * Nothing it appends can reach the path.
  */
-/**
- * The token segment as the route receives it, minus anything StorePay glued
- * onto the end. A real token is lowercase hex, so the leading hex run is the
- * token; a trailing `&id=…` (appended without a `?`) is dropped. Anything
- * that isn't a real token still fails verifyCallbackToken afterwards.
- */
-export function cleanPathToken(raw: string): string {
-  return /^[0-9a-f]*/.exec(raw)![0]
-}
-
 export function buildPathCallbackUrl(
   appUrl: string,
   basePath: string,

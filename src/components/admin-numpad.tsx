@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
+import { assert } from '~/lib/assert'
 import { formatMnt, tugrikToMungu } from '~/lib/money'
 
 /** 10,000,000₮ — the invoice line's own unit-price ceiling, in tugrik. */
-const MAX_TUGRIK = 10_000_000
+const TUGRIK_MAX = 10_000_000
 
 /** No decimal key: both payment providers reject sub-tugrik amounts. */
 const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '000', '0', 'back'] as const
+type Key = (typeof KEYS)[number]
 
 /**
  * Amount entry for a custom invoice line, laid out for a tablet at the
@@ -31,37 +33,24 @@ export function Numpad({
 
   const tugrik = digits === '' ? 0 : Number(digits)
 
-  function press(key: (typeof KEYS)[number]) {
+  function press(key: Key) {
     setDigits((current) => {
       if (key === 'back') return current.slice(0, -1)
       const next = (current + key).replace(/^0+/, '')
-      return Number(next || '0') > MAX_TUGRIK ? current : next
+      return Number(next || '0') > TUGRIK_MAX ? current : next
     })
   }
 
   function submit() {
     if (tugrik <= 0) return
+    assert(Number.isInteger(tugrik), 'Numpad: amount is not whole tugrik')
+    assert(tugrik <= TUGRIK_MAX, 'Numpad: amount is over the line ceiling')
     onSubmit({ tugrik, name: name.trim() })
     setDigits('')
     setName('')
   }
 
-  useEffect(() => {
-    if (!captureKeys) return
-    const onKey = (event: KeyboardEvent) => {
-      // Typing a phone number or a qty elsewhere must not also type here.
-      const target = event.target as HTMLElement | null
-      if (target?.closest('input, textarea, select, [contenteditable]')) return
-      if (event.ctrlKey || event.metaKey || event.altKey) return
-      if (/^\d$/.test(event.key)) press(event.key as (typeof KEYS)[number])
-      else if (event.key === 'Backspace') press('back')
-      else if (event.key === 'Enter') submit()
-      else return
-      event.preventDefault()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  })
+  useNumpadKeys({ enabled: captureKeys, press, submit })
 
   return (
     <div className="numpad">
@@ -111,4 +100,38 @@ export function Numpad({
       </div>
     </div>
   )
+}
+
+/**
+ * Lets a physical keyboard drive the numpad: digits, Backspace, Enter.
+ *
+ * The listener is re-attached on every render, on purpose: `submit` reads the
+ * current amount and name, so a listener kept from an earlier render would
+ * submit a stale amount.
+ */
+function useNumpadKeys({
+  enabled,
+  press,
+  submit,
+}: {
+  enabled: boolean
+  press: (key: Key) => void
+  submit: () => void
+}) {
+  useEffect(() => {
+    if (!enabled) return
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Typing a phone number or a qty elsewhere must not also type here.
+      const target = event.target as HTMLElement | null
+      if (target?.closest('input, textarea, select, [contenteditable]')) return
+      if (event.ctrlKey || event.metaKey || event.altKey) return
+      if (/^\d$/.test(event.key)) press(event.key as Key)
+      else if (event.key === 'Backspace') press('back')
+      else if (event.key === 'Enter') submit()
+      else return
+      event.preventDefault()
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  })
 }

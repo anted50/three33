@@ -37,6 +37,6 @@ export const PAYMENT_METHOD_MIN_TOTAL: Partial<Record<InvoiceMethod, Mungu>> = {
 }
 
 export function meetsMinimum(method: InvoiceMethod, total: Mungu): boolean {
-  const min = PAYMENT_METHOD_MIN_TOTAL[method]
-  return min === undefined || total >= min
+  const minimumTotal = PAYMENT_METHOD_MIN_TOTAL[method]
+  return minimumTotal === undefined || total >= minimumTotal
 }

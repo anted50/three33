@@ -48,14 +48,8 @@ export function SearchBox({
 }: {
   placeholder?: string
 }) {
-  // On /products?q=… the field shows the query the page was searched by.
-  // `strict: false` because the box renders on routes with no `q` at all.
-  const search = useSearch({ strict: false }) as { q?: string }
-  const fromUrl = search.q ?? ''
-
-  const [value, setValue] = useState(fromUrl)
+  const [value, setValue] = useFieldValue()
   const [open, setOpen] = useState(false)
-  const [active, setActive] = useState(-1)
 
   const navigate = useNavigate()
   const rootRef = useRef<HTMLDivElement>(null)
@@ -65,17 +59,8 @@ export function SearchBox({
   const query = value.trim()
   const found = useProductSearch(query)
   const shown = found.products.slice(0, SEARCH_RESULTS_SHOWN_MAX)
-  // Reset by the effect below, but a render runs before it does.
-  const highlighted = active < shown.length ? active : -1
+  const { highlighted, setHighlighted, moveHighlight } = useHighlight(found, shown.length)
   const expanded = open && query !== ''
-
-  useEffect(() => {
-    setValue(fromUrl)
-  }, [fromUrl])
-
-  useEffect(() => {
-    setActive(-1)
-  }, [found.products])
 
   useCloseOnOutsidePointer({ open, rootRef, setOpen })
 
@@ -99,68 +84,37 @@ export function SearchBox({
       setOpen(false)
       return
     }
-    const count = shown.length
-    if (!expanded || count === 0) return
-    if (event.key === 'ArrowDown') {
+    if (!expanded) return
+    if (shown.length === 0) return
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault()
-      setActive((index) => (index + 1) % count)
-    } else if (event.key === 'ArrowUp') {
-      event.preventDefault()
-      setActive((index) => (index <= 0 ? count - 1 : index - 1))
+      moveHighlight(event.key === 'ArrowDown' ? 1 : -1)
     }
+  }
+
+  const onSubmit = () => {
+    const picked = highlighted >= 0 ? shown[highlighted] : undefined
+    if (picked) openProduct(picked.slug)
+    else showAll()
   }
 
   return (
     <div className="search-box" ref={rootRef}>
-      <form
-        className="search-box__field"
-        role="search"
-        onSubmit={(event) => {
-          event.preventDefault()
-          const picked = highlighted >= 0 ? shown[highlighted] : undefined
-          if (picked) openProduct(picked.slug)
-          else showAll()
+      <SearchField
+        inputRef={inputRef}
+        value={value}
+        placeholder={placeholder}
+        expanded={expanded}
+        listId={listId}
+        highlighted={highlighted}
+        onType={(typed) => {
+          setValue(typed)
+          setOpen(true)
         }}
-      >
-        <SearchIcon />
-        <input
-          ref={inputRef}
-          type="search"
-          value={value}
-          maxLength={SEARCH_QUERY_LENGTH_MAX}
-          placeholder={placeholder}
-          aria-label={placeholder}
-          role="combobox"
-          aria-expanded={expanded}
-          aria-controls={listId}
-          aria-autocomplete="list"
-          aria-activedescendant={
-            highlighted >= 0 ? `${listId}-${highlighted}` : undefined
-          }
-          autoComplete="off"
-          // enterKeyHint tells a phone keyboard to show "Search" not "Go".
-          enterKeyHint="search"
-          onChange={(event) => {
-            setValue(event.target.value)
-            setOpen(true)
-          }}
-          onFocus={() => setOpen(true)}
-          onKeyDown={onKeyDown}
-        />
-        {value && (
-          <button
-            type="button"
-            className="search__clear"
-            aria-label="Цэвэрлэх"
-            onClick={() => {
-              setValue('')
-              inputRef.current?.focus()
-            }}
-          >
-            ×
-          </button>
-        )}
-      </form>
+        onFocus={() => setOpen(true)}
+        onKeyDown={onKeyDown}
+        onSubmit={onSubmit}
+      />
 
       {expanded && (
         <SearchPanel
@@ -169,12 +123,134 @@ export function SearchBox({
           shown={shown}
           highlighted={highlighted}
           listId={listId}
-          onHighlight={setActive}
+          onHighlight={setHighlighted}
           onPick={close}
           onShowAll={showAll}
         />
       )}
     </div>
+  )
+}
+
+/**
+ * The field's text. On /products?q=… it starts as, and follows, the query
+ * the page was searched by. `strict: false` because the box renders on
+ * routes with no `q` at all.
+ */
+function useFieldValue() {
+  const search = useSearch({ strict: false }) as { q?: string }
+  const fromUrl = search.q ?? ''
+  const [value, setValue] = useState(fromUrl)
+
+  useEffect(() => {
+    setValue(fromUrl)
+  }, [fromUrl])
+
+  return [value, setValue] as const
+}
+
+/**
+ * Which of the shown rows ↓/↑ have highlighted, -1 for none. Reset whenever
+ * a new answer arrives: an index into the old list means nothing in the new.
+ */
+function useHighlight(found: ProductSearch, shownCount: number) {
+  const [active, setActive] = useState(-1)
+
+  useEffect(() => {
+    setActive(-1)
+  }, [found.products])
+
+  // Reset by the effect above, but a render runs before it does.
+  const highlighted = active < shownCount ? active : -1
+  const moveHighlight = (step: 1 | -1) =>
+    setActive((index) => nextHighlight(index, step, shownCount))
+
+  return { highlighted, setHighlighted: setActive, moveHighlight }
+}
+
+/**
+ * The row an arrow key moves the highlight to, wrapping at both ends. From
+ * no highlight (-1), down lands on the first row and up on the last.
+ */
+function nextHighlight(index: number, step: 1 | -1, count: number): number {
+  assert(count > 0, 'arrows move only through a non-empty list')
+  if (step === 1) return (index + 1) % count
+  if (index <= 0) return count - 1
+  return index - 1
+}
+
+/**
+ * The input itself, as an ARIA combobox over the panel's listbox, plus the
+ * × that clears it. Enter submits the form; SearchBox decides where it goes.
+ */
+function SearchField({
+  inputRef,
+  value,
+  placeholder,
+  expanded,
+  listId,
+  highlighted,
+  onType,
+  onFocus,
+  onKeyDown,
+  onSubmit,
+}: {
+  inputRef: RefObject<HTMLInputElement | null>
+  value: string
+  placeholder: string
+  expanded: boolean
+  listId: string
+  highlighted: number
+  onType: (value: string) => void
+  onFocus: () => void
+  onKeyDown: (event: KeyboardEvent<HTMLInputElement>) => void
+  onSubmit: () => void
+}) {
+  return (
+    <form
+      className="search-box__field"
+      role="search"
+      onSubmit={(event) => {
+        event.preventDefault()
+        onSubmit()
+      }}
+    >
+      <SearchIcon />
+      <input
+        ref={inputRef}
+        type="search"
+        value={value}
+        maxLength={SEARCH_QUERY_LENGTH_MAX}
+        placeholder={placeholder}
+        aria-label={placeholder}
+        role="combobox"
+        aria-expanded={expanded}
+        aria-controls={listId}
+        aria-autocomplete="list"
+        aria-activedescendant={
+          highlighted >= 0 ? `${listId}-${highlighted}` : undefined
+        }
+        autoComplete="off"
+        // enterKeyHint tells a phone keyboard to show "Search" not "Go".
+        enterKeyHint="search"
+        onChange={(event) => onType(event.target.value)}
+        onFocus={onFocus}
+        onKeyDown={onKeyDown}
+      />
+      {value && (
+        <button
+          type="button"
+          className="search__clear"
+          aria-label="Цэвэрлэх"
+          onClick={() => {
+            onType('')
+            inputRef.current?.focus()
+          }}
+        >
+          ×
+        </button>
+      )}
+    </form>
   )
 }
 

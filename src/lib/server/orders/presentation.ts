@@ -34,5 +34,5 @@ export const getInvoicePresentation = createServerFn({ method: 'GET' })
       .limit(1)
 
     if (!row?.payload) return null
-    return row.payload as InvoicePresentation
+    return row.payload
   })

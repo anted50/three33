@@ -29,9 +29,8 @@ export function localizeValidity(event: React.FormEvent<HTMLFormElement>) {
     target.setCustomValidity('Энэ талбарыг бөглөнө үү')
   } else if (validity.typeMismatch) {
     target.setCustomValidity('Зөв утга оруулна уу')
-  } else if (validity.patternMismatch || validity.tooShort || validity.tooLong) {
-    target.setCustomValidity('Оруулсан утга буруу байна')
   } else if (!validity.valid) {
+    // Pattern, length, range and every other failure share one message.
     target.setCustomValidity('Оруулсан утга буруу байна')
   }
 }

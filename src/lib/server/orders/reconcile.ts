@@ -1,7 +1,8 @@
 import { and, eq, lt } from 'drizzle-orm'
 import { db } from '~/db'
 import { orders } from '~/db/schema'
-import { expireCheckout } from './expire'
+import { assert } from '~/lib/assert'
+import { expireCheckout, retireOrder } from './expire'
 import { settleOrder, type SettleOutcome } from './settle'
 
 /**
@@ -19,10 +20,19 @@ import { settleOrder, type SettleOutcome } from './settle'
 /** Grace period: an invoice younger than this may simply still be in progress. */
 const STALE_AFTER_MS = 10 * 60 * 1000
 
+/**
+ * How long past its deadline the sweep keeps retrying a cancel the provider
+ * refuses. Each hourly run in that window also checks for payment, so money
+ * that arrives is settled. After it, the order is retired anyway, with a
+ * loud log line: an order must not sit pending forever because a provider
+ * keeps failing.
+ */
+const CANCEL_RETRY_WINDOW_MS = 24 * 60 * 60 * 1000
+
 /** Orders looked at per run; the next hourly run takes the rest. */
 const RECONCILE_ORDERS_MAX = 500
 
-/** Per-outcome counts: settleOrder's outcomes, plus `expired` and `error`. */
+/** Per-outcome counts: settleOrder's outcomes, plus `expired`, `cancel_failed` and `error`. */
 export interface ReconcileTally {
   checked: number
   error: number
@@ -48,6 +58,7 @@ export async function reconcileOrders(): Promise<ReconcileTally> {
     // Uses orders_status_created_at_idx.
     .limit(RECONCILE_ORDERS_MAX)
 
+  assert(stale.length <= RECONCILE_ORDERS_MAX, 'the sweep reads at most RECONCILE_ORDERS_MAX orders')
   const tally: ReconcileTally = { checked: stale.length, error: 0 }
 
   if (stale.length === 0) {
@@ -76,7 +87,7 @@ export async function reconcileOrders(): Promise<ReconcileTally> {
 async function reconcileOne(
   order: { orderNo: string; id: string; expiresAt: Date },
   now: number,
-): Promise<SettleOutcome | 'expired'> {
+): Promise<SettleOutcome | 'expired' | 'cancel_failed'> {
   const outcome = await settleOrder(order.orderNo)
 
   if (outcome === 'settled') {
@@ -95,14 +106,39 @@ async function reconcileOne(
    * Expiring it is the only outcome that terminates.
    */
   const lapsed = order.expiresAt.getTime() < now
-  if (lapsed && (outcome === 'unpaid' || outcome === 'not_found')) {
-    // expireCheckout cancels the invoice with the provider before touching
-    // our row. Skipping that is what left "expired" orders quietly payable
-    // for days.
-    if (await expireCheckout(order.id, 'expired')) {
-      console.log(`  ${order.orderNo}: expired, invoice cancelled`)
-      return 'expired'
-    }
+  const retirable = outcome === 'unpaid' || outcome === 'not_found'
+  if (!lapsed) return outcome
+  if (!retirable) return outcome
+
+  return expireLapsedOrder(order, now)
+}
+
+/** Cancels a lapsed order's invoice and retires the order. */
+async function expireLapsedOrder(
+  order: { orderNo: string; id: string; expiresAt: Date },
+  now: number,
+): Promise<'expired' | 'cancel_failed' | 'already_settled'> {
+  const result = await expireCheckout(order.id, 'expired')
+
+  if (result === 'retired') {
+    console.log(`  ${order.orderNo}: expired, invoice cancelled`)
+    return 'expired'
   }
-  return outcome
+  if (result === 'not_pending') {
+    return 'already_settled'
+  }
+
+  // cancel_failed: the order is still pending, so the next run tries again.
+  const lapsedForMs = now - order.expiresAt.getTime()
+  if (lapsedForMs < CANCEL_RETRY_WINDOW_MS) {
+    console.warn(`  ${order.orderNo}: invoice not cancelled, retrying next run`)
+    return 'cancel_failed'
+  }
+
+  // A day of failed cancels: give up on the provider and retire the order.
+  if (await retireOrder(order.id, 'expired')) {
+    console.error(`  ${order.orderNo}: EXPIRED WITHOUT CANCELLING ITS INVOICE — check it with the provider`)
+    return 'expired'
+  }
+  return 'already_settled'
 }

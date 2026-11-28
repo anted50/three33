@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { z } from 'zod'
-import { readBody } from '~/lib/server/api/input'
+import { mungu, readBody } from '~/lib/server/api/input'
 import { adminOnly } from '~/lib/server/api/middleware'
 import { handle } from '~/lib/server/api/respond'
 import { loadBookingFee, saveBookingFee } from '~/lib/server/settings'
@@ -15,7 +15,8 @@ import { loadBookingFee, saveBookingFee } from '~/lib/server/settings'
  * Auth   admin (adminOnly)
  * 200    { bookingFee }
  */
-const feeInput = z.object({ bookingFee: z.number().int().min(100).max(1_000_000_000_00).multipleOf(100) })
+/** Whole tugrik (1₮ = 100 mungu), at least 1₮. */
+const feeInput = z.object({ bookingFee: mungu.min(100).multipleOf(100) })
 
 export const Route = createFileRoute('/api/v1/admin/booking-fee')({
   server: {

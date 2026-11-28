@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { ProductCard } from './product-card'
 import type { ProductGroup } from '~/lib/server/products/queries'
 
+/** About how long a smooth scrollIntoView takes to land. */
+const SCROLL_SETTLE_MS = 600
+
 /**
  * The default /products view: a left rail of categories, all of them
  * rendered on the right in one long scroll — tapping a category smooth-
@@ -80,7 +83,7 @@ export function ProductGroups({ groups }: { groups: ProductGroup[] }) {
     window.clearTimeout(scrollSettleTimer.current)
     scrollSettleTimer.current = window.setTimeout(() => {
       clickScrolling.current = false
-    }, 600)
+    }, SCROLL_SETTLE_MS)
   }
 
   return (

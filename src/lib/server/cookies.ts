@@ -23,7 +23,7 @@ export const CART_COOKIE = 'uc_cart'
 /** Holds `orderNo:token` for the invoice currently awaiting payment. */
 export const CHECKOUT_COOKIE = 'uc_checkout'
 
-/** 30 days, matching the session row's TTL. */
+/** 30 days. auth/session.ts takes the session row's TTL from this. */
 export const SESSION_MAX_AGE = 60 * 60 * 24 * 30
 
 /** Guest carts outlive a browsing session but not forever. */

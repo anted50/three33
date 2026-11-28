@@ -2,6 +2,7 @@ import { getCookie } from '@tanstack/react-start/server'
 import { eq } from 'drizzle-orm'
 import { db } from '~/db'
 import { users } from '~/db/schema'
+import { assert } from '~/lib/assert'
 import { validateSessionToken } from '../auth/session'
 import { SESSION_COOKIE } from '../cookies'
 
@@ -12,7 +13,14 @@ import { SESSION_COOKIE } from '../cookies'
  * it at module scope.
  */
 
+/**
+ * Callers normalise first: emails are stored lower-cased (scripts/add-admin.ts)
+ * and compared exactly, so a mixed-case lookup would quietly find nobody.
+ */
 export async function findAdminByEmail(email: string) {
+  assert(email.length > 0, 'an admin lookup needs an email')
+  assert(email === email.trim().toLowerCase(), 'the email is normalised before lookup')
+
   const [user] = await db
     .select({
       id: users.id,
@@ -24,7 +32,8 @@ export async function findAdminByEmail(email: string) {
     .where(eq(users.email, email))
     .limit(1)
 
-  return user && user.role === 'admin' ? user : null
+  if (user && user.role === 'admin') return user
+  return null
 }
 
 /**

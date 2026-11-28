@@ -33,36 +33,54 @@ export interface PlannedWindow {
 export type DayPlan = { kind: 'open'; windows: PlannedWindow[] } | { kind: 'closed' }
 
 /**
- * Most days one request may touch, across all its entries: about three
- * months of planning at once. Also bounds the day list applySchedule deletes
- * by, which is one bound parameter per day.
+ * Most days one request may span, from its first day to its last, across all
+ * its entries: about three months of planning at once. The span, not just the
+ * count of touched days, is bounded because applySchedule answers with the
+ * schedule from the first touched day to the last (one getSchedule call,
+ * which allows the same many days). It also bounds the day list applySchedule
+ * deletes by, which is one bound parameter per day.
  */
 export const MAX_SCHEDULE_DAYS = 93
 assert(MAX_SCHEDULE_DAYS < D1_BOUND_PARAMETERS_MAX, 'the schedule day list must fit one D1 statement')
 
+/** Entries per request; the zod schema in schedule.ts allows the same. */
+export const MAX_SCHEDULE_ENTRIES = 50
+
 export function planSchedule(entries: ScheduleEntry[]): Map<IsoDate, DayPlan> {
+  assert(entries.length <= MAX_SCHEDULE_ENTRIES, 'the schedule input bounds its entries')
   const plan = new Map<IsoDate, DayPlan>()
 
   for (const entry of entries) {
-    if (entry.to < entry.from) throw badRequest(`"to" is before "from" (${entry.from})`)
-    if (dayCount(entry.from, entry.to) > MAX_SCHEDULE_DAYS) {
-      throw badRequest(`A schedule entry may cover at most ${MAX_SCHEDULE_DAYS} days`)
-    }
-
+    checkEntryRange(entry)
     for (const day of datesBetween(entry.from, entry.to, MAX_SCHEDULE_DAYS)) {
       const included = !entry.weekdays || entry.weekdays.includes(isoWeekday(day))
       if (included) merge(plan, day, toDayPlan(entry, day))
     }
     // Checked per entry, so a request spread over years stops early.
-    if (plan.size > MAX_SCHEDULE_DAYS) {
-      throw badRequest(`One schedule change may touch at most ${MAX_SCHEDULE_DAYS} days`)
-    }
+    checkPlanSpan(plan)
   }
 
   for (const [day, dayPlan] of plan) {
     if (dayPlan.kind === 'open') assertNoOverlap(day, dayPlan.windows)
   }
+  assert(plan.size <= MAX_SCHEDULE_DAYS, 'a bounded span holds at most that many days')
   return plan
+}
+
+function checkEntryRange(entry: ScheduleEntry): void {
+  if (entry.to < entry.from) throw badRequest(`"to" is before "from" (${entry.from})`)
+  if (dayCount(entry.from, entry.to) > MAX_SCHEDULE_DAYS) {
+    throw badRequest(`A schedule entry may cover at most ${MAX_SCHEDULE_DAYS} days`)
+  }
+}
+
+/** Two one-day entries a year apart touch two days but span a year. */
+function checkPlanSpan(plan: Map<IsoDate, DayPlan>): void {
+  if (plan.size === 0) return
+  const days = [...plan.keys()].sort()
+  if (dayCount(days[0]!, days.at(-1)!) > MAX_SCHEDULE_DAYS) {
+    throw badRequest(`One schedule change may span at most ${MAX_SCHEDULE_DAYS} days, first to last`)
+  }
 }
 
 function toDayPlan(entry: ScheduleEntry, day: IsoDate): DayPlan {
@@ -88,9 +106,10 @@ function merge(plan: Map<IsoDate, DayPlan>, day: IsoDate, next: DayPlan): void {
 }
 
 function assertNoOverlap(day: IsoDate, windows: PlannedWindow[]) {
+  assert(windows.length > 0, 'an open day has at least one window')
   const sorted = [...windows].sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime())
-  for (let i = 1; i < sorted.length; i++) {
-    if (sorted[i]!.startsAt < sorted[i - 1]!.endsAt) {
+  for (let index = 1; index < sorted.length; index++) {
+    if (sorted[index]!.startsAt < sorted[index - 1]!.endsAt) {
       throw badRequest(`Windows on ${day} overlap each other`)
     }
   }

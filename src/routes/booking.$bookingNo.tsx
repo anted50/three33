@@ -1,11 +1,12 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router'
 import { z } from 'zod'
 import { BookingBar, BookingShell, BookingTitle, PhoneCopyBar } from '~/components/booking/shell'
 import { PhoneCopy } from '~/components/phone-copy'
 import { CalendarIcon, CheckIcon, ClockIcon, PinIcon } from '~/components/booking/icons'
 import { SummaryCard } from '~/components/booking/summary'
-import { BookingApiError, bookingApi } from '~/lib/booking/api'
+import { assert } from '~/lib/assert'
+import { BookingApiError, bookingApi, loadFailureHint } from '~/lib/booking/api'
 import type { BookingStatus } from '~/lib/booking/api'
 import { dayTitle, formatDuration, localDateOf, slotTime } from '~/lib/booking/calendar'
 import { heldBooking } from '~/lib/booking/held'
@@ -39,29 +40,8 @@ export const Route = createFileRoute('/booking/$bookingNo')({
     }
   },
   component: BookingPage,
-  pendingComponent: () => (
-    <BookingShell band={false}>
-      <div className="bk-flow">
-        <div className="bk-flow__main">
-          <div className="bk-skeleton" aria-busy="true" aria-label="Ачаалж байна" />
-        </div>
-      </div>
-    </BookingShell>
-  ),
-  errorComponent: () => {
-    const router = useRouter()
-    return (
-      <BookingShell band={false}>
-        <div className="bk-center">
-          <h2 className="bk-center__title">Ачаалж чадсангүй</h2>
-          <p className="bk-muted">Интернэт холболтоо шалгаад дахин оролдоно уу.</p>
-          <div className="bk-center__actions">
-            <BookingBar label="Дахин оролдох" onClick={() => router.invalidate()} />
-          </div>
-        </div>
-      </BookingShell>
-    )
-  },
+  pendingComponent: BookingPageLoading,
+  errorComponent: BookingPageFailed,
 })
 
 /** Must match HOLD_MS in booking/book.ts; only drives the progress line. */
@@ -73,7 +53,14 @@ const HOLD_MS = 15 * 60 * 1000
  * asks QPay at most every 3 s per booking whatever this does.
  */
 const POLL_STEPS_MS = [3000, 3000, 3000, 3000, 3000, 6000, 6000, 12000]
-const pollDelay = (tick: number) => POLL_STEPS_MS[tick] ?? 15000
+const POLL_MAX_MS = 15000
+const pollDelay = (attempt: number) => POLL_STEPS_MS[attempt] ?? POLL_MAX_MS
+
+/**
+ * A backstop, not the usual stop: polling ends when the hold expires. A
+ * 15-minute hold is under 80 polls at this cadence.
+ */
+const POLL_ATTEMPTS_MAX = 120
 
 function BookingPage() {
   const data = Route.useLoaderData()
@@ -85,62 +72,15 @@ function BookingPage() {
 }
 
 function Payment({ booking, token }: { booking: BookingStatus; token: string }) {
-  const router = useRouter()
-  const [now, setNow] = useState(() => Date.now())
-  const [checking, setChecking] = useState(false)
-  const expiresAt = booking.expiresAt ? new Date(booking.expiresAt).getTime() : now
+  // A hold without an expiry cannot be paid: treat it as long lapsed.
+  const expiresAt = booking.expiresAt ? new Date(booking.expiresAt).getTime() : 0
+  const now = useClock(expiresAt)
   const expired = now >= expiresAt
-  const tick = useRef(0)
+  const { check, checking, checkNow } = useFeeCheck(booking.bookingNo, token)
 
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(timer)
-  }, [])
-
-  /** One check; a confirmed fee (or a swept hold) reloads the page's state. */
-  async function check(): Promise<boolean> {
-    try {
-      const result = await bookingApi.check(booking.bookingNo, token)
-      if (result.status !== 'pending') {
-        await router.invalidate()
-        return true
-      }
-    } catch (error) {
-      if (error instanceof BookingApiError && error.status === 404) {
-        await router.invalidate()
-        return true
-      }
-      // Anything else: keep polling; the next tick may well work.
-    }
-    return false
-  }
-
-  useEffect(() => {
-    if (expired) return
-    let cancelled = false
-    let timer: ReturnType<typeof setTimeout>
-    const poll = async () => {
-      if (await check()) return
-      if (!cancelled) timer = setTimeout(poll, pollDelay(tick.current++))
-    }
-    timer = setTimeout(poll, pollDelay(tick.current++))
-    return () => {
-      cancelled = true
-      clearTimeout(timer)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- restart only when expiry flips
-  }, [expired])
-
-  async function checkNow() {
-    setChecking(true)
-    await check()
-    setChecking(false)
-  }
+  useFeePolling(check, expired)
 
   if (expired) return <Expired onCheck={checkNow} checking={checking} />
-
-  const invoice = booking.invoice
-  const left = expiresAt - now
 
   return (
     <BookingShell>
@@ -148,40 +88,8 @@ function Payment({ booking, token }: { booking: BookingStatus; token: string }) 
         <div className="bk-flow__main">
           <section className="bk-sec">
             <BookingTitle>Төлбөр төлөх</BookingTitle>
-
-            <div className="bk-timer" role="timer" aria-label="Төлөх хугацаа">
-              <div className="bk-timer__left">
-                <span className="bk-timer__label">ЦАГИЙГ ТАНЬ ХАДГАЛЖ БАЙНА</span>
-                <span className="bk-timer__track">
-                  <i style={{ width: `${Math.max(0, Math.min(100, (left / HOLD_MS) * 100))}%` }} />
-                </span>
-              </div>
-              <b className="bk-timer__clock">{formatCountdown(left).padStart(5, '0')}</b>
-            </div>
-
-            <div className="bk-pay">
-              {invoice?.qrImage && (
-                <div className="bk-card bk-qr">
-                  <img src={`data:image/png;base64,${invoice.qrImage}`} alt={`QPay QR — ${booking.bookingNo}`} width={220} height={220} />
-                  <b className="bk-qr__amount">{formatMnt(booking.bookingFee)}</b>
-                </div>
-              )}
-              {invoice && invoice.links.length > 0 && (
-                <div className="bk-banks">
-                  <p className="bk-muted">Банкны аппаар төлөх</p>
-                  <ul className="bk-banks__list">
-                    {invoice.links.map((link) => (
-                      <li key={link.name}>
-                        <a href={link.link} className="bk-bank">
-                          {link.logo ? <img src={link.logo} alt="" width={48} height={48} loading="lazy" /> : <span className="bk-bank__dot" />}
-                          <span>{link.description || link.name}</span>
-                        </a>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
+            <HoldTimer msLeft={expiresAt - now} />
+            <FeeInvoice booking={booking} />
           </section>
         </div>
 
@@ -203,6 +111,133 @@ function Payment({ booking, token }: { booking: BookingStatus; token: string }) 
         </SummaryCard>
       </div>
     </BookingShell>
+  )
+}
+
+/** The current time, ticking each second until `until` has passed. */
+function useClock(until: number): number {
+  assert(Number.isFinite(until), 'a hold has a finite expiry')
+  const [now, setNow] = useState(() => Date.now())
+  const over = now >= until
+
+  useEffect(() => {
+    if (over) return
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [over])
+
+  return now
+}
+
+/**
+ * One fee check, for the poll and for the "Шалгах" button. A confirmed fee,
+ * a released hold or a swept one (404) reloads the route, whose loader then
+ * shows the right screen. Returns whether it did.
+ */
+function useFeeCheck(bookingNo: string, token: string) {
+  const router = useRouter()
+  const [checking, setChecking] = useState(false)
+
+  async function check(): Promise<boolean> {
+    try {
+      const result = await bookingApi.check(bookingNo, token)
+      if (result.status === 'pending') return false
+    } catch (error) {
+      const gone = error instanceof BookingApiError && error.status === 404
+      if (!gone) {
+        // Not fatal: the next check may well work.
+        console.warn('Booking fee check failed', error)
+        return false
+      }
+    }
+    await router.invalidate()
+    return true
+  }
+
+  async function checkNow() {
+    if (checking) return
+    setChecking(true)
+    try {
+      await check()
+    } finally {
+      setChecking(false)
+    }
+  }
+
+  return { check, checking, checkNow }
+}
+
+/** Checks on the backing-off cadence until the hold lapses or a check settles it. */
+function useFeePolling(check: () => Promise<boolean>, expired: boolean) {
+  useEffect(() => {
+    if (expired) return
+    let cancelled = false
+    let attempts = 0
+    let timer: ReturnType<typeof setTimeout> | undefined
+
+    const schedule = () => {
+      if (cancelled) return
+      if (attempts >= POLL_ATTEMPTS_MAX) return
+      timer = setTimeout(poll, pollDelay(attempts))
+    }
+    const poll = async () => {
+      attempts += 1
+      assert(attempts <= POLL_ATTEMPTS_MAX, 'polling is bounded')
+      if (await check()) return
+      schedule()
+    }
+
+    schedule()
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- restart only when expiry flips
+  }, [expired])
+}
+
+function HoldTimer({ msLeft }: { msLeft: number }) {
+  const share = Math.max(0, Math.min(100, (msLeft / HOLD_MS) * 100))
+  return (
+    <div className="bk-timer" role="timer" aria-label="Төлөх хугацаа">
+      <div className="bk-timer__left">
+        <span className="bk-timer__label">ЦАГИЙГ ТАНЬ ХАДГАЛЖ БАЙНА</span>
+        <span className="bk-timer__track">
+          <i style={{ width: `${share}%` }} />
+        </span>
+      </div>
+      <b className="bk-timer__clock">{formatCountdown(msLeft).padStart(5, '0')}</b>
+    </div>
+  )
+}
+
+/** The QR for desktop, the bank apps' deep links for a phone. */
+function FeeInvoice({ booking }: { booking: BookingStatus }) {
+  const invoice = booking.invoice
+  return (
+    <div className="bk-pay">
+      {invoice?.qrImage && (
+        <div className="bk-card bk-qr">
+          <img src={`data:image/png;base64,${invoice.qrImage}`} alt={`QPay QR — ${booking.bookingNo}`} width={220} height={220} />
+          <b className="bk-qr__amount">{formatMnt(booking.bookingFee)}</b>
+        </div>
+      )}
+      {invoice && invoice.links.length > 0 && (
+        <div className="bk-banks">
+          <p className="bk-muted">Банкны аппаар төлөх</p>
+          <ul className="bk-banks__list">
+            {invoice.links.map((link) => (
+              <li key={link.name}>
+                <a href={link.link} className="bk-bank">
+                  {link.logo ? <img src={link.logo} alt="" width={48} height={48} loading="lazy" /> : <span className="bk-bank__dot" />}
+                  <span>{link.description || link.name}</span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -309,6 +344,33 @@ function Cancelled({ booking }: { booking: BookingStatus }) {
           <Link to="/booking" className="bk-bar" data-tone="light">
             <span className="bk-bar__label">Шинэ цаг захиалах</span>
           </Link>
+        </div>
+      </div>
+    </BookingShell>
+  )
+}
+
+function BookingPageLoading() {
+  return (
+    <BookingShell band={false}>
+      <div className="bk-flow">
+        <div className="bk-flow__main">
+          <div className="bk-skeleton" aria-busy="true" aria-label="Ачаалж байна" />
+        </div>
+      </div>
+    </BookingShell>
+  )
+}
+
+function BookingPageFailed({ error }: { error: unknown }) {
+  const router = useRouter()
+  return (
+    <BookingShell band={false}>
+      <div className="bk-center">
+        <h2 className="bk-center__title">Ачаалж чадсангүй</h2>
+        <p className="bk-muted">{loadFailureHint(error)}</p>
+        <div className="bk-center__actions">
+          <BookingBar label="Дахин оролдох" onClick={() => void router.invalidate()} />
         </div>
       </div>
     </BookingShell>

@@ -20,6 +20,16 @@ export interface EmailMessage {
   inlineImages?: InlineImage[]
 }
 
+/**
+ * How long a send may take before it is abandoned. Resend answers in well
+ * under a second; without a bound a hung connection would hold the request
+ * (or the background task) open until the Worker itself is killed.
+ */
+const SEND_TIMEOUT_MS = 10_000
+
+/** Characters of Resend's error body kept in the thrown message. */
+const ERROR_BODY_LENGTH_MAX = 300
+
 /** Resend takes a single "Name <email>" string for each recipient, the same
  * shape EMAIL_FROM already uses. */
 function formatAddress(email: string, name?: string): string {
@@ -47,6 +57,7 @@ export async function sendEmail(message: EmailMessage): Promise<boolean> {
       Authorization: `Bearer ${env.RESEND_API_KEY}`,
       'Content-Type': 'application/json',
     },
+    signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
     body: JSON.stringify({
       from: env.EMAIL_FROM,
       to: [formatAddress(message.to.email, message.to.name)],
@@ -69,9 +80,11 @@ export async function sendEmail(message: EmailMessage): Promise<boolean> {
   })
 
   if (!response.ok) {
-    const body = await response.text().catch(() => '')
+    // The status is the error; the body only adds detail, so a body that
+    // cannot be read is noted in the message rather than replacing it.
+    const body = await response.text().catch((error: unknown) => `(body unreadable: ${String(error)})`)
     throw new Error(
-      `Resend send failed (${response.status}): ${body.slice(0, 300)}`,
+      `Resend send failed (${response.status}): ${body.slice(0, ERROR_BODY_LENGTH_MAX)}`,
     )
   }
 

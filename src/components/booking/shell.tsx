@@ -116,11 +116,11 @@ export const DESKTOP_QUERY = '(min-width: 1000px)'
 export function useIsDesktop(): boolean {
   const [desktop, setDesktop] = useState(() => typeof window !== 'undefined' && window.matchMedia(DESKTOP_QUERY).matches)
   useEffect(() => {
-    const mq = window.matchMedia(DESKTOP_QUERY)
-    const update = () => setDesktop(mq.matches)
+    const query = window.matchMedia(DESKTOP_QUERY)
+    const update = () => setDesktop(query.matches)
     update()
-    mq.addEventListener('change', update)
-    return () => mq.removeEventListener('change', update)
+    query.addEventListener('change', update)
+    return () => query.removeEventListener('change', update)
   }, [])
   return desktop
 }

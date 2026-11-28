@@ -32,13 +32,14 @@ export const Route = createFileRoute('/products/')({
       return { mode: 'grouped' as const, groups: await listGroupedProducts() }
     }
 
-    return {
-      mode: 'flat' as const,
-      categories: await listCategories(),
-      products: await listProducts({
+    // Independent reads, so side by side rather than one after the other.
+    const [categories, products] = await Promise.all([
+      listCategories(),
+      listProducts({
         data: { category: deps.category, q: deps.q, sort: deps.sort },
       }),
-    }
+    ])
+    return { mode: 'flat' as const, categories, products }
   },
   component: Listing,
 })

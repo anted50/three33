@@ -73,8 +73,14 @@
   white-space: nowrap;
 }
 
-.adm__logo span {
+.adm__logo em {
+  font-style: normal;
   color: var(--accent);
+}
+
+/* "T33": the logo while the sidebar is cut to its icons. */
+.adm__logomark {
+  display: none;
 }
 
 /*
@@ -165,17 +171,15 @@
 }
 
 /*
- * Every admin rail (the section nav, the orders status filter) is the
- * storefront's category rail (.pgroups__railitem in app.css): plain rows
- * split by hairlines, in spaced capitals, the open one filled red with white
- * text, so the one red block is always "you are here".
+ * The section nav is the storefront's category rail (.pgroups__railitem in
+ * app.css): plain rows split by hairlines, in spaced capitals, the open one
+ * filled red with white text, so the one red block is always "you are here".
  *
  * Capitals also centre the icons: lower-case Cyrillic sits low in its line
  * box, so a centred icon looked a pixel or two high beside it. Capitals fill
  * the middle of the box, where the icon's centre is.
  */
-.adm__nav a,
-.adm__railitem {
+.adm__nav a {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -204,15 +208,13 @@
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .adm__nav a:hover:not([data-active='true']),
-  .adm__railitem:hover:not([data-active='true']) {
+  .adm__nav a:hover:not([data-active='true']) {
     background: var(--surface);
     color: var(--ink);
   }
 }
 
-.adm__nav a[data-active='true'],
-.adm__railitem[data-active='true'] {
+.adm__nav a[data-active='true'] {
   background: var(--accent);
   border-bottom-color: var(--accent);
   color: #fff;
@@ -223,17 +225,17 @@
   color: #fff;
 }
 
-.adm__nav a:focus-visible,
-.adm__railitem:focus-visible {
+.adm__nav a:focus-visible {
   outline-offset: -3px;
 }
 
-.adm__nav a[data-active='true']:focus-visible,
-.adm__railitem[data-active='true']:focus-visible {
+.adm__nav a[data-active='true']:focus-visible {
   outline-color: #fff;
 }
 
 .adm__back {
+  display: flex;
+  gap: 8px;
   padding: 16px var(--gutter);
   font-size: 13px;
   white-space: nowrap;
@@ -249,19 +251,15 @@
   .adm__nav a {
     padding: 15px var(--gutter);
   }
-
-  /* The orders filter runs sideways on a phone, so the row carries one rule
-     under it all instead of each item drawing its own. */
-  .adm__railitem {
-    gap: 8px;
-    padding: 12px 10px;
-    font-size: 11px;
-    border-bottom: 0;
-  }
 }
 
 .adm__back:hover {
   color: var(--accent);
+}
+
+/* Collapses the sidebar; desktop only, a phone has the burger instead. */
+.adm__sidetoggle {
+  display: none;
 }
 
 /* --------------------------------------------------------------- topbar */
@@ -384,8 +382,31 @@
     display: none;
   }
 
-  .adm__back {
+  /* The toggle and the back link end the sidebar, the back link last. */
+  .adm__sidetoggle {
+    display: flex;
+    align-items: center;
+    gap: 12px;
     margin-top: auto;
+    /* Pulled into the gap above the back link, so the two read as a pair. */
+    margin-bottom: -12px;
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    color: var(--muted);
+    cursor: pointer;
+  }
+
+  .adm__sidetoggle:hover {
+    color: var(--accent);
+  }
+
+  .adm__back {
     padding: 0;
   }
 
@@ -399,6 +420,64 @@
 
   .adm__main {
     padding: 26px 32px 80px;
+  }
+
+  .adm {
+    transition: grid-template-columns 0.2s ease;
+  }
+
+  /* Labels shrink with the column as it narrows, instead of spilling over
+     the page; clip, not hidden, so the sidebar does not become a scroller. */
+  .adm__side {
+    overflow-x: clip;
+  }
+
+  /*
+   * Collapsed: the sidebar cut to a column of icons. The labels stay in the
+   * page for screen readers and the links carry a tooltip (title), so a
+   * section is still named. The attribute is on <html>, put there before
+   * paint by the shell's restore script.
+   */
+  :root[data-adm-side='collapsed'] .adm {
+    grid-template-columns: 64px 1fr;
+  }
+
+  :root[data-adm-side='collapsed'] .adm__side {
+    padding-inline: 8px;
+  }
+
+  :root[data-adm-side='collapsed'] .adm__logofull {
+    display: none;
+  }
+
+  :root[data-adm-side='collapsed'] .adm__logomark {
+    display: block;
+    text-align: center;
+  }
+
+  :root[data-adm-side='collapsed'] .adm__nav a {
+    justify-content: center;
+    padding-inline: 0;
+  }
+
+  :root[data-adm-side='collapsed'] .adm__sidetoggle,
+  :root[data-adm-side='collapsed'] .adm__back {
+    justify-content: center;
+  }
+
+  :root[data-adm-side='collapsed'] .adm__navlabel {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+@media (min-width: 900px) and (prefers-reduced-motion: reduce) {
+  .adm {
+    transition: none;
   }
 }
 
@@ -851,95 +930,105 @@
 /* -------------------------------------------------- order list filters */
 
 /*
- * Status rail on the left, the list and its date controls on the right —
- * the same shape as the storefront's .pgroups category rail, and for the
- * same reason: a fixed set of named buckets reads better as a vertical list
- * you scan than as a horizontal strip that scrolls its tail out of sight.
- *
- * Stacked until the shell itself goes two-column at 900px — a vertical rail
- * beside the table on a phone would leave the table nothing to sit in.
+ * Status filters as browser-style tabs over the list. The open tab is boxed,
+ * with the accent along its top and red text, and has no rule under it, so
+ * it runs into the list; the closed ones sit on the rule. A left rail here
+ * read as a second sidebar beside the section nav.
  */
-.adm__withrail {
+.adm__tabbed {
   display: flex;
   flex-direction: column;
-  align-items: stretch;
-  gap: 0;
-}
-
-/* The rail and, on a phone, the scroll track under it (ScrollTrack). */
-.adm__railwrap {
-  flex: 0 0 auto;
   min-width: 0;
-  margin-bottom: 12px;
 }
 
-/* No frame: plain rows on the page, like the storefront rail. */
-.adm__rail {
+/* The tabs and the scroll track under them (ScrollTrack). */
+.adm__tabswrap {
+  min-width: 0;
+  margin-bottom: 16px;
+}
+
+.adm__tabs {
   display: flex;
-  /* Horizontal until there's room for a column — on a phone the rail would
-     otherwise eat a third of a screen the table already needs. The track
-     under it stands in for the scrollbar phones hide. */
+  /* Sideways past the edge when they don't fit, with no scrollbar: the
+     track under them stands in for it, phones hiding theirs anyway. */
   overflow-x: auto;
   scrollbar-width: none;
 }
 
-.adm__rail::-webkit-scrollbar {
+.adm__tabs::-webkit-scrollbar {
   display: none;
 }
 
-/* Look shared with the section nav; see .adm__nav a above. */
-.adm__railitem {
-  flex: 0 0 auto;
+/* The rule runs on past the last tab to the edge, so the row reads as one
+   line with the open tab standing up out of it. */
+.adm__tabs::after {
+  content: '';
+  flex: 1 0 var(--gutter);
+  border-bottom: 1px solid var(--border);
 }
 
-.adm__railmain {
-  flex: 1;
+.adm__tab {
+  flex: 0 0 auto;
+  padding: 11px 16px 10px;
+  border: 1px solid transparent;
+  border-top-width: 2px;
+  border-bottom-color: var(--border);
+  border-radius: var(--radius) var(--radius) 0 0;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.35;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--muted);
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .adm__tab:hover:not([data-active='true']) {
+    background: var(--surface);
+    color: var(--ink);
+  }
+}
+
+.adm__tab[data-active='true'] {
+  border-color: var(--border);
+  border-top-color: var(--accent);
+  border-bottom-color: transparent;
+  background: #fff;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.adm__tab:focus-visible {
+  outline-offset: -3px;
+}
+
+/* The tabs draw their own rule; the track is only the thumb's lane. */
+.adm__tabswrap .scrolltrack {
+  border-top: 0;
+}
+
+@media (max-width: 899px) {
+  .adm__tab {
+    padding: 10px 12px 9px;
+    font-size: 11px;
+  }
+}
+
+.adm__tabpanel {
   min-width: 0;
 }
 
 /*
- * The rail costs the table ~186px, which is enough to push this seven-column
- * table past its card somewhere between 900px and ~1420px of viewport — a
- * 13" laptop lands right in it. .adm__card clips (it has overflow: hidden to
- * keep content inside its rounded corners), so the Төлөв column would simply
- * disappear. Scroll this one instead of hiding the end of the row.
+ * A seven-column table can outgrow its card on a laptop. .adm__card clips
+ * (overflow: hidden keeps content inside its rounded corners), so the
+ * Төлөв column would simply disappear. Scroll this one instead.
  */
-.adm__railmain .adm__card {
+.adm__tabpanel .adm__card {
   overflow-x: auto;
-}
-
-@media (min-width: 900px) {
-  .adm__withrail {
-    flex-direction: row;
-    align-items: flex-start;
-    gap: 16px;
-  }
-
-  /* The rail itself is the flex item again, so it can stick. */
-  .adm__railwrap {
-    display: contents;
-  }
-
-  .adm__railwrap .scrolltrack {
-    display: none;
-  }
-
-  .adm__rail {
-    flex: 0 0 auto;
-    flex-direction: column;
-    /* Fits "Хугацаа дууссан", the longest label, on one line. */
-    width: 170px;
-    overflow-x: visible;
-    /* Follows the table down a long page, the way the storefront rail does.
-       A plain 16px offset is enough — nothing above it is sticky, so there
-       is no header height to clear. */
-    position: sticky;
-    top: 16px;
-  }
-
-  .adm__railitem {
-    white-space: normal;
-  }
 }
 
 /* Date range and the export button in one row — both are "what set of orders

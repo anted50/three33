@@ -16,6 +16,7 @@ import { isGuardFailure } from '../api/db-errors'
 import { inBackground } from '../background'
 import type { SettlementResult } from '../payments/provider'
 import { getProvider } from '../payments/registry'
+import { ORDER_LINES_MAX } from './limits'
 import { sendOrderReceipt } from './receipt'
 import { assertTransition } from './state'
 
@@ -83,6 +84,9 @@ export async function settleOrder(orderNo: string): Promise<SettleOutcome> {
       await db.update(payments).set({ status: 'pending', rawCallback: result.raw }).where(eq(payments.id, payment.id))
       return 'underpaid'
     case 'paid':
+      // Paired with decideSettlement's own `>=`: a provider is never trusted
+      // to have compared the amount for us.
+      assert(result.paidAmount >= order.total, 'a paid check covers the order total')
       return applyPayment(orderNo, order, payment.id, result)
     default:
       return assertNever(result.outcome, 'unknown settlement outcome')
@@ -185,14 +189,9 @@ export async function markPaid(
    */
   knownLines?: ReadonlyArray<{ variantId: string | null; qty: number }>,
 ): Promise<Statement[]> {
-  const lines =
-    knownLines ??
-    (await db
-      .select({ variantId: orderItems.variantId, qty: orderItems.qty })
-      .from(orderItems)
-      .where(eq(orderItems.orderId, order.id)))
-
+  const lines = knownLines ?? (await readOrderLines(order.id))
   assert(lines.length > 0, 'an order has at least one line')
+  assert(lines.length <= ORDER_LINES_MAX, 'an order holds at most ORDER_LINES_MAX lines')
   const now = new Date()
 
   /**
@@ -216,40 +215,48 @@ export async function markPaid(
     db.update(orders).set({ status: 'paid' }).where(eq(orders.id, order.id)),
   )
 
-  /**
-   * NOW the cart is emptied — not at checkout.
-   *
-   * Clearing it when the invoice was created is what made an abandoned
-   * payment unrecoverable: the customer closed the QR and came back to
-   * nothing to retry with. Keeping it until the money lands costs nothing,
-   * because one cart can only ever hold one live invoice (see create.ts),
-   * so an unchanged basket cannot be paid for twice.
-   *
-   * Scoped to the variants actually bought, so anything the customer added
-   * while the invoice was open survives. Reached through orders.cart_id
-   * rather than a cookie, because settlement usually runs from the QPay
-   * callback or the sweep, where there is no request to read one from.
-   */
   const boughtVariantIds = lines
     .map((line) => line.variantId)
     .filter((id): id is string => id !== null)
 
-  // One parameter per variant plus the cart id; carts are capped well below.
-  assert(boughtVariantIds.length < D1_BOUND_PARAMETERS_MAX, 'bought variants fit one D1 statement')
   if (order.cartId && boughtVariantIds.length > 0) {
-    statements.push(
-      db
-        .delete(cartItems)
-        .where(
-          and(
-            eq(cartItems.cartId, order.cartId),
-            inArray(cartItems.variantId, boughtVariantIds),
-          ),
-        ),
-    )
+    statements.push(clearBoughtCartLines(order.cartId, boughtVariantIds))
   }
 
   return statements
+}
+
+/** An order's lines, for the stock move. Bounded: see ORDER_LINES_MAX. */
+async function readOrderLines(orderId: string): Promise<Array<{ variantId: string | null; qty: number }>> {
+  return db
+    .select({ variantId: orderItems.variantId, qty: orderItems.qty })
+    .from(orderItems)
+    .where(eq(orderItems.orderId, orderId))
+    .limit(ORDER_LINES_MAX + 1)
+}
+
+/**
+ * NOW the cart is emptied — not at checkout.
+ *
+ * Clearing it when the invoice was created is what made an abandoned
+ * payment unrecoverable: the customer closed the QR and came back to
+ * nothing to retry with. Keeping it until the money lands costs nothing,
+ * because one cart can only ever hold one live invoice (see create.ts),
+ * so an unchanged basket cannot be paid for twice.
+ *
+ * Scoped to the variants actually bought, so anything the customer added
+ * while the invoice was open survives. Reached through orders.cart_id
+ * rather than a cookie, because settlement usually runs from the QPay
+ * callback or the sweep, where there is no request to read one from.
+ */
+function clearBoughtCartLines(cartId: string, boughtVariantIds: readonly string[]): Statement {
+  assert(boughtVariantIds.length > 0, 'clearing a cart names at least one variant')
+  // One parameter per variant plus the cart id. Only checkout orders have a
+  // cart, and those are capped at MAX_CART_LINES, well below the limit.
+  assert(boughtVariantIds.length + 1 <= D1_BOUND_PARAMETERS_MAX, 'bought variants fit one D1 statement')
+  return db
+    .delete(cartItems)
+    .where(and(eq(cartItems.cartId, cartId), inArray(cartItems.variantId, [...boughtVariantIds])))
 }
 
 /**

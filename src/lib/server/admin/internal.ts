@@ -24,10 +24,14 @@ import {
   productVariants,
   products,
   categories,
+  type OrderStatus,
 } from '~/db/schema'
 import { assertAdminSession } from './auth-internal'
 import { slugify } from '~/lib/slugify'
+import { sumMungu } from '~/lib/money'
 import { sizeSuffix } from '~/lib/product-name'
+import { MAX_CART_LINES } from '../cart/pricing'
+import { INVOICE_LINES_MAX } from './invoice-lines'
 
 /**
  * Server-only admin internals. Never imported from a route — see
@@ -61,22 +65,64 @@ export const ORDER_EXPORT_ROWS_MAX = 10_000
 /** Slug candidates tried for a split product: base, base-2 … base-N. */
 const SLUG_CANDIDATES_MAX = 50
 
-/** Turns sparse `YYYY-MM-DD -> value` rows into one entry per day so far. */
+/**
+ * Caps on the admin lists that load whole, with no pagination. Far above what
+ * the shop holds; past one, the page fails with a clear error instead of
+ * quietly truncating or loading an unbounded result into the Worker.
+ */
+const PRODUCT_LIST_ROWS_MAX = 2_000
+const VARIANT_LIST_ROWS_MAX = 5_000
+const CATEGORY_LIST_ROWS_MAX = 500
+
+/** Per product. Images are capped at 10 on save, but imported ones are not. */
+const PRODUCT_VARIANTS_MAX = 500
+const PRODUCT_IMAGES_MAX = 100
+
+/** Both ways an order gets lines are capped: the cart and the admin invoice. */
+const ORDER_ITEMS_MAX = Math.max(MAX_CART_LINES, INVOICE_LINES_MAX)
+
+const ORDERS_PAGE_SIZE_DEFAULT = 50
+const ORDERS_PAGE_SIZE_MAX = 100
+
+/** The longest month; bounds the dashboard's per-day series. */
+const MONTH_DAYS_MAX = 31
+
+/**
+ * Throws once a whole-list read comes back past its cap. Queries ask for one
+ * row more than the cap, so "exactly the cap" and "more than fits" differ.
+ * An operating error, not an assertion: the data grew, the code is not wrong.
+ */
+function enforceListCap<Row>(rows: Row[], rowsMax: number, listName: string): Row[] {
+  if (rows.length > rowsMax) {
+    throw new Error(`${listName}: ${rowsMax}-аас олон мөр байна — жагсаалтыг хуудаслах шаардлагатай`)
+  }
+  return rows
+}
+
+/**
+ * Turns sparse `YYYY-MM-DD -> value` rows into one entry per day, from the
+ * first of the month up to `now`. `now` is the same instant monthStart was
+ * taken from, so a request that straddles midnight on the last of the month
+ * still draws one month, not 32 days.
+ */
 function fillDays(
   rows: Array<{ day: string; value: number }>,
-  monthStart: Date,
+  range: { monthStart: Date; now: Date },
 ): number[] {
-  const byDay = new Map(rows.map((r) => [r.day.slice(0, 10), r.value]))
+  assert(range.monthStart.getUTCDate() === 1, 'the series starts on the first of a month')
+  assert(range.monthStart <= range.now, 'the month has started')
+
+  const valueByDay = new Map(rows.map((row) => [row.day.slice(0, 10), row.value]))
   const days: number[] = []
 
-  const cursor = new Date(monthStart)
-  const today = new Date()
-
-  while (cursor <= today) {
-    days.push(byDay.get(cursor.toISOString().slice(0, 10)) ?? 0)
+  const cursor = new Date(range.monthStart)
+  while (cursor <= range.now) {
+    assert(days.length < MONTH_DAYS_MAX, 'a month has at most 31 days')
+    days.push(valueByDay.get(cursor.toISOString().slice(0, 10)) ?? 0)
     cursor.setUTCDate(cursor.getUTCDate() + 1)
   }
 
+  assert(days.length > 0, 'the series includes today')
   return days
 }
 
@@ -88,6 +134,13 @@ function fillDays(
 function utcDay(column: typeof orders.createdAt) {
   return sql<string>`strftime('%Y-%m-%d', ${column} / 1000, 'unixepoch')`
 }
+
+/**
+ * `orders.id` with its table name spelled out. Drizzle prints the columns of
+ * a single-table select bare, so inside a correlated subquery a bare "id"
+ * resolves to the subquery's own table (order_items.id) and matches nothing.
+ */
+const outerOrderId = sql`${orders}.${sql.identifier(orders.id.name)}`
 
 /**
  * Every dashboard read, built here and run as one D1 batch: one round trip
@@ -111,29 +164,7 @@ function dashboardQueries(monthStart: Date) {
     db.select({ day: utcDay(orders.createdAt), value: distinctPhones }).from(orders).where(earnedThisMonth).groupBy(utcDay(orders.createdAt)),
     db.select({ n: count(orders.id) }).from(orders).where(eq(orders.status, 'pending_payment')),
     db.select({ n: count(orders.id) }).from(orders).where(inArray(orders.status, ['paid', 'processing'])),
-    db
-      .select({
-        orderNo: orders.orderNo,
-        status: orders.status,
-        total: orders.total,
-        createdAt: orders.createdAt,
-        address: orders.shippingAddressSnapshot,
-        // The frame's "Item" column shows what was bought, not the order number.
-        item: sql<string | null>`(
-          select ${orderItems.nameSnapshot}
-          from ${orderItems}
-          where ${orderItems.orderId} = ${orders.id}
-          order by ${orderItems.id}
-          limit 1
-        )`,
-        lines: sql<number>`(
-          select count(*) from ${orderItems}
-          where ${orderItems.orderId} = ${orders.id}
-        )`,
-      })
-      .from(orders)
-      .orderBy(desc(orders.createdAt))
-      .limit(5),
+    recentOrdersQuery(),
     /** Stock that will run out first — the thing a shop actually needs to see. */
     db
       .select({
@@ -163,29 +194,59 @@ function dashboardQueries(monthStart: Date) {
   ] as const
 }
 
+/** The five newest orders, for the dashboard's recent-orders table. */
+function recentOrdersQuery() {
+  return db
+    .select({
+      orderNo: orders.orderNo,
+      status: orders.status,
+      total: orders.total,
+      createdAt: orders.createdAt,
+      address: orders.shippingAddressSnapshot,
+      // The frame's "Item" column shows what was bought, not the order
+      // number: the first line entered (rowid order; the ids are random).
+      item: sql<string | null>`(
+        select ${orderItems.nameSnapshot}
+        from ${orderItems}
+        where ${orderItems.orderId} = ${outerOrderId}
+        order by ${orderItems}.rowid
+        limit 1
+      )`,
+      lines: sql<number>`(
+        select count(*) from ${orderItems}
+        where ${orderItems.orderId} = ${outerOrderId}
+      )`,
+    })
+    .from(orders)
+    .orderBy(desc(orders.createdAt))
+    .limit(5)
+}
+
 export async function dashboard() {
   await assertAdmin()
 
-  const monthStart = new Date()
+  const now = new Date()
+  const monthStart = new Date(now)
   monthStart.setUTCDate(1)
   monthStart.setUTCHours(0, 0, 0, 0)
+  const range = { monthStart, now }
 
   const [[revenue], salesByDay, [customers], customersByDay, [pending], [toFulfil], recent, lowStock, best] =
     await db.batch(dashboardQueries(monthStart))
 
-  const bestRows = best.map((b) => ({ ...b, revenue: Number(b.revenue) }))
+  const bestRows = best.map((row) => ({ ...row, revenue: Number(row.revenue) }))
   const ordersThisMonth = revenue?.orders ?? 0
 
   return {
     revenueThisMonth: Number(revenue?.total ?? 0),
     ordersThisMonth,
     salesSeries: fillDays(
-      salesByDay.map((r) => ({ day: r.day, value: Number(r.value) })),
-      monthStart,
+      salesByDay.map((row) => ({ day: row.day, value: Number(row.value) })),
+      range,
     ),
 
     customersThisMonth: customers?.n ?? 0,
-    customerSeries: fillDays(customersByDay, monthStart),
+    customerSeries: fillDays(customersByDay, range),
 
     orderGoal: MONTHLY_ORDER_GOAL,
     ordersLeft: Math.max(MONTHLY_ORDER_GOAL - ordersThisMonth, 0),
@@ -196,7 +257,8 @@ export async function dashboard() {
     recent,
     lowStock,
     best: bestRows,
-    bestTotal: bestRows.reduce((sum, b) => sum + b.revenue, 0),
+    // Mungu, summed with the integer and overflow checks money needs.
+    bestTotal: sumMungu(bestRows.map((row) => row.revenue)),
   }
 }
 
@@ -209,12 +271,6 @@ export interface OrdersFilter {
 }
 
 /**
- * Runs on orders_status_created_at_idx when a status is given — the common
- * case, since the order list defaults to a status chip. A date-only filter
- * with no status falls back to a plain scan, which is fine at the order
- * volumes this shop sees; worth a dedicated index only if that stops holding.
- */
-/**
  * Checkouts nobody paid for. Kept out of the default view: a rate-limited
  * public endpoint still mints one of these for every abandoned or junk
  * attempt, and a list where real orders have to be picked out from among them
@@ -223,10 +279,18 @@ export interface OrdersFilter {
  */
 const ABANDONED = ['expired', 'cancelled', 'pending_payment'] as const
 
+/**
+ * Runs on orders_status_created_at_idx when a status is given — the common
+ * case, since the order list defaults to a status chip. A date-only filter
+ * with no status falls back to a plain scan, which is fine at the order
+ * volumes this shop sees; worth a dedicated index only if that stops holding.
+ */
 function ordersWhereClause(filter: OrdersFilter) {
   const clauses = []
   if (filter.status && filter.status !== 'all') {
-    clauses.push(eq(orders.status, filter.status as never))
+    // Not checked against the enum: an unknown status (a stale link) simply
+    // matches no orders, which is what the list should show for it.
+    clauses.push(eq(orders.status, filter.status as OrderStatus))
   } else {
     // Reachable through their own status chips, just not mixed into "all".
     clauses.push(notInArray(orders.status, [...ABANDONED]))
@@ -237,7 +301,9 @@ function ordersWhereClause(filter: OrdersFilter) {
   if (filter.dateTo) {
     clauses.push(lte(orders.createdAt, new Date(`${filter.dateTo}T23:59:59.999Z`)))
   }
-  return clauses.length > 0 ? and(...clauses) : undefined
+  // The status clause is always present, so the list is never empty.
+  assert(clauses.length > 0, 'the orders filter always has a status clause')
+  return and(...clauses)
 }
 
 function ordersQuery(where: ReturnType<typeof ordersWhereClause>) {
@@ -249,22 +315,15 @@ function ordersQuery(where: ReturnType<typeof ordersWhereClause>) {
       createdAt: orders.createdAt,
       phone: orders.contactPhone,
       address: orders.shippingAddressSnapshot,
-      // Join + aggregate rather than a correlated subquery: the subquery form
-      // returned 0 for every row here, and this is clearer besides.
+      // Join + aggregate rather than a correlated subquery, which needs its
+      // outer column spelled out to work at all (see outerOrderId).
       items: sql<number>`coalesce(sum(${orderItems.qty}), 0)`,
     })
     .from(orders)
     .leftJoin(orderItems, eq(orderItems.orderId, orders.id))
     .where(where)
-    .groupBy(
-      orders.id,
-      orders.orderNo,
-      orders.status,
-      orders.total,
-      orders.createdAt,
-      orders.contactPhone,
-      orders.shippingAddressSnapshot,
-    )
+    // The primary key alone: every other selected column depends on it.
+    .groupBy(orders.id)
     .orderBy(desc(orders.createdAt))
 }
 
@@ -273,21 +332,28 @@ export async function listOrders(
 ) {
   await assertAdmin()
 
-  const page = filter.page && filter.page > 0 ? filter.page : 1
-  const pageSize =
-    filter.pageSize && filter.pageSize > 0 ? Math.min(filter.pageSize, 100) : 50
+  // getOrdersInput has already range-checked both; these are the defaults.
+  const page = filter.page ?? 1
+  const pageSize = Math.min(filter.pageSize ?? ORDERS_PAGE_SIZE_DEFAULT, ORDERS_PAGE_SIZE_MAX)
+  assert(Number.isInteger(page), 'page is a whole number')
+  assert(page >= 1, 'pages count from 1')
+  assert(Number.isInteger(pageSize), 'pageSize is a whole number')
+  assert(pageSize >= 1, 'a page holds at least one row')
+  const offset = (page - 1) * pageSize
+  assert(Number.isSafeInteger(offset), 'the page offset is a safe integer')
+
   const where = ordersWhereClause(filter)
 
-  // One round trip for the page, one for the count it's paginating against —
-  // not the count query issued once per page-size guess.
-  const [rows, [totalRow]] = await Promise.all([
-    ordersQuery(where)
-      .limit(pageSize)
-      .offset((page - 1) * pageSize),
+  // One batch for the page and the count it paginates against: a single
+  // round trip, and both read the same snapshot, so they cannot disagree.
+  const [rows, [totalRow]] = await db.batch([
+    ordersQuery(where).limit(pageSize).offset(offset),
     db.select({ value: count(orders.id) }).from(orders).where(where),
   ])
+  assert(rows.length <= pageSize, 'the page holds at most pageSize rows')
+  assert(totalRow !== undefined, 'count() always returns a row')
 
-  return { rows, total: totalRow?.value ?? 0, page, pageSize }
+  return { rows, total: totalRow.value, page, pageSize }
 }
 
 /**
@@ -307,52 +373,59 @@ export async function listOrdersForExport(filter: OrdersFilter) {
 
 export async function orderDetail(orderNo: string) {
   await assertAdmin()
+  assert(orderNo.length > 0, 'an order is looked up by its number')
 
   const [order] = await db
-    .select()
+    .select({
+      id: orders.id,
+      orderNo: orders.orderNo,
+      status: orders.status,
+      subtotal: orders.subtotal,
+      shippingFee: orders.shippingFee,
+      total: orders.total,
+      contactPhone: orders.contactPhone,
+      note: orders.note,
+      address: orders.shippingAddressSnapshot,
+      createdAt: orders.createdAt,
+    })
     .from(orders)
     .where(eq(orders.orderNo, orderNo))
     .limit(1)
 
   if (!order) return null
 
-  const items = await db
-    .select({
-      name: orderItems.nameSnapshot,
-      sku: orderItems.skuSnapshot,
-      unitPrice: orderItems.unitPrice,
-      qty: orderItems.qty,
-    })
-    .from(orderItems)
-    .where(eq(orderItems.orderId, order.id))
-    .orderBy(asc(orderItems.id))
+  // The lines and the payment in one round trip.
+  const [items, [payment]] = await db.batch([
+    db
+      .select({
+        name: orderItems.nameSnapshot,
+        sku: orderItems.skuSnapshot,
+        unitPrice: orderItems.unitPrice,
+        qty: orderItems.qty,
+      })
+      .from(orderItems)
+      .where(eq(orderItems.orderId, order.id))
+      // Insertion order, i.e. the order the lines were entered in. The ids
+      // are random UUIDs, so ordering by them shuffled the lines.
+      .orderBy(asc(sql`${orderItems}.rowid`))
+      .limit(ORDER_ITEMS_MAX + 1),
+    db
+      .select({
+        status: payments.status,
+        provider: payments.provider,
+        invoiceId: payments.invoiceId,
+        paymentId: payments.paymentId,
+        amount: payments.amount,
+        paidAt: payments.paidAt,
+      })
+      .from(payments)
+      .where(eq(payments.orderId, order.id))
+      .limit(1),
+  ])
+  assert(items.length <= ORDER_ITEMS_MAX, 'an order holds at most ORDER_ITEMS_MAX lines')
 
-  const [payment] = await db
-    .select({
-      status: payments.status,
-      provider: payments.provider,
-      invoiceId: payments.invoiceId,
-      paymentId: payments.paymentId,
-      amount: payments.amount,
-      paidAt: payments.paidAt,
-    })
-    .from(payments)
-    .where(eq(payments.orderId, order.id))
-    .limit(1)
-
-  return {
-    orderNo: order.orderNo,
-    status: order.status,
-    subtotal: order.subtotal,
-    shippingFee: order.shippingFee,
-    total: order.total,
-    contactPhone: order.contactPhone,
-    note: order.note,
-    address: order.shippingAddressSnapshot,
-    createdAt: order.createdAt,
-    items,
-    payment: payment ?? null,
-  }
+  const { id: _id, ...head } = order
+  return { ...head, items, payment: payment ?? null }
 }
 
 export async function listProducts() {
@@ -371,14 +444,18 @@ export async function listProducts() {
     .from(products)
     .leftJoin(productVariants, eq(productVariants.productId, products.id))
     .leftJoin(categories, eq(categories.id, products.categoryId))
-    .groupBy(products.id, products.slug, products.nameMn, products.status, categories.nameMn)
+    // The primary key alone: every other selected column depends on it.
+    .groupBy(products.id)
     .orderBy(asc(products.nameMn))
+    .limit(PRODUCT_LIST_ROWS_MAX + 1)
 
-  return rows.map((r) => ({ ...r, minPrice: Number(r.minPrice) }))
+  enforceListCap(rows, PRODUCT_LIST_ROWS_MAX, 'Бүтээгдэхүүн')
+  return rows.map((row) => ({ ...row, minPrice: Number(row.minPrice) }))
 }
 
 export async function productDetail(slug: string) {
   await assertAdmin()
+  assert(slug.length > 0, 'a product is looked up by its slug')
 
   const [product] = await db
     .select({
@@ -397,24 +474,30 @@ export async function productDetail(slug: string) {
 
   if (!product) return null
 
-  const variants = await db
-    .select({
-      id: productVariants.id,
-      sku: productVariants.sku,
-      size: productVariants.size,
-      price: productVariants.price,
-      stockQty: productVariants.stockQty,
-      isActive: productVariants.isActive,
-    })
-    .from(productVariants)
-    .where(eq(productVariants.productId, product.id))
-    .orderBy(asc(productVariants.price))
-
-  const images = await db
-    .select({ url: productImages.url, alt: productImages.alt })
-    .from(productImages)
-    .where(eq(productImages.productId, product.id))
-    .orderBy(asc(productImages.sortOrder))
+  // The variants and images in one round trip.
+  const [variants, images] = await db.batch([
+    db
+      .select({
+        id: productVariants.id,
+        sku: productVariants.sku,
+        size: productVariants.size,
+        price: productVariants.price,
+        stockQty: productVariants.stockQty,
+        isActive: productVariants.isActive,
+      })
+      .from(productVariants)
+      .where(eq(productVariants.productId, product.id))
+      .orderBy(asc(productVariants.price))
+      .limit(PRODUCT_VARIANTS_MAX + 1),
+    db
+      .select({ url: productImages.url, alt: productImages.alt })
+      .from(productImages)
+      .where(eq(productImages.productId, product.id))
+      .orderBy(asc(productImages.sortOrder))
+      .limit(PRODUCT_IMAGES_MAX + 1),
+  ])
+  enforceListCap(variants, PRODUCT_VARIANTS_MAX, 'Хувилбар')
+  enforceListCap(images, PRODUCT_IMAGES_MAX, 'Зураг')
 
   const { id: _id, ...rest } = product
   return { ...rest, variants, images }
@@ -427,7 +510,7 @@ export async function productDetail(slug: string) {
 export async function listVariants() {
   await assertAdmin()
 
-  return db
+  const rows = await db
     .select({
       id: productVariants.id,
       sku: productVariants.sku,
@@ -441,15 +524,21 @@ export async function listVariants() {
     .from(productVariants)
     .innerJoin(products, eq(products.id, productVariants.productId))
     .orderBy(asc(products.nameMn), asc(productVariants.price))
+    .limit(VARIANT_LIST_ROWS_MAX + 1)
+
+  return enforceListCap(rows, VARIANT_LIST_ROWS_MAX, 'Хувилбар')
 }
 
 export async function categoryOptions() {
   await assertAdmin()
 
-  return db
+  const rows = await db
     .select({ id: categories.id, nameMn: categories.nameMn })
     .from(categories)
     .orderBy(asc(categories.sortOrder))
+    .limit(CATEGORY_LIST_ROWS_MAX + 1)
+
+  return enforceListCap(rows, CATEGORY_LIST_ROWS_MAX, 'Ангилал')
 }
 
 /**
@@ -460,7 +549,7 @@ export async function categoryOptions() {
 export async function listCategories() {
   await assertAdmin()
 
-  return db
+  const rows = await db
     .select({
       id: categories.id,
       slug: categories.slug,
@@ -473,6 +562,9 @@ export async function listCategories() {
     .leftJoin(products, eq(products.categoryId, categories.id))
     .groupBy(categories.id)
     .orderBy(asc(categories.sortOrder))
+    .limit(CATEGORY_LIST_ROWS_MAX + 1)
+
+  return enforceListCap(rows, CATEGORY_LIST_ROWS_MAX, 'Ангилал')
 }
 
 export interface NewCategoryInput {
@@ -684,21 +776,16 @@ export async function removeVariant(variantId: string) {
 
   if (!variant) throw new Error('Хувилбар олдсонгүй')
 
-  const [sold] = await db
-    .select({ id: orderItems.id })
-    .from(orderItems)
-    .where(eq(orderItems.variantId, variantId))
-    .limit(1)
+  // Both refusals read in one round trip.
+  const [sold, [siblings]] = await db.batch([
+    db.select({ id: orderItems.id }).from(orderItems).where(eq(orderItems.variantId, variantId)).limit(1),
+    db.select({ value: count(productVariants.id) }).from(productVariants).where(eq(productVariants.productId, variant.productId)),
+  ])
+  assert(siblings !== undefined, 'count() always returns a row')
 
-  if (sold) throw new Error(VARIANT_SOLD_MESSAGE)
-
-  const [siblings] = await db
-    .select({ value: count(productVariants.id) })
-    .from(productVariants)
-    .where(eq(productVariants.productId, variant.productId))
-
-  // No row at all counts as no siblings, which earns the same refusal.
-  if ((siblings?.value ?? 0) <= 1) throw new Error(LAST_VARIANT_MESSAGE)
+  if (sold.length > 0) throw new Error(VARIANT_SOLD_MESSAGE)
+  // Zero, if this variant was deleted since it was read: the same refusal.
+  if (siblings.value <= 1) throw new Error(LAST_VARIANT_MESSAGE)
 
   try {
     // Both checks again, atomically with the delete: an order or another
@@ -765,6 +852,8 @@ export async function splitVariantIntoProduct(variantId: string) {
     .from(productImages)
     .where(eq(productImages.productId, parent.id))
     .orderBy(asc(productImages.sortOrder))
+    .limit(PRODUCT_IMAGES_MAX + 1)
+  enforceListCap(images, PRODUCT_IMAGES_MAX, 'Зураг')
 
   const productId = crypto.randomUUID()
 
@@ -817,30 +906,29 @@ async function readSplitSource(variantId: string) {
 
   if (!variant) throw new Error('Хувилбар олдсонгүй')
 
-  const [parent] = await db
-    .select({
-      id: products.id,
-      slug: products.slug,
-      nameMn: products.nameMn,
-      nameEn: products.nameEn,
-      descriptionMn: products.descriptionMn,
-      descriptionEn: products.descriptionEn,
-      categoryId: products.categoryId,
-      brandLine: products.brandLine,
-      status: products.status,
-    })
-    .from(products)
-    .where(eq(products.id, variant.productId))
-    .limit(1)
+  // The parent and its variant count in one round trip.
+  const [[parent], [siblings]] = await db.batch([
+    db
+      .select({
+        id: products.id,
+        slug: products.slug,
+        nameMn: products.nameMn,
+        nameEn: products.nameEn,
+        descriptionMn: products.descriptionMn,
+        descriptionEn: products.descriptionEn,
+        categoryId: products.categoryId,
+        brandLine: products.brandLine,
+        status: products.status,
+      })
+      .from(products)
+      .where(eq(products.id, variant.productId))
+      .limit(1),
+    db.select({ value: count(productVariants.id) }).from(productVariants).where(eq(productVariants.productId, variant.productId)),
+  ])
+  assert(siblings !== undefined, 'count() always returns a row')
 
   if (!parent) throw new Error('Бүтээгдэхүүн олдсонгүй')
-
-  const [siblings] = await db
-    .select({ value: count(productVariants.id) })
-    .from(productVariants)
-    .where(eq(productVariants.productId, parent.id))
-
-  if ((siblings?.value ?? 0) <= 1) throw new Error(SPLIT_SINGLE_MESSAGE)
+  if (siblings.value <= 1) throw new Error(SPLIT_SINGLE_MESSAGE)
   return { variant, parent }
 }
 

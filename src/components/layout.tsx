@@ -14,12 +14,8 @@ import {
 /** The providers the checkout takes, in the order its form lists them. */
 const ACCEPTED_PROVIDERS = ["qpay", "storepay"] as const;
 
-interface RootData {
-  cartCount: number;
-}
-
 export function Header() {
-  const data = useLoaderData({ from: "__root__" }) as RootData;
+  const { cartCount } = useLoaderData({ from: "__root__" });
   const { open: cartOpen, openCart } = useCartDrawer();
 
   return (
@@ -69,9 +65,9 @@ export function Header() {
               onClick={openCart}
             >
               <CartIcon />
-              {data.cartCount > 0 && (
-                <span key={data.cartCount} className="badge">
-                  {data.cartCount}
+              {cartCount > 0 && (
+                <span key={cartCount} className="badge">
+                  {cartCount}
                 </span>
               )}
             </button>
@@ -87,85 +83,10 @@ export function Footer() {
     <footer className="footer">
       <div className="wrap">
         <div className="footer__cols">
-          <section className="footer__col">
-            <h2 className="footer__head">Хаяг</h2>
-            <p className="footer__body">
-              Сүхбаатар дүүрэг, 3-р хороо
-              <br />
-              UB Central Residence, 1 давхар
-              <br />
-              Three33 Barber
-            </p>
-          </section>
-
-          <section className="footer__col">
-            <h2 className="footer__head">Холбоо барих</h2>
-            <p className="footer__body">
-              <PhoneCopy display={SHOP.phoneIntl} className="phone-copy footer__copy" />
-              <br />
-              {/* <a href="mailto:three33barber@three33barber.com">
-                                three33barber@three33barber.com
-                            </a> */}
-            </p>
-          </section>
-
-          {/*
-            The providers' marks and names as checkout itself shows them
-            (lib/payment-methods), turned white for the black footer by a CSS
-            filter, then bank transfer, which the shop takes outside checkout
-            and so has no provider entry. A phone shows the marks only; the
-            names stay for screen readers.
-          */}
-          <section className="footer__col">
-            <h2 className="footer__head">Payment accepted</h2>
-            <ul className="footer__pay">
-              {ACCEPTED_PROVIDERS.map((method) => (
-                <li key={method} className="footer__payitem">
-                  <img
-                    src={PAYMENT_METHOD_LOGOS[method]}
-                    alt=""
-                    width={20}
-                    height={20}
-                    loading="lazy"
-                    decoding="async"
-                  />
-                  <span className="footer__payname">
-                    {PAYMENT_METHOD_LABELS[method]}
-                  </span>
-                </li>
-              ))}
-              <li className="footer__payitem">
-                <BankIcon />
-                <span className="footer__payname">Bank</span>
-              </li>
-            </ul>
-          </section>
-
-          <section className="footer__col">
-            <h2 className="footer__head">Сошиал</h2>
-            <p className="footer__body">
-              {/*
-                              rel="noreferrer" and not just noopener: these leave the
-                              site for a social network, and there is no reason to
-                              hand it the page the customer came from.
-                            */}
-              {/* <a
-                                href="https://www.facebook.com/Three33barber"
-                                target="_blank"
-                                rel="noreferrer"
-                            >
-                                Facebook — Three33barber
-                            </a> */}
-              {/* <br /> */}
-              <a
-                href="https://www.instagram.com/uppercutdeluxe_mongolia"
-                target="_blank"
-                rel="noreferrer"
-              >
-                @uppercutdeluxe_mongolia
-              </a>
-            </p>
-          </section>
+          <FooterAddress />
+          <FooterContact />
+          <FooterPayments />
+          <FooterSocial />
         </div>
 
         <div className="footer__bottom">
@@ -185,6 +106,101 @@ export function Footer() {
         </div>
       </div>
     </footer>
+  );
+}
+
+function FooterAddress() {
+  return (
+    <section className="footer__col">
+      <h2 className="footer__head">Хаяг</h2>
+      <p className="footer__body">
+        Сүхбаатар дүүрэг, 3-р хороо
+        <br />
+        UB Central Residence, 1 давхар
+        <br />
+        Three33 Barber
+      </p>
+    </section>
+  );
+}
+
+function FooterContact() {
+  return (
+    <section className="footer__col">
+      <h2 className="footer__head">Холбоо барих</h2>
+      <p className="footer__body">
+        <PhoneCopy display={SHOP.phoneIntl} className="phone-copy footer__copy" />
+        <br />
+        {/* <a href="mailto:three33barber@three33barber.com">
+          three33barber@three33barber.com
+        </a> */}
+      </p>
+    </section>
+  );
+}
+
+/**
+ * The providers' marks and names as checkout itself shows them
+ * (lib/payment-methods), turned white for the black footer by a CSS
+ * filter, then bank transfer, which the shop takes outside checkout
+ * and so has no provider entry. A phone shows the marks only; the
+ * names stay for screen readers.
+ */
+function FooterPayments() {
+  return (
+    <section className="footer__col">
+      <h2 className="footer__head">Payment accepted</h2>
+      <ul className="footer__pay">
+        {ACCEPTED_PROVIDERS.map((method) => (
+          <li key={method} className="footer__payitem">
+            <img
+              src={PAYMENT_METHOD_LOGOS[method]}
+              alt=""
+              width={20}
+              height={20}
+              loading="lazy"
+              decoding="async"
+            />
+            <span className="footer__payname">
+              {PAYMENT_METHOD_LABELS[method]}
+            </span>
+          </li>
+        ))}
+        <li className="footer__payitem">
+          <BankIcon />
+          <span className="footer__payname">Bank</span>
+        </li>
+      </ul>
+    </section>
+  );
+}
+
+/**
+ * rel="noreferrer" and not just noopener: these leave the site for a social
+ * network, and there is no reason to hand it the page the customer came from.
+ */
+function FooterSocial() {
+  return (
+    <section className="footer__col">
+      <h2 className="footer__head">Сошиал</h2>
+      <p className="footer__body">
+        {/* <a
+          href="https://www.facebook.com/Three33barber"
+          target="_blank"
+          rel="noreferrer"
+        >
+          Facebook — Three33barber
+        </a> */}
+        {/* <br /> */}
+        <a
+          href="https://www.instagram.com/uppercutdeluxe_mongolia"
+          target="_blank"
+          rel="noreferrer"
+        >
+          @uppercutdeluxe_mongolia
+        </a>
+      </p>
+    </section>
   );
 }
 

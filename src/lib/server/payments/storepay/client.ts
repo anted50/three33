@@ -60,34 +60,33 @@ export class StorepayClient {
     init: { method: string; body?: unknown } = { method: 'GET' },
   ): Promise<T> {
     const token = await this.getToken()
-
-    const response = await this.fetchWithTimeout(this.url(path), {
-      method: init.method,
-      headers: {
-        Authorization: `Bearer ${token.accessToken}`,
-        ...(init.body ? { 'Content-Type': 'application/json' } : {}),
-      },
-      body: init.body ? JSON.stringify(init.body) : undefined,
-    })
+    const response = await this.send(path, init, token.accessToken)
 
     // A 401 usually means the cached token died earlier than advertised.
     // Drop it and retry exactly once; retrying further would just hammer
     // /oauth/token.
     if (response.status === 401) {
+      // Nothing in a 401 body is worth reading, and a Worker holds the
+      // connection open for a response body nobody consumed.
+      await response.body?.cancel()
       this.token = null
       const fresh = await this.getToken()
-      const retry = await this.fetchWithTimeout(this.url(path), {
-        method: init.method,
-        headers: {
-          Authorization: `Bearer ${fresh.accessToken}`,
-          ...(init.body ? { 'Content-Type': 'application/json' } : {}),
-        },
-        body: init.body ? JSON.stringify(init.body) : undefined,
-      })
+      const retry = await this.send(path, init, fresh.accessToken)
       return this.parse<T>(retry, path)
     }
 
     return this.parse<T>(response, path)
+  }
+
+  private send(path: string, init: { method: string; body?: unknown }, accessToken: string): Promise<Response> {
+    return this.fetchWithTimeout(this.url(path), {
+      method: init.method,
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+      },
+      body: init.body ? JSON.stringify(init.body) : undefined,
+    })
   }
 
   /** Exposed so tests can force a fresh token. */
@@ -100,28 +99,10 @@ export class StorepayClient {
   }
 
   private async parse<T>(response: Response, path: string): Promise<T> {
-    const text = await response.text()
-    let body: unknown
-    try {
-      body = text ? JSON.parse(text) : {}
-    } catch {
-      throw new StorepayError(
-        `StorePay ${path} returned non-JSON (${response.status})`,
-        response.status,
-        text.slice(0, 500),
-      )
-    }
-
-    if (!response.ok) {
-      throw new StorepayError(
-        `StorePay ${path} failed (${response.status})`,
-        response.status,
-        body,
-      )
-    }
+    const body = await readJsonBody(response, path)
 
     if (isFailedEnvelope(body)) {
-      const message = body.msgList
+      const message = (body.msgList ?? [])
         .map((m) => m.text ?? m.code)
         .filter(Boolean)
         .join('; ')
@@ -169,26 +150,7 @@ export class StorepayClient {
       headers: { Authorization: `Basic ${basic}` },
     })
 
-    const text = await response.text()
-    let body: unknown
-    try {
-      body = text ? JSON.parse(text) : {}
-    } catch {
-      throw new StorepayError(
-        `StorePay /oauth/token returned non-JSON (${response.status})`,
-        response.status,
-        text.slice(0, 500),
-      )
-    }
-
-    if (!response.ok) {
-      throw new StorepayError(
-        `StorePay /oauth/token failed (${response.status})`,
-        response.status,
-        body,
-      )
-    }
-
+    const body = await readJsonBody(response, '/oauth/token')
     const parsed = storepayTokenResponse.safeParse(body)
     if (!parsed.success) {
       throw new StorepayError(
@@ -236,9 +198,36 @@ export function resolveExpiry(expiresIn: number, now = Date.now()): number {
   return Math.max(now + expiresIn * 1000 - SAFETY_MARGIN_MS, now + 30_000)
 }
 
+/**
+ * The response body as JSON, throwing on a body that is not JSON or on a
+ * non-2xx status. An empty body reads as `{}`.
+ */
+async function readJsonBody(response: Response, path: string): Promise<unknown> {
+  const text = await response.text()
+  let body: unknown
+  try {
+    body = text ? JSON.parse(text) : {}
+  } catch {
+    throw new StorepayError(
+      `StorePay ${path} returned non-JSON (${response.status})`,
+      response.status,
+      text.slice(0, 500),
+    )
+  }
+
+  if (!response.ok) {
+    throw new StorepayError(
+      `StorePay ${path} failed (${response.status})`,
+      response.status,
+      body,
+    )
+  }
+  return body
+}
+
 function isFailedEnvelope(
   body: unknown,
-): body is { status: 'Failed'; msgList: Array<{ code?: string | null; text?: string | null }> } {
+): body is { status: 'Failed'; msgList?: Array<{ code?: string | null; text?: string | null }> } {
   return (
     typeof body === 'object' &&
     body !== null &&

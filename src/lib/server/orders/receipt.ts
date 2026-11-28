@@ -1,7 +1,8 @@
 import { asc, eq } from 'drizzle-orm'
 import { db } from '~/db'
 import { orderItems, orders, payments } from '~/db/schema'
-import { formatMnt, type Mungu } from '~/lib/money'
+import { assert } from '~/lib/assert'
+import { formatMnt, lineTotal, type Mungu } from '~/lib/money'
 import { logoAttachment, logoImgTag } from '../email/logo'
 import {
   emailDocument,
@@ -16,6 +17,7 @@ import { sendEmail } from '../email/resend'
 import { env } from '../env'
 import { getQpayProvider } from '../payments/qpay'
 import type { EbarimtReceipt } from '../payments/qpay'
+import { ORDER_LINES_MAX } from './limits'
 
 interface ReceiptItem {
   name: string
@@ -75,34 +77,8 @@ export async function deliverOrderReceipt(
   // No address on file — nothing to send to, and not an error.
   if (!order.address.email) return 'no_email'
 
-  const items = await db
-    .select({
-      name: orderItems.nameSnapshot,
-      sku: orderItems.skuSnapshot,
-      unitPrice: orderItems.unitPrice,
-      qty: orderItems.qty,
-    })
-    .from(orderItems)
-    .where(eq(orderItems.orderId, order.id))
-    .orderBy(asc(orderItems.id))
-
-  const [payment] = await db
-    .select({ provider: payments.provider, paymentId: payments.paymentId })
-    .from(payments)
-    .where(eq(payments.orderId, order.id))
-    .limit(1)
-
-  /**
-   * E-barimt is a QPay-specific tax feature (see EbarimtReceipt) with no
-   * equivalent on other providers — the receipt email still sends without it.
-   */
-  const ebarimt =
-    payment?.provider === 'qpay' && payment.paymentId
-      ? await getQpayProvider().createEbarimt(
-          payment.paymentId,
-          env.QPAY_EBARIMT_INVOICE_CODE,
-        )
-      : null
+  const items = await readReceiptItems(order.id)
+  const ebarimt = await requestEbarimt(order.id)
 
   const { html, text } = renderReceipt(
     { ...order, name: order.address.name },
@@ -121,6 +97,41 @@ export async function deliverOrderReceipt(
   })
 
   return sent ? 'sent' : 'mail_disabled'
+}
+
+/** The order's lines, in the order they were written. Bounded: see ORDER_LINES_MAX. */
+async function readReceiptItems(orderId: string): Promise<ReceiptItem[]> {
+  const items = await db
+    .select({
+      name: orderItems.nameSnapshot,
+      sku: orderItems.skuSnapshot,
+      unitPrice: orderItems.unitPrice,
+      qty: orderItems.qty,
+    })
+    .from(orderItems)
+    .where(eq(orderItems.orderId, orderId))
+    .orderBy(asc(orderItems.id))
+    .limit(ORDER_LINES_MAX + 1)
+  assert(items.length > 0, 'an order has at least one line')
+  assert(items.length <= ORDER_LINES_MAX, 'an order holds at most ORDER_LINES_MAX lines')
+  return items
+}
+
+/**
+ * E-barimt is a QPay-specific tax feature (see EbarimtReceipt) with no
+ * equivalent on other providers — the receipt email still sends without it.
+ */
+async function requestEbarimt(orderId: string): Promise<EbarimtReceipt | null> {
+  const [payment] = await db
+    .select({ provider: payments.provider, paymentId: payments.paymentId })
+    .from(payments)
+    .where(eq(payments.orderId, orderId))
+    .limit(1)
+
+  if (payment?.provider === 'qpay' && payment.paymentId) {
+    return getQpayProvider().createEbarimt(payment.paymentId, env.QPAY_EBARIMT_INVOICE_CODE)
+  }
+  return null
 }
 
 /**
@@ -177,7 +188,7 @@ function itemRow(item: ReceiptItem): string {
     <tr>
       <td class="keepink" style="padding:14px 0;border-bottom:1px solid ${RULE};font-size:14px;color:${INK}">${escapeHtml(item.name)}</td>
       <td class="faint" style="padding:14px 0;border-bottom:1px solid ${RULE};font-size:13px;color:${INK_FAINT};text-align:center;white-space:nowrap">×${item.qty}</td>
-      <td class="keepink" style="padding:14px 0;border-bottom:1px solid ${RULE};font-size:14px;color:${INK};text-align:right;white-space:nowrap">${formatMnt(item.unitPrice * item.qty)}</td>
+      <td class="keepink" style="padding:14px 0;border-bottom:1px solid ${RULE};font-size:14px;color:${INK};text-align:right;white-space:nowrap">${formatMnt(lineTotal(item.unitPrice, item.qty))}</td>
     </tr>`
 }
 
@@ -199,7 +210,7 @@ function ebarimtSection(ebarimt: EbarimtReceipt | null): string {
       <!-- The QR is white-background/black-module by construction, so a client
            that recolours around it would leave it floating on dark; the white
            padding box keeps it on its own paper either way. -->
-      <img src="data:image/png;base64,${ebarimt.qrImage}" width="160" height="160" alt="И-баримтын QR код" style="display:block;margin:0 auto;width:160px;height:160px;border:8px solid ${PAPER};outline:1px solid ${INK};background-color:${PAPER}" />
+      <img src="data:image/png;base64,${escapeHtml(ebarimt.qrImage)}" width="160" height="160" alt="И-баримтын QR код" style="display:block;margin:0 auto;width:160px;height:160px;border:8px solid ${PAPER};outline:1px solid ${INK};background-color:${PAPER}" />
       ${ebarimt.id ? `<p class="soft" style="margin:12px 0 0;font-size:12px;color:${INK_SOFT}">Дугаар: ${escapeHtml(ebarimt.id)}</p>` : ''}
       ${ebarimt.lottery ? `<p class="soft" style="margin:2px 0 0;font-size:12px;color:${INK_SOFT}">Сугалаа: ${escapeHtml(ebarimt.lottery)}</p>` : ''}
       ${link}
@@ -219,23 +230,40 @@ export function renderReceipt(
   items: ReceiptItem[],
   ebarimt: EbarimtReceipt | null,
 ): { html: string; text: string } {
-  const shippingLine =
-    order.shippingFee === 0 ? 'Үнэгүй' : formatMnt(order.shippingFee)
-  /**
-   * Nameless orders are the normal case now — the checkout form only asks for
-   * a phone number — so the greeting drops the name rather than addressing
-   * anyone as "null".
-   */
-  const greeting = order.name
-    ? `Сайн байна уу, ${order.name},`
-    : 'Сайн байна уу,'
-  const greetingHtml = order.name
-    ? `Сайн байна уу, ${escapeHtml(order.name)},`
-    : 'Сайн байна уу,'
   const statusUrl = `${env.APP_URL}/orders/${order.orderNo}/success`
 
-  const text = [
-    greeting,
+  const html = emailDocument({
+    title: `Захиалгын баримт — ${order.orderNo}`,
+    preheader: `Захиалга ${order.orderNo} баталгаажлаа. Нийт ${formatMnt(order.total)}.`,
+    body: receiptBody(order, items, ebarimt, statusUrl),
+  })
+
+  return { html, text: receiptText(order, items, ebarimt, statusUrl) }
+}
+
+/** Free delivery reads as a word, not as "0₮". */
+function shippingLineOf(order: ReceiptOrder): string {
+  return order.shippingFee === 0 ? 'Үнэгүй' : formatMnt(order.shippingFee)
+}
+
+/**
+ * Nameless orders are the normal case now — the checkout form only asks for
+ * a phone number — so the greeting drops the name rather than addressing
+ * anyone as "null". The caller escapes it for HTML.
+ */
+function greetingOf(name: string | null): string {
+  return name ? `Сайн байна уу, ${name},` : 'Сайн байна уу,'
+}
+
+/** The plain-text part, for clients that do not render HTML. */
+function receiptText(
+  order: ReceiptOrder,
+  items: ReceiptItem[],
+  ebarimt: EbarimtReceipt | null,
+  statusUrl: string,
+): string {
+  return [
+    greetingOf(order.name),
     '',
     'Захиалга баталгаажлаа!',
     '',
@@ -244,10 +272,10 @@ export function renderReceipt(
     `Захиалгаа харах: ${statusUrl}`,
     '',
     'Таны бараа:',
-    ...items.map((i) => `  ${i.name} ×${i.qty} — ${formatMnt(i.unitPrice * i.qty)}`),
+    ...items.map((i) => `  ${i.name} ×${i.qty} — ${formatMnt(lineTotal(i.unitPrice, i.qty))}`),
     '',
     `Дүн: ${formatMnt(order.subtotal)}`,
-    `Хүргэлт: ${shippingLine}`,
+    `Хүргэлт: ${shippingLineOf(order)}`,
     `Нийт: ${formatMnt(order.total)}`,
     ...(ebarimt?.id ? ['', `И-баримт дугаар: ${ebarimt.id}`] : []),
     ...(ebarimt?.lottery ? [`Сугалаа: ${ebarimt.lottery}`] : []),
@@ -255,15 +283,22 @@ export function renderReceipt(
     '',
     'Танд баярлалаа — Three33 Barbershop',
   ].join('\n')
+}
 
-  const body = `
+function receiptBody(
+  order: ReceiptOrder,
+  items: ReceiptItem[],
+  ebarimt: EbarimtReceipt | null,
+  statusUrl: string,
+): string {
+  return `
     <div class="lightbg" bgcolor="${PAPER}" style="background-color:${PAPER};font-family:${SANS};color:${INK};width:100%">
       <div style="max-width:${MAX_WIDTH}px;margin:0 auto;padding:36px 24px 0;text-align:center">
         ${logoImgTag()}
       </div>
 
       <div class="panel" bgcolor="${PANEL}" style="max-width:${MAX_WIDTH}px;margin:28px auto 0;background-color:${PANEL};padding:32px 24px">
-        <p class="keepink" style="margin:0 0 6px;font-size:14px;color:${INK}">${greetingHtml}</p>
+        <p class="keepink" style="margin:0 0 6px;font-size:14px;color:${INK}">${escapeHtml(greetingOf(order.name))}</p>
         <h1 class="keepink" style="margin:0 0 22px;font-size:30px;line-height:1.15;font-weight:800;letter-spacing:-0.01em;color:${INK}">Захиалга<br/>баталгаажлаа!</h1>
         <p class="soft" style="margin:0 0 3px;font-size:13px;color:${INK_SOFT}">Захиалгын дугаар: ${escapeHtml(order.orderNo)}</p>
         <p class="soft" style="margin:0 0 20px;font-size:13px;color:${INK_SOFT}">Огноо: ${formatDate(order.createdAt)}</p>
@@ -283,7 +318,7 @@ export function renderReceipt(
       <div style="max-width:${MAX_WIDTH}px;margin:0 auto;padding:14px 24px 32px">
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="soft" style="border-collapse:collapse;font-size:13px;color:${INK_SOFT}">
           <tr><td class="soft" style="padding:3px 0;color:${INK_SOFT}">Дүн</td><td class="soft" style="padding:3px 0;text-align:right;color:${INK_SOFT}">${formatMnt(order.subtotal)}</td></tr>
-          <tr><td class="soft" style="padding:3px 0;color:${INK_SOFT}">Хүргэлт</td><td class="soft" style="padding:3px 0;text-align:right;color:${INK_SOFT}">${shippingLine}</td></tr>
+          <tr><td class="soft" style="padding:3px 0;color:${INK_SOFT}">Хүргэлт</td><td class="soft" style="padding:3px 0;text-align:right;color:${INK_SOFT}">${shippingLineOf(order)}</td></tr>
         </table>
       </div>
 
@@ -294,12 +329,4 @@ export function renderReceipt(
       </div>
     </div>
   `
-
-  const html = emailDocument({
-    title: `Захиалгын баримт — ${order.orderNo}`,
-    preheader: `Захиалга ${order.orderNo} баталгаажлаа. Нийт ${formatMnt(order.total)}.`,
-    body,
-  })
-
-  return { html, text }
 }

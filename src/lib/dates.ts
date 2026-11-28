@@ -21,20 +21,20 @@ const dateFormat = new Intl.DateTimeFormat('en-US', {
   hourCycle: 'h23',
 })
 
-function parts(value: Date | string | number) {
-  const out: Record<string, string> = {}
+function dateParts(value: Date | string | number): Record<string, string> {
+  const parts: Record<string, string> = {}
   for (const part of dateFormat.formatToParts(new Date(value))) {
-    out[part.type] = part.value
+    parts[part.type] = part.value
   }
-  return out
+  return parts
 }
 
 export function formatDate(value: Date | string | number): string {
-  const p = parts(value)
-  return `${p.year}.${p.month}.${p.day}`
+  const parts = dateParts(value)
+  return `${parts.year}.${parts.month}.${parts.day}`
 }
 
 export function formatDateTime(value: Date | string | number): string {
-  const p = parts(value)
-  return `${p.year}.${p.month}.${p.day} ${p.hour}:${p.minute}`
+  const parts = dateParts(value)
+  return `${parts.year}.${parts.month}.${parts.day} ${parts.hour}:${parts.minute}`
 }

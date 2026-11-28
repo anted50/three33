@@ -1,8 +1,9 @@
-import { asc, desc, eq, inArray } from 'drizzle-orm'
+import { asc, desc, eq, inArray, sql } from 'drizzle-orm'
 import { db } from '~/db'
 import { atomic, insertRows } from '~/db/atomic'
 import { assert } from '~/lib/assert'
-import type { CreatedInvoice, PaymentProvider } from '../payments/provider'
+import { D1_BOUND_PARAMETERS_MAX } from '~/db/limits'
+import type { CreateInvoiceInput, CreatedInvoice, PaymentProvider } from '../payments/provider'
 import { inBackground } from '../background'
 import {
   adminInvoices,
@@ -13,7 +14,7 @@ import {
   products,
   users,
 } from '~/db/schema'
-import { formatMnt } from '~/lib/money'
+import { formatMnt, type Mungu } from '~/lib/money'
 import { meetsMinimum, PAYMENT_METHOD_MIN_TOTAL } from '~/lib/payment-methods'
 import { mintOrderToken } from '../orders/access'
 import { expireCheckout } from '../orders/expire'
@@ -25,7 +26,12 @@ import {
   getProvider,
   providerCallbackUrl,
 } from '../payments/registry'
-import { invoiceTotal, type CreateAdminInvoiceInput, type InvoiceLineInput } from './invoice-lines'
+import {
+  INVOICE_LINES_MAX,
+  invoiceTotal,
+  type CreateAdminInvoiceInput,
+  type InvoiceLineInput,
+} from './invoice-lines'
 
 /**
  * Admin-issued invoices. Server-only — routes reach this through admin.ts.
@@ -54,10 +60,16 @@ export async function issueAdminInvoice(
   input: CreateAdminInvoiceInput,
   adminId: string,
 ): Promise<{ orderNo: string }> {
+  assert(adminId.length > 0, 'an invoice is issued by a signed-in admin')
+  assert(input.lines.length > 0, 'createAdminInvoiceInput requires a line')
+  assert(input.lines.length <= INVOICE_LINES_MAX, 'createAdminInvoiceInput caps the lines')
+
   /** Null for a manual sale: there's no provider to invoice or ask. */
   const providerName = input.method === 'manual' ? null : input.method
-  if (providerName && !availableProviders().includes(providerName)) {
-    throw new Error('Энэ төлбөрийн хэлбэр одоогоор боломжгүй байна')
+  if (providerName !== null) {
+    if (!availableProviders().includes(providerName)) {
+      throw new Error('Энэ төлбөрийн хэлбэр одоогоор боломжгүй байна')
+    }
   }
 
   const snapshots = await variantSnapshots(input.lines)
@@ -71,37 +83,48 @@ export async function issueAdminInvoice(
 
   const orderNo = generateOrderNo()
   const customer = { phone: input.phone || null, email: input.email || null, name: input.name || null }
+  const invoiceOrder = { input, adminId, orderNo, total, customer, snapshots }
 
-  // Provider first, rows second — same ordering and reasoning as createOrder.
-  const provider = providerName ? getProvider(providerName) : null
-  const invoice = provider && providerName
-    ? await provider.createInvoice({
-        orderNo,
-        amount: total,
-        description: `Three33 ${orderNo}`,
-        callbackUrl: providerCallbackUrl(providerName, orderNo),
-        customer: customer.phone || customer.email || customer.name
-          ? {
-              // QPay wants a payer name whenever receiver data is sent.
-              name: customer.name ?? customer.phone ?? 'Three33',
-              phone: customer.phone ?? undefined,
-              email: customer.email ?? undefined,
-            }
-          : undefined,
-      })
-    : null
-
-  try {
-    await saveAdminInvoice({ input, adminId, orderNo, total, customer, snapshots, invoice })
-  } catch (error) {
-    // A live invoice with no order behind it: cancel it so nobody can pay it.
-    if (provider && invoice) await cancelOrphan(provider, invoice, `${input.method} admin invoice for ${orderNo}`)
-    throw error
+  if (providerName === null) {
+    await saveAdminInvoice({ ...invoiceOrder, invoice: null })
+    // Same background receipt settleOrder sends once a provider confirms.
+    inBackground(`receipt ${orderNo}`, sendOrderReceipt(orderNo))
+    return { orderNo }
   }
 
-  // Same background receipt settleOrder sends once a provider confirms.
-  if (!invoice) inBackground(`receipt ${orderNo}`, sendOrderReceipt(orderNo))
+  // Provider first, rows second — same ordering and reasoning as createOrder.
+  const provider = getProvider(providerName)
+  const invoice = await provider.createInvoice({
+    orderNo,
+    amount: total,
+    description: `Three33 ${orderNo}`,
+    callbackUrl: providerCallbackUrl(providerName, orderNo),
+    customer: providerCustomer(customer),
+  })
+
+  try {
+    await saveAdminInvoice({ ...invoiceOrder, invoice })
+  } catch (error) {
+    // A live invoice with no order behind it: cancel it so nobody can pay it.
+    await cancelOrphan(provider, invoice, `${input.method} admin invoice for ${orderNo}`)
+    throw error
+  }
   return { orderNo }
+}
+
+type Customer = { phone: string | null; email: string | null; name: string | null }
+
+/** The payer as the provider sees it, or nothing when the admin entered nobody. */
+function providerCustomer(customer: Customer): CreateInvoiceInput['customer'] {
+  if (customer.phone || customer.email || customer.name) {
+    return {
+      // QPay wants a payer name whenever receiver data is sent.
+      name: customer.name ?? customer.phone ?? 'Three33',
+      phone: customer.phone ?? undefined,
+      email: customer.email ?? undefined,
+    }
+  }
+  return undefined
 }
 
 type Snapshot = { sku: string; name: string }
@@ -115,6 +138,9 @@ type Snapshot = { sku: string; name: string }
 async function variantSnapshots(lines: readonly InvoiceLineInput[]): Promise<Map<string, Snapshot>> {
   const variantLines = lines.flatMap((line) => (line.kind === 'variant' ? [line] : []))
   if (variantLines.length === 0) return new Map()
+  // createAdminInvoiceInput caps the lines below D1's parameter limit, so one
+  // query covers every variant.
+  assert(variantLines.length <= D1_BOUND_PARAMETERS_MAX, 'the variant ids fit one D1 statement')
 
   const variants = await db
     .select({
@@ -126,20 +152,23 @@ async function variantSnapshots(lines: readonly InvoiceLineInput[]): Promise<Map
     })
     .from(productVariants)
     .innerJoin(products, eq(products.id, productVariants.productId))
-    .where(inArray(productVariants.id, variantLines.map((l) => l.variantId)))
+    .where(inArray(productVariants.id, variantLines.map((line) => line.variantId)))
+  assert(variants.length <= variantLines.length, 'one row per variant id at most')
 
-  const byId = new Map(variants.map((v) => [v.id, v]))
-  return new Map(
-    variantLines.map((line): [string, Snapshot] => {
-      const variant = byId.get(line.variantId)
-      if (!variant) throw new Error('Бараа олдсонгүй — хуудсаа шинэчилнэ үү')
-      const label = variant.size ? `${variant.name} ${variant.size}` : variant.name
-      if (variant.stockQty < line.qty) {
-        throw new Error(`${label}: нөөцөд ${variant.stockQty} ширхэг үлдсэн`)
-      }
-      return [line.variantId, { sku: variant.sku, name: label }]
-    }),
-  )
+  const variantById = new Map(variants.map((variant) => [variant.id, variant]))
+  const snapshots = new Map<string, Snapshot>()
+  for (const line of variantLines) {
+    const variant = variantById.get(line.variantId)
+    if (!variant) throw new Error('Бараа олдсонгүй — хуудсаа шинэчилнэ үү')
+    const label = variant.size ? `${variant.name} ${variant.size}` : variant.name
+    if (variant.stockQty < line.qty) {
+      throw new Error(`${label}: нөөцөд ${variant.stockQty} ширхэг үлдсэн`)
+    }
+    snapshots.set(line.variantId, { sku: variant.sku, name: label })
+  }
+  // The input schema refuses a variant on two rows, so no line overwrote another.
+  assert(snapshots.size === variantLines.length, 'one snapshot per variant line')
+  return snapshots
 }
 
 /** The order, its lines, its payment and the admin_invoices marker, in one batch. */
@@ -147,12 +176,15 @@ async function saveAdminInvoice(invoiceOrder: {
   input: CreateAdminInvoiceInput
   adminId: string
   orderNo: string
-  total: number
-  customer: { phone: string | null; email: string | null; name: string | null }
+  total: Mungu
+  customer: Customer
   snapshots: Map<string, Snapshot>
+  /** Null for a manual sale, which is written already paid. */
   invoice: CreatedInvoice | null
 }): Promise<void> {
   const { input, orderNo, total, customer, snapshots, invoice } = invoiceOrder
+  assert(total > 0, 'issueAdminInvoice refuses a zero total')
+  if (invoice === null) assert(input.method === 'manual', 'only a manual sale has no provider invoice')
   const orderId = crypto.randomUUID()
   const paymentId = crypto.randomUUID()
 
@@ -218,8 +250,14 @@ async function cancelOrphan(provider: PaymentProvider, invoice: CreatedInvoice, 
   }
 }
 
+/** The invoice list shows the most recent ones; older invoices live on as orders. */
+const ADMIN_INVOICE_LIST_ROWS_MAX = 50
+
+/** An admin invoice's order holds exactly the invoice's lines. */
+const INVOICE_ITEMS_MAX = INVOICE_LINES_MAX
+
 export async function listAdminInvoices() {
-  return db
+  const rows = await db
     .select({
       orderNo: orders.orderNo,
       status: orders.status,
@@ -234,7 +272,9 @@ export async function listAdminInvoices() {
     .leftJoin(payments, eq(payments.orderId, orders.id))
     .leftJoin(users, eq(users.id, adminInvoices.createdBy))
     .orderBy(desc(adminInvoices.createdAt))
-    .limit(50)
+    .limit(ADMIN_INVOICE_LIST_ROWS_MAX)
+  assert(rows.length <= ADMIN_INVOICE_LIST_ROWS_MAX, 'the invoice list is capped')
+  return rows
 }
 
 /**
@@ -244,6 +284,8 @@ export async function listAdminInvoices() {
  * settleOrder throttles how often that actually reaches the provider.
  */
 export async function adminInvoiceDetail(orderNo: string) {
+  assert(orderNo.length > 0, 'an invoice is looked up by its order number')
+
   const [head] = await db
     .select({ id: orders.id, status: orders.status, expiresAt: orders.expiresAt })
     .from(orders)
@@ -254,55 +296,65 @@ export async function adminInvoiceDetail(orderNo: string) {
   if (!head) return null
   if (head.status === 'pending_payment') await refreshPendingInvoice(orderNo, head)
 
-  const [order] = await db
-    .select({
-      id: orders.id,
-      orderNo: orders.orderNo,
-      status: orders.status,
-      total: orders.total,
-      note: orders.note,
-      address: orders.shippingAddressSnapshot,
-      expiresAt: orders.expiresAt,
-      createdAt: orders.createdAt,
-      createdBy: users.name,
-    })
-    .from(orders)
-    .innerJoin(adminInvoices, eq(adminInvoices.orderId, orders.id))
-    .leftJoin(users, eq(users.id, adminInvoices.createdBy))
-    .where(eq(orders.orderNo, orderNo))
-    .limit(1)
+  // Read after the refresh, so a payment it just settled shows as paid. One
+  // batch: the order, its lines and its payment in a single round trip.
+  const [[order], items, [payment]] = await db.batch(invoiceDetailQueries(head.id))
 
   if (!order) return null
+  assert(order.orderNo === orderNo, 'the batch read the invoice the head query found')
+  assert(items.length <= INVOICE_ITEMS_MAX, 'an order holds at most INVOICE_ITEMS_MAX lines')
 
-  const items = await db
-    .select({
-      name: orderItems.nameSnapshot,
-      sku: orderItems.skuSnapshot,
-      unitPrice: orderItems.unitPrice,
-      qty: orderItems.qty,
-    })
-    .from(orderItems)
-    .where(eq(orderItems.orderId, order.id))
-    .orderBy(asc(orderItems.id))
-
-  const [payment] = await db
-    .select({
-      provider: payments.provider,
-      status: payments.status,
-      payload: payments.invoicePayload,
-      paidAt: payments.paidAt,
-    })
-    .from(payments)
-    .where(eq(payments.orderId, order.id))
-    .limit(1)
-
-  const { id: _id, ...rest } = order
   return {
-    ...rest,
+    ...order,
     expiresAt: order.expiresAt.getTime(),
     items,
     payment: payment ?? null,
   }
+}
+
+/** The invoice's order, its lines and its payment, as one batch. */
+function invoiceDetailQueries(orderId: string) {
+  return [
+    db
+      .select({
+        orderNo: orders.orderNo,
+        status: orders.status,
+        total: orders.total,
+        note: orders.note,
+        address: orders.shippingAddressSnapshot,
+        expiresAt: orders.expiresAt,
+        createdAt: orders.createdAt,
+        createdBy: users.name,
+      })
+      .from(orders)
+      .innerJoin(adminInvoices, eq(adminInvoices.orderId, orders.id))
+      .leftJoin(users, eq(users.id, adminInvoices.createdBy))
+      .where(eq(orders.id, orderId))
+      .limit(1),
+    db
+      .select({
+        name: orderItems.nameSnapshot,
+        sku: orderItems.skuSnapshot,
+        unitPrice: orderItems.unitPrice,
+        qty: orderItems.qty,
+      })
+      .from(orderItems)
+      .where(eq(orderItems.orderId, orderId))
+      // Insertion order, i.e. the order the admin entered the lines in. The
+      // ids are random UUIDs, so ordering by them shuffled the lines.
+      .orderBy(asc(sql`${orderItems}.rowid`))
+      .limit(INVOICE_ITEMS_MAX + 1),
+    db
+      .select({
+        provider: payments.provider,
+        status: payments.status,
+        payload: payments.invoicePayload,
+        paidAt: payments.paidAt,
+      })
+      .from(payments)
+      .where(eq(payments.orderId, orderId))
+      .limit(1),
+  ] as const
 }
 
 /** Asks the provider about a pending admin invoice, and retires it once lapsed. */

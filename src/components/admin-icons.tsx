@@ -1,8 +1,9 @@
 /**
  * Inline admin icons, matching the sidebar in the Figma frame.
  *
- * Inline rather than an icon package: three shapes do not justify a dependency,
- * and inlining keeps them working under a strict CSP with no external requests.
+ * Inline rather than an icon package: a dozen simple strokes do not justify a
+ * dependency, and inlining keeps them working under a strict CSP with no
+ * external requests.
  */
 
 const base = {

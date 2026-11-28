@@ -3,6 +3,7 @@ import { freeStarts } from './availability'
 import { planSchedule } from './schedule-plan'
 import { addDays, atLocal, datesBetween, isoWeekday, localDateOf } from './time'
 import { apiErrorFromDb, findDbViolation, isUniqueViolation } from '../api/db-errors'
+import { isoDate } from '../api/input'
 
 const t = (hhmm: string, date = '2026-09-29') => atLocal(date, hhmm)
 const hhmm = (d: Date) =>
@@ -24,6 +25,18 @@ describe('time', () => {
     expect(addDays('2026-12-31', 1)).toBe('2027-01-01')
     expect(isoWeekday('2026-10-05')).toBe(1) // Monday
     expect(isoWeekday('2026-10-11')).toBe(7) // Sunday
+  })
+})
+
+describe('isoDate', () => {
+  it('accepts real days and refuses ones Date would roll over', () => {
+    // Goal: 2026-02-30 must be a 400, not an assertion failure deep in time.ts.
+    expect(isoDate.safeParse('2028-02-29').success).toBe(true) // leap year
+    expect(isoDate.safeParse('2026-02-29').success).toBe(false)
+    expect(isoDate.safeParse('2026-02-30').success).toBe(false)
+    expect(isoDate.safeParse('2026-04-31').success).toBe(false)
+    expect(isoDate.safeParse('2026-13-01').success).toBe(false)
+    expect(isoDate.safeParse('2026-1-01').success).toBe(false)
   })
 })
 
@@ -75,6 +88,23 @@ describe('planSchedule', () => {
     const plan = planSchedule([{ from: '2026-10-05', to: '2026-10-05', start: '20:00', end: '24:00' }])
     const day = plan.get('2026-10-05')
     expect(day?.kind === 'open' && hhmm(day.windows[0]!.endsAt)).toBe('00:00')
+  })
+
+  it('refuses one change spanning more than 93 days, even if it touches few', () => {
+    // Goal: the reply re-reads the schedule from the first touched day to
+    // the last, so a two-day change a year apart must be refused up front,
+    // not written and then answered with a 400.
+    expect(() =>
+      planSchedule([
+        { from: '2030-01-01', to: '2030-01-01', closed: true },
+        { from: '2031-01-01', to: '2031-01-01', closed: true },
+      ]),
+    ).toThrow(/span at most 93 days/)
+    const plan = planSchedule([
+      { from: '2030-01-01', to: '2030-01-01', closed: true },
+      { from: '2030-04-03', to: '2030-04-03', closed: true }, // day 93, inclusive
+    ])
+    expect(plan.size).toBe(2)
   })
 
   it('refuses backwards windows and ranges', () => {

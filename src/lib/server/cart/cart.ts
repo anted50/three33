@@ -121,19 +121,16 @@ export const addToCart = createServerFn({ method: 'POST' })
     const qty = clampQty((existing?.qty ?? 0) + data.qty, variant.stockQty)
     if (qty === 0) throw new Error('Нөөц хүрэлцэхгүй байна')
 
-    if (!existing) {
-      const [lines] = await db.select({ n: count() }).from(cartItems).where(eq(cartItems.cartId, cartId))
-      if ((lines?.n ?? 0) >= MAX_CART_LINES) {
-        throw new Error(`Сагсанд ${MAX_CART_LINES}-аас олон төрлийн бараа нэмэх боломжгүй`)
-      }
-    }
-
     if (existing) {
       await db
         .update(cartItems)
         .set({ qty, unitPriceSnapshot: variant.price })
         .where(eq(cartItems.id, existing.id))
     } else {
+      const [lines] = await db.select({ count: count() }).from(cartItems).where(eq(cartItems.cartId, cartId))
+      if ((lines?.count ?? 0) >= MAX_CART_LINES) {
+        throw new Error(`Сагсанд ${MAX_CART_LINES}-аас олон төрлийн бараа нэмэх боломжгүй`)
+      }
       await db.insert(cartItems).values({
         cartId,
         variantId: variant.id,

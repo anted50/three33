@@ -1,3 +1,4 @@
+import { assert } from '~/lib/assert'
 import { apiCall } from './api'
 
 /**
@@ -93,5 +94,9 @@ export const adminBookingApi = {
 
 /** An Ulaanbaatar wall-clock time as the API's ISO instant: 2026-10-29 + 14:30. */
 export function ubInstant(date: string, time: string): string {
+  // Date and time inputs give exactly these shapes; anything else would make
+  // an instant the API reads differently, or not at all.
+  assert(/^\d{4}-\d{2}-\d{2}$/.test(date), `ubInstant: not a YYYY-MM-DD date: ${date}`)
+  assert(/^\d{2}:\d{2}$/.test(time), `ubInstant: not an HH:MM time: ${time}`)
   return `${date}T${time}:00+08:00`
 }

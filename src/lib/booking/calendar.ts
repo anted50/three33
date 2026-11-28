@@ -1,3 +1,4 @@
+import { assert } from '~/lib/assert'
 import { addDays, isoWeekday, localDateOf } from '~/lib/server/booking/time'
 import type { IsoDate } from '~/lib/server/booking/time'
 
@@ -76,8 +77,11 @@ export function addMonths(month: string, n: number): string {
  * the 1st, then every date of the month.
  */
 export function monthGrid(month: string): (IsoDate | null)[] {
+  assert(/^\d{4}-\d{2}$/.test(month), 'a month is YYYY-MM')
   const first = `${month}-01`
   const cells: (IsoDate | null)[] = Array(isoWeekday(first) - 1).fill(null)
+  // Ends when the date rolls into the next month: at most 31 steps.
   for (let d = first; monthOf(d) === month; d = addDays(d, 1)) cells.push(d)
+  assert(cells.length <= 6 * 7, 'a month fits a six-week grid')
   return cells
 }

@@ -40,6 +40,7 @@ import {
   updateProductRow,
 } from './internal'
 import { formatAddress } from '~/lib/address'
+import { assert } from '~/lib/assert'
 import { munguToTugrik } from '~/lib/money'
 import type { InvoiceMethod } from '~/lib/payment-methods'
 import { sanitizeRichText } from '~/lib/rich-text'
@@ -60,7 +61,8 @@ export const getOrdersInput = z.object({
   status: z.string().max(32).optional(),
   dateFrom: isoDate.optional(),
   dateTo: isoDate.optional(),
-  page: z.number().int().min(1).optional(),
+  /** Far past the last real page; keeps the row offset a safe integer. */
+  page: z.number().int().min(1).max(1_000_000).optional(),
   pageSize: z.number().int().min(1).max(100).optional(),
 })
 
@@ -114,6 +116,8 @@ export const exportOrders = createServerFn({ method: 'POST' })
         status: STATUS_LABEL[row.status],
       })
     }
+    // The header row plus one per order.
+    assert(sheet.rowCount === rows.length + 1, 'one sheet row per exported order')
 
     const buffer = await workbook.xlsx.writeBuffer()
     return {
@@ -217,12 +221,17 @@ export const setOrderStatus = createServerFn({ method: 'POST' })
      * customer pays days later for something nobody will ever ship, so this
      * goes through the same helper the sweep uses.
      */
-    if (
-      existing.status === 'pending_payment' &&
-      (data.status === 'cancelled' || data.status === 'expired')
-    ) {
-      await expireCheckout(existing.id, data.status)
-      return { ok: true as const, status: data.status }
+    if (existing.status === 'pending_payment') {
+      if (data.status === 'cancelled' || data.status === 'expired') {
+        const result = await expireCheckout(existing.id, data.status)
+        if (result === 'cancel_failed') {
+          throw new Error('Төлбөрийн нэхэмжлэхийг цуцалж чадсангүй. Түр хүлээгээд дахин оролдоно уу.')
+        }
+        if (result === 'not_pending') {
+          throw new Error('Захиалгын төлөв өөрчлөгдсөн байна. Хуудсаа шинэчилнэ үү.')
+        }
+        return { ok: true as const, status: data.status }
+      }
     }
 
     assertTransition(existing.status, data.status)
@@ -274,6 +283,7 @@ export const setVariant = createServerFn({ method: 'POST' })
     if (!current) throw new Error('Хувилбар олдсонгүй')
 
     const delta = data.stockQty - current.stockQty
+    assert(Number.isSafeInteger(delta), 'stock counts are bounded integers')
 
     try {
       await atomic([
@@ -446,7 +456,7 @@ export const createProduct = createServerFn({ method: 'POST' })
   .handler(async ({ data }) => {
     await assertAdmin()
 
-    const skus = data.variants.map((v) => v.sku)
+    const skus = data.variants.map((variant) => variant.sku)
     if (new Set(skus).size !== skus.length) {
       throw new Error('Хувилбаруудын SKU давхардсан байна')
     }
@@ -460,13 +470,13 @@ export const createProduct = createServerFn({ method: 'POST' })
         categoryId: data.categoryId ?? null,
         brandLine: data.brandLine ?? null,
         status: data.status,
-        variants: data.variants.map((v) => ({
-          sku: v.sku,
-          size: v.size || null,
-          price: v.price,
-          stockQty: v.stockQty,
+        variants: data.variants.map((variant) => ({
+          sku: variant.sku,
+          size: variant.size || null,
+          price: variant.price,
+          stockQty: variant.stockQty,
         })),
-        images: data.images.map((i) => ({ url: i.url, alt: i.alt || null })),
+        images: data.images.map((image) => ({ url: image.url, alt: image.alt || null })),
       })
     } catch (err) {
       if (isUniqueViolation(err, 'products.slug') || isUniqueViolation(err, 'product_variants.sku')) {
@@ -566,7 +576,7 @@ export const setProductImages = createServerFn({ method: 'POST' })
 
     return replaceProductImages(
       data.slug,
-      data.images.map((i) => ({ url: i.url, alt: i.alt || null })),
+      data.images.map((image) => ({ url: image.url, alt: image.alt || null })),
     )
   })
 

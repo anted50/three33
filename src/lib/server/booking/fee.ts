@@ -20,29 +20,23 @@ import { sendConfirmation } from './emails/confirmation'
 const CHECK_INTERVAL_MS = 3_000
 
 export async function checkBookingFee(appointmentId: string) {
-  const [a] = await db
+  const [appointment] = await db
     .select({ status: appointments.status, invoiceId: appointments.qpayInvoiceId, fee: appointments.bookingFee })
     .from(appointments)
     .where(eq(appointments.id, appointmentId))
     .limit(1)
-  if (!a) throw notFound('Booking')
-  if (a.status !== 'pending' || !a.invoiceId) return { status: a.status, checked: false }
+  if (!appointment) throw notFound('Booking')
+  if (appointment.status !== 'pending') return { status: appointment.status, checked: false }
+  // No invoice yet: the hold is still being written (book.ts), nothing to ask.
+  if (!appointment.invoiceId) return { status: appointment.status, checked: false }
+  assert(Number.isInteger(appointment.fee), 'a booking fee is whole mungu')
+  assert(appointment.fee > 0, 'an online hold always carries a fee')
 
-  // Claimed before the call, so concurrent polls can't all reach QPay.
-  const claimed = await db
-    .update(appointments)
-    .set({ lastCheckedAt: new Date() })
-    .where(
-      and(
-        eq(appointments.id, appointmentId),
-        or(isNull(appointments.lastCheckedAt), lt(appointments.lastCheckedAt, new Date(Date.now() - CHECK_INTERVAL_MS))),
-      ),
-    )
-    .returning({ id: appointments.id })
-  if (claimed.length === 0) return { status: a.status, checked: false }
+  const claimed = await claimCheck(appointmentId)
+  if (!claimed) return { status: appointment.status, checked: false }
 
-  const result = await getQpayProvider().checkInvoice(a.invoiceId, a.fee)
-  if (result.outcome !== 'paid') return { status: a.status, checked: true, outcome: result.outcome }
+  const result = await getQpayProvider().checkInvoice(appointment.invoiceId, appointment.fee)
+  if (result.outcome !== 'paid') return { status: appointment.status, checked: true, outcome: result.outcome }
   // payments_payment_id_key needs it, and a paid check always names one.
   assert(result.providerPaymentId, 'a paid QPay check carries its payment id')
 
@@ -62,4 +56,24 @@ export async function checkBookingFee(appointmentId: string) {
 
   inBackground(`booking confirmation ${appointmentId}`, sendConfirmation(appointmentId))
   return { status: 'booked' as const, checked: true, outcome: result.outcome }
+}
+
+/**
+ * Takes the right to ask QPay now, at most once per CHECK_INTERVAL_MS per
+ * booking. Claimed before the call, so concurrent polls can't all reach QPay.
+ */
+async function claimCheck(appointmentId: string): Promise<boolean> {
+  const now = new Date()
+  const claimed = await db
+    .update(appointments)
+    .set({ lastCheckedAt: now })
+    .where(
+      and(
+        eq(appointments.id, appointmentId),
+        or(isNull(appointments.lastCheckedAt), lt(appointments.lastCheckedAt, new Date(now.getTime() - CHECK_INTERVAL_MS))),
+      ),
+    )
+    .returning({ id: appointments.id })
+  assert(claimed.length <= 1, 'an appointment id matches one row')
+  return claimed.length === 1
 }

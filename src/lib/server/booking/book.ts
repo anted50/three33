@@ -55,8 +55,8 @@ export async function createBooking(input: z.infer<typeof bookingInput>) {
   // batch, since a schedule edit or a second tab may land in between.
   const [window] = await db.select({ id: availability.id }).from(availability).where(windowCovers(startsAt, endsAt)).limit(1)
   if (!window) throw notAvailable()
-  const [live] = await db.select({ id: appointments.id }).from(appointments).where(liveHoldOf(input)).limit(1)
-  if (live) throw holdExists()
+  const [liveHold] = await db.select({ id: appointments.id }).from(appointments).where(liveHoldOf(input)).limit(1)
+  if (liveHold) throw holdExists()
 
   const token = randomBytes(24).toString('base64url')
   const id = crypto.randomUUID()

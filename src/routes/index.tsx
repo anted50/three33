@@ -5,10 +5,9 @@ import { ProductCard } from '~/components/product-card'
 import { listProducts } from '~/lib/server/products/queries'
 
 /**
- * No categories in this loader. The header's category row is fed by the root
- * loader on every page, so fetching them again here was a second query for a
- * second copy of the same nav — which is the duplication the chip row below the
- * hero represented on screen.
+ * Products only, no categories: the home page has no category nav of its own
+ * any more (the chip row under the hero was a second copy of the catalogue's),
+ * so there is nothing here to feed with them.
  */
 export const Route = createFileRoute('/')({
   loader: async () => ({
@@ -17,9 +16,12 @@ export const Route = createFileRoute('/')({
   component: Home,
 })
 
+/** Products featured on the home page; the rest are one tap away on /products. */
+const FEATURED_COUNT_MAX = 8
+
 function Home() {
   const { products } = Route.useLoaderData()
-  const featured = products.slice(0, 8)
+  const featured = products.slice(0, FEATURED_COUNT_MAX)
 
   return (
     <Page>

@@ -12,21 +12,19 @@ export interface PickableVariant {
 
 /**
  * Multi-select over every variant in the shop, searchable by name, SKU or
- * size. Used by the stock-receipt page and the invoice maker.
+ * size. Used by the stock-receipt page.
  */
 export function VariantPicker({
   variants,
   chosen,
   onPick,
   onClose,
-  hideOutOfStock = false,
 }: {
   variants: PickableVariant[]
+  /** Already on the page's sheet: shown ticked, and not pickable twice. */
   chosen: string[]
   onPick: (ids: string[]) => void
   onClose: () => void
-  /** Selling from stock: a variant with none left can't go on an invoice. */
-  hideOutOfStock?: boolean
 }) {
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<string[]>([])
@@ -34,12 +32,17 @@ export function VariantPicker({
   const needle = query.trim().toLowerCase()
   const matches = variants.filter(
     (variant) =>
-      (!hideOutOfStock || variant.stockQty > 0) &&
-      (needle === '' ||
-        variant.productName.toLowerCase().includes(needle) ||
-        variant.sku.toLowerCase().includes(needle) ||
-        (variant.size ?? '').toLowerCase().includes(needle)),
+      needle === '' ||
+      variant.productName.toLowerCase().includes(needle) ||
+      variant.sku.toLowerCase().includes(needle) ||
+      (variant.size ?? '').toLowerCase().includes(needle),
   )
+
+  function toggle(id: string, checked: boolean) {
+    setSelected((current) =>
+      checked ? [...current, id] : current.filter((other) => other !== id),
+    )
+  }
 
   return (
     <div className="modal" role="dialog" aria-modal="true">
@@ -70,34 +73,15 @@ export function VariantPicker({
               </tr>
             </thead>
             <tbody>
-              {matches.map((variant) => {
-                const already = chosen.includes(variant.id)
-                return (
-                  <tr key={variant.id}>
-                    <td>
-                      <input
-                        type="checkbox"
-                        checked={already || selected.includes(variant.id)}
-                        disabled={already}
-                        onChange={(e) =>
-                          setSelected((current) =>
-                            e.target.checked
-                              ? [...current, variant.id]
-                              : current.filter((id) => id !== variant.id),
-                          )
-                        }
-                      />
-                    </td>
-                    <td>
-                      {variant.productName}
-                      {variant.size ? ` · ${variant.size}` : ''}
-                    </td>
-                    <td className="adm__mono">{variant.sku}</td>
-                    <td className="adm__num">{variant.stockQty}</td>
-                    <td className="adm__num">{formatMnt(variant.price)}</td>
-                  </tr>
-                )
-              })}
+              {matches.map((variant) => (
+                <PickerRow
+                  key={variant.id}
+                  variant={variant}
+                  already={chosen.includes(variant.id)}
+                  selected={selected.includes(variant.id)}
+                  onToggle={(checked) => toggle(variant.id, checked)}
+                />
+              ))}
             </tbody>
           </table>
         </div>
@@ -115,5 +99,37 @@ export function VariantPicker({
         </div>
       </div>
     </div>
+  )
+}
+
+function PickerRow({
+  variant,
+  already,
+  selected,
+  onToggle,
+}: {
+  variant: PickableVariant
+  already: boolean
+  selected: boolean
+  onToggle: (checked: boolean) => void
+}) {
+  return (
+    <tr>
+      <td>
+        <input
+          type="checkbox"
+          checked={already || selected}
+          disabled={already}
+          onChange={(e) => onToggle(e.target.checked)}
+        />
+      </td>
+      <td>
+        {variant.productName}
+        {variant.size ? ` · ${variant.size}` : ''}
+      </td>
+      <td className="adm__mono">{variant.sku}</td>
+      <td className="adm__num">{variant.stockQty}</td>
+      <td className="adm__num">{formatMnt(variant.price)}</td>
+    </tr>
   )
 }

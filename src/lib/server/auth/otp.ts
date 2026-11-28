@@ -1,8 +1,10 @@
 import { createHash, randomInt } from 'node:crypto'
-import { and, desc, eq, isNull, lt, sql } from 'drizzle-orm'
+import { and, count, desc, eq, gt, isNull, lt, sql } from 'drizzle-orm'
 import { db } from '~/db'
+import { atomic, exists, guard } from '~/db/atomic'
 import { otpCodes } from '~/db/schema'
 import { assert } from '~/lib/assert'
+import { isGuardFailure } from '../api/db-errors'
 import { safeCompare } from './session'
 
 /** 10 minutes: long enough to switch to a mail app, short enough that a
@@ -16,9 +18,20 @@ export const MAX_ATTEMPTS = 5
  * form can't be used to spam an inbox. */
 export const MIN_RESEND_INTERVAL_MS = 60 * 1000
 
+/**
+ * Codes one email can be sent per day. Each code allows MAX_ATTEMPTS
+ * guesses, so this caps guessing at 50 a day against a million codes: a
+ * one-in-20,000 chance per day. Without it, asking for a new code every
+ * minute bought five fresh guesses each time.
+ */
+export const OTP_CODES_PER_DAY_MAX = 10
+const DAY_MS = 24 * 60 * 60 * 1000
+
 function generateCode(): string {
   // randomInt, not Math.random — this is a credential, not a UI id.
-  return String(randomInt(0, 1_000_000)).padStart(6, '0')
+  const code = String(randomInt(0, 1_000_000)).padStart(6, '0')
+  assert(/^[0-9]{6}$/.test(code), 'a code is exactly six digits')
+  return code
 }
 
 function hashCode(code: string): string {
@@ -26,32 +39,53 @@ function hashCode(code: string): string {
 }
 
 /**
- * Issues a fresh code for an email, unless one was issued too recently.
- * Returns the raw code for the caller to send, or null when rate-limited —
- * callers must still report success to the browser either way, so a request
- * can't be used to probe "is there a pending code for this address".
+ * Issues a fresh code for an email, unless one was issued in the last minute
+ * or the email has had OTP_CODES_PER_DAY_MAX codes today. Returns the raw
+ * code for the caller to send, or null when refused — callers must still
+ * report success to the browser either way, so a request can't be used to
+ * probe "is there a pending code for this address".
+ *
+ * Both limits are guards in the same batch as the insert, so two requests
+ * at the same moment cannot both pass a check and both insert.
  */
 export async function issueOtp(email: string): Promise<string | null> {
-  const [recent] = await db
-    .select({ createdAt: otpCodes.createdAt })
-    .from(otpCodes)
-    .where(and(eq(otpCodes.email, email), isNull(otpCodes.consumedAt)))
-    .orderBy(desc(otpCodes.createdAt))
-    .limit(1)
-
-  if (recent && Date.now() - recent.createdAt.getTime() < MIN_RESEND_INTERVAL_MS) {
-    return null
-  }
-
+  assert(email.length > 0, 'a code is issued for an email')
+  const now = Date.now()
   const code = generateCode()
 
-  await db.insert(otpCodes).values({
-    email,
-    codeHash: hashCode(code),
-    expiresAt: new Date(Date.now() + OTP_TTL_MS),
-  })
+  try {
+    await atomic([
+      guard(sql`not ${exists(unconsumedCodeSince(email, now - MIN_RESEND_INTERVAL_MS))}`, 'OTP_RESEND_TOO_SOON'),
+      guard(sql`${codesIssuedSince(email, now - DAY_MS)} < ${OTP_CODES_PER_DAY_MAX}`, 'OTP_DAILY_LIMIT'),
+      db.insert(otpCodes).values({
+        email,
+        codeHash: hashCode(code),
+        expiresAt: new Date(now + OTP_TTL_MS),
+      }),
+    ])
+  } catch (error) {
+    if (isGuardFailure(error, 'OTP_RESEND_TOO_SOON')) return null
+    if (isGuardFailure(error, 'OTP_DAILY_LIMIT')) return null
+    throw error
+  }
 
   return code
+}
+
+/** An unconsumed code for `email` created after `sinceMs`. */
+function unconsumedCodeSince(email: string, sinceMs: number) {
+  return db
+    .select({ id: otpCodes.id })
+    .from(otpCodes)
+    .where(and(eq(otpCodes.email, email), isNull(otpCodes.consumedAt), gt(otpCodes.createdAt, new Date(sinceMs))))
+}
+
+/** How many codes `email` has been issued since `sinceMs`, used or not. */
+function codesIssuedSince(email: string, sinceMs: number) {
+  return db
+    .select({ count: count() })
+    .from(otpCodes)
+    .where(and(eq(otpCodes.email, email), gt(otpCodes.createdAt, new Date(sinceMs))))
 }
 
 export type OtpOutcome = 'ok' | 'invalid' | 'expired' | 'too_many_attempts'

@@ -48,34 +48,33 @@ export class QpayClient {
     init: { method: string; body?: unknown } = { method: 'GET' },
   ): Promise<T> {
     const token = await this.getToken()
-
-    const response = await this.fetchWithTimeout(this.url(path), {
-      method: init.method,
-      headers: {
-        Authorization: `Bearer ${token.accessToken}`,
-        ...(init.body ? { 'Content-Type': 'application/json' } : {}),
-      },
-      body: init.body ? JSON.stringify(init.body) : undefined,
-    })
+    const response = await this.send(path, init, token.accessToken)
 
     // A 401 usually means the cached token died earlier than advertised
     // (QPay can invalidate on its side). Drop it and retry exactly once;
     // retrying further would just hammer /auth/token.
     if (response.status === 401) {
+      // Nothing in a 401 body is worth reading, and a Worker holds the
+      // connection open for a response body nobody consumed.
+      await response.body?.cancel()
       this.token = null
       const fresh = await this.getToken()
-      const retry = await this.fetchWithTimeout(this.url(path), {
-        method: init.method,
-        headers: {
-          Authorization: `Bearer ${fresh.accessToken}`,
-          ...(init.body ? { 'Content-Type': 'application/json' } : {}),
-        },
-        body: init.body ? JSON.stringify(init.body) : undefined,
-      })
+      const retry = await this.send(path, init, fresh.accessToken)
       return this.parse<T>(retry, path)
     }
 
     return this.parse<T>(response, path)
+  }
+
+  private send(path: string, init: { method: string; body?: unknown }, accessToken: string): Promise<Response> {
+    return this.fetchWithTimeout(this.url(path), {
+      method: init.method,
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+      },
+      body: init.body ? JSON.stringify(init.body) : undefined,
+    })
   }
 
   /** Exposed so tests and the reconcile script can force a fresh token. */

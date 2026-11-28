@@ -3,11 +3,15 @@ import { and, eq, gt, lt } from 'drizzle-orm'
 import { db } from '~/db'
 import { sessions, users } from '~/db/schema'
 import type { User } from '~/db/schema'
+import { assert } from '~/lib/assert'
+import { SESSION_MAX_AGE } from '../cookies'
 
-export const SESSION_COOKIE = 'uc_session'
-
-/** 30 days. Refreshed when a session is more than halfway through its life. */
-export const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30
+/**
+ * 30 days. Refreshed when a session is more than halfway through its life.
+ * The cookie's max-age, so the row and the cookie it backs cannot drift
+ * apart; the cookie name lives in cookies.ts too.
+ */
+export const SESSION_TTL_SECONDS = SESSION_MAX_AGE
 
 /**
  * The cookie holds a random token; the database holds only its SHA-256 hash.
@@ -45,11 +49,18 @@ export interface SessionUser {
   email: string
   name: string
   role: User['role']
+  /**
+   * True when this check pushed the session's expiry forward. The caller
+   * should then send the cookie again: the browser drops the cookie at its
+   * own max-age, so a renewed row behind an old cookie still logs you out.
+   */
+  renewed: boolean
 }
 
 /**
- * Resolves a cookie token to a user, or null. Expired rows are deleted on sight
- * so a stale cookie can never be revived by a clock change.
+ * Resolves a cookie token to a user, or null. An expired row never matches:
+ * expiry is checked in the query itself, and the cleanup job deletes the row
+ * later (deleteExpiredSessions).
  */
 export async function validateSessionToken(
   token: string | undefined | null,
@@ -74,18 +85,20 @@ export async function validateSessionToken(
 
   const row = rows[0]
   if (!row) return null
+  assert(row.sessionId === sessionId, 'the session read is the one asked for')
 
   // Sliding expiry: extend only past the halfway mark, so an active user isn't
   // logged out mid-checkout but we're not writing to the DB on every request.
-  const halfLife = row.expiresAt.getTime() - (SESSION_TTL_SECONDS * 1000) / 2
-  if (Date.now() > halfLife) {
+  const refreshAfterMs = row.expiresAt.getTime() - (SESSION_TTL_SECONDS * 1000) / 2
+  const renewed = Date.now() > refreshAfterMs
+  if (renewed) {
     await db
       .update(sessions)
       .set({ expiresAt: new Date(Date.now() + SESSION_TTL_SECONDS * 1000) })
       .where(eq(sessions.id, sessionId))
   }
 
-  return { id: row.id, email: row.email, name: row.name, role: row.role }
+  return { id: row.id, email: row.email, name: row.name, role: row.role, renewed }
 }
 
 /** Log out one session. Takes effect immediately — that's the point of DB sessions. */
@@ -104,8 +117,8 @@ export async function deleteExpiredSessions(): Promise<void> {
  * circuits, which is fine — token length is not a secret.
  */
 export function safeCompare(a: string, b: string): boolean {
-  const bufA = Buffer.from(a)
-  const bufB = Buffer.from(b)
-  if (bufA.length !== bufB.length) return false
-  return timingSafeEqual(bufA, bufB)
+  const bytesA = Buffer.from(a)
+  const bytesB = Buffer.from(b)
+  if (bytesA.length !== bytesB.length) return false
+  return timingSafeEqual(bytesA, bytesB)
 }

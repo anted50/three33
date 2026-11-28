@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { tugrikToMungu } from '~/lib/money'
-import { createAdminInvoiceInput, invoiceTotal } from './invoice-lines'
+import { createAdminInvoiceInput, INVOICE_LINES_MAX, invoiceTotal } from './invoice-lines'
 
 const VARIANT = '0b6e3c9e-5c1a-4f3e-9a51-2d9f0c7e8a11'
 
@@ -12,6 +12,10 @@ describe('invoiceTotal', () => {
         { qty: 1, unitPrice: tugrikToMungu(10_000) },
       ]),
     ).toBe(tugrikToMungu(100_000))
+  })
+
+  it('refuses an empty invoice, which createAdminInvoiceInput never lets through', () => {
+    expect(() => invoiceTotal([])).toThrow()
   })
 })
 
@@ -75,6 +79,15 @@ describe('createAdminInvoiceInput', () => {
       const [line] = result.lines
       expect(line?.kind === 'custom' && line.name).toBe('Үйлчилгээ')
     }
+  })
+
+  // The boundary on both sides: the cap itself passes, one more line does not.
+  it('accepts INVOICE_LINES_MAX lines and rejects one more', () => {
+    const lines = Array.from({ length: INVOICE_LINES_MAX }, () => custom)
+    expect(createAdminInvoiceInput.safeParse({ method: 'qpay', lines }).success).toBe(true)
+    expect(
+      createAdminInvoiceInput.safeParse({ method: 'qpay', lines: [...lines, custom] }).success,
+    ).toBe(false)
   })
 
   it('rejects an invoice with no lines', () => {

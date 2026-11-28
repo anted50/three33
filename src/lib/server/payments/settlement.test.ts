@@ -75,17 +75,55 @@ describe('decideSettlement', () => {
     expect(result.outcome).toBe('paid')
   })
 
-  it('ignores NEW, FAILED and PARTIAL rows', () => {
+  it('ignores NEW and FAILED rows', () => {
     const result = decideSettlement(
       check([
         { id: 'a', status: 'NEW', amount: 45_000 },
         { id: 'b', status: 'FAILED', amount: 45_000 },
-        { id: 'c', status: 'PARTIAL', amount: 45_000 },
       ]),
       TOTAL,
     )
     expect(result.outcome).toBe('unpaid')
     expect(result.paidAmount).toBe(0)
+  })
+
+  it('sends a PARTIAL payment to a human instead of letting it expire', () => {
+    // Goal: money that arrived in part must never read as "unpaid", which
+    // the sweep expires. Method: one PARTIAL row and nothing else.
+    const result = decideSettlement(
+      check([{ id: 'p', status: 'PARTIAL', amount: 20_000 }]),
+      TOTAL,
+    )
+    expect(result.outcome).toBe('underpaid')
+    expect(result.paidAmount).toBe(tugrikToMungu(20_000))
+    expect(result.providerPaymentId).toBe('p')
+  })
+
+  it('counts a PARTIAL row toward what arrived, not toward settling', () => {
+    // Goal: only fully PAID rows can settle an order. Method: a short PAID
+    // row plus a PARTIAL row that together reach the total.
+    const result = decideSettlement(
+      check([
+        { id: 'a', status: 'PAID', amount: 25_000 },
+        { id: 'b', status: 'PARTIAL', amount: 20_000 },
+      ]),
+      TOTAL,
+    )
+    expect(result.outcome).toBe('underpaid')
+    expect(result.paidAmount).toBe(TOTAL)
+  })
+
+  it('settles on PAID rows even when a PARTIAL row sits beside them', () => {
+    const result = decideSettlement(
+      check([
+        { id: 'a', status: 'PARTIAL', amount: 5_000 },
+        { id: 'b', status: 'PAID', amount: 45_000 },
+      ]),
+      TOTAL,
+    )
+    expect(result.outcome).toBe('paid')
+    expect(result.paidAmount).toBe(TOTAL)
+    expect(result.providerPaymentId).toBe('b')
   })
 
   it('reports refunded when the only row is a reversal', () => {

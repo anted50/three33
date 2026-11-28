@@ -8,6 +8,33 @@ export const Route = createFileRoute('/admin/settings')({
   component: Settings,
 })
 
+/** Whole or fractional tugrik, zero or more; null for blank or anything else. */
+function parseTugrik(text: string): number | null {
+  if (text.trim() === '') return null
+  const tugrik = Number(text)
+  if (!Number.isFinite(tugrik)) return null
+  if (tugrik < 0) return null
+  return tugrik
+}
+
+/** The rates as setShippingRates takes them, in mungu. Throws a message. */
+function parseRates(feeText: string, thresholdText: string) {
+  const feeTugrik = parseTugrik(feeText)
+  const thresholdTugrik = parseTugrik(thresholdText)
+
+  if (feeTugrik === null) {
+    throw new Error('Хүргэлтийн төлбөр буруу байна')
+  }
+  if (thresholdTugrik === null) {
+    throw new Error('Үнэгүй хүргэлтийн босго буруу байна')
+  }
+
+  return {
+    fee: tugrikToMungu(feeTugrik),
+    freeThreshold: tugrikToMungu(thresholdTugrik),
+  }
+}
+
 function Settings() {
   const rates = Route.useLoaderData()
   const router = useRouter()
@@ -17,7 +44,23 @@ function Settings() {
   )
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // True from a successful save until the next edit.
   const [saved, setSaved] = useState(false)
+
+  async function save() {
+    setError(null)
+    setSaved(false)
+    setBusy(true)
+    try {
+      await setShippingRates({ data: parseRates(fee, threshold) })
+      setSaved(true)
+      await router.invalidate()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Хадгалахад алдаа гарлаа')
+    } finally {
+      setBusy(false)
+    }
+  }
 
   return (
     <>
@@ -31,67 +74,62 @@ function Settings() {
 
       <form
         className="adm__card adm__pad"
-        onSubmit={async (event) => {
+        onSubmit={(event) => {
           event.preventDefault()
-          setError(null)
-          setSaved(false)
-
-          const feeTugrik = Number(fee)
-          const thresholdTugrik = Number(threshold)
-
-          if (!Number.isFinite(feeTugrik) || feeTugrik < 0) {
-            setError('Хүргэлтийн төлбөр буруу байна')
-            return
-          }
-          if (!Number.isFinite(thresholdTugrik) || thresholdTugrik < 0) {
-            setError('Үнэгүй хүргэлтийн босго буруу байна')
-            return
-          }
-
-          setBusy(true)
-          try {
-            await setShippingRates({
-              data: {
-                fee: tugrikToMungu(feeTugrik),
-                freeThreshold: tugrikToMungu(thresholdTugrik),
-              },
-            })
-            setSaved(true)
-            await router.invalidate()
-          } catch (err) {
-            setError(
-              err instanceof Error ? err.message : 'Хадгалахад алдаа гарлаа',
-            )
-          } finally {
-            setBusy(false)
-          }
+          if (busy) return
+          void save()
         }}
       >
         <div className="adm__cols">
-          <label className="field">
-            <span>Хүргэлтийн төлбөр (₮)</span>
-            <input
-              value={fee}
-              inputMode="numeric"
-              onChange={(e) => setFee(e.target.value)}
-            />
-            <small>Одоо: {formatMnt(rates.fee)}</small>
-          </label>
-
-          <label className="field">
-            <span>Үнэгүй хүргэлтийн босго (₮)</span>
-            <input
-              value={threshold}
-              inputMode="numeric"
-              onChange={(e) => setThreshold(e.target.value)}
-            />
-            <small>Одоо: {formatMnt(rates.freeThreshold)}</small>
-          </label>
+          <RateField
+            label="Хүргэлтийн төлбөр (₮)"
+            value={fee}
+            current={rates.fee}
+            onChange={(value) => {
+              setFee(value)
+              setSaved(false)
+            }}
+          />
+          <RateField
+            label="Үнэгүй хүргэлтийн босго (₮)"
+            value={threshold}
+            current={rates.freeThreshold}
+            onChange={(value) => {
+              setThreshold(value)
+              setSaved(false)
+            }}
+          />
         </div>
         <button type="submit" className="btn" disabled={busy}>
           {busy ? 'Хадгалж байна…' : saved ? '✓ Хадгалсан' : 'Хадгалах'}
         </button>
       </form>
     </>
+  )
+}
+
+/** A tugrik amount being edited, with the saved one under it. */
+function RateField({
+  label,
+  value,
+  current,
+  onChange,
+}: {
+  label: string
+  value: string
+  /** The saved amount, in mungu. */
+  current: number
+  onChange: (value: string) => void
+}) {
+  return (
+    <label className="field">
+      <span>{label}</span>
+      <input
+        value={value}
+        inputMode="numeric"
+        onChange={(e) => onChange(e.target.value)}
+      />
+      <small>Одоо: {formatMnt(current)}</small>
+    </label>
   )
 }

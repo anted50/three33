@@ -7,7 +7,14 @@ export const Route = createFileRoute('/admin/products/')({
   component: Products,
 })
 
-const LOW = 10
+/** At or under this many in stock, the count is flagged as running low. */
+const LOW_STOCK_QUANTITY = 10
+
+function stockTone(stockQuantity: number): 'out' | 'low' | undefined {
+  if (stockQuantity === 0) return 'out'
+  if (stockQuantity <= LOW_STOCK_QUANTITY) return 'low'
+  return undefined
+}
 
 function Products() {
   const products = Route.useLoaderData()
@@ -37,6 +44,13 @@ function Products() {
             </tr>
           </thead>
           <tbody>
+            {products.length === 0 && (
+              <tr>
+                <td colSpan={6} className="adm__muted">
+                  Бүтээгдэхүүн алга.
+                </td>
+              </tr>
+            )}
             {products.map((product) => (
               <tr key={product.slug}>
                 <td>
@@ -50,16 +64,7 @@ function Products() {
                 <td className="adm__muted adm__wide">{product.category ?? '—'}</td>
                 <td className="adm__wide">{product.variants}</td>
                 <td>
-                  <span
-                    className="pill"
-                    data-tone={
-                      product.stock === 0
-                        ? 'out'
-                        : product.stock <= LOW
-                          ? 'low'
-                          : undefined
-                    }
-                  >
+                  <span className="pill" data-tone={stockTone(product.stock)}>
                     {product.stock}
                   </span>
                 </td>

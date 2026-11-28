@@ -10,17 +10,25 @@
  *     fromQpayAmount, toStorepayAmount / fromStorepayAmount).
  */
 
-/** Branded so a raw number can't be passed where mungu is expected by mistake. */
+/**
+ * Names the unit in signatures. A plain alias, not a brand: the type checker
+ * does not stop a raw number, so the assertMungu calls below do the checking.
+ */
 export type Mungu = number
 
 export const MUNGU_PER_TUGRIK = 100
 
-/** 1500 ₮ -> 150000 mungu. Rejects fractional mungu. */
+/**
+ * 1500 ₮ -> 150000 mungu. Rounds to the nearest mungu (a provider's 1500.004
+ * is float noise, not a price) and rejects an amount that is not finite or
+ * too large to count exactly.
+ */
 export function tugrikToMungu(tugrik: number): Mungu {
   const mungu = Math.round(tugrik * MUNGU_PER_TUGRIK)
   if (!Number.isFinite(mungu)) {
     throw new RangeError(`tugrikToMungu: not a finite amount: ${tugrik}`)
   }
+  assertMungu(mungu)
   return mungu
 }
 
@@ -103,12 +111,12 @@ export function sumMungu(amounts: readonly Mungu[]): Mungu {
 }
 
 /** unit price x quantity, with the same guards. */
-export function lineTotal(unitPrice: Mungu, qty: number): Mungu {
+export function lineTotal(unitPrice: Mungu, quantity: number): Mungu {
   assertMungu(unitPrice)
-  if (!Number.isInteger(qty) || qty < 1) {
-    throw new RangeError(`Quantity must be a positive integer, got: ${qty}`)
+  if (!Number.isInteger(quantity) || quantity < 1) {
+    throw new RangeError(`Quantity must be a positive integer, got: ${quantity}`)
   }
-  const total = unitPrice * qty
+  const total = unitPrice * quantity
   assertMungu(total)
   return total
 }

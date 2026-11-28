@@ -1,6 +1,7 @@
 import { and, eq, isNull } from 'drizzle-orm'
 import { db } from '~/db'
 import { type Appointment, appointments } from '~/db/schema'
+import { assert } from '~/lib/assert'
 import { formatMnt } from '~/lib/money'
 import { localSpan, localStamp, sendBookingEmail } from './layout'
 
@@ -14,51 +15,69 @@ import { localSpan, localStamp, sendBookingEmail } from './layout'
 
 export type ConfirmationOutcome = 'sent' | 'already_sent' | 'mail_disabled' | 'not_confirmed' | 'no_email'
 
-export async function sendConfirmation(appointmentId: string, opts: { force?: boolean } = {}): Promise<ConfirmationOutcome> {
-  const [a] = await db.select().from(appointments).where(eq(appointments.id, appointmentId)).limit(1)
-  if (!a || a.status !== 'booked') return 'not_confirmed'
-  if (!a.customerEmail) return 'no_email'
+/**
+ * `force` (an admin resending) skips the claim, and so must never release
+ * one: a failed resend leaves the first send's stamp in place.
+ */
+export async function sendConfirmation(appointmentId: string, options: { force?: boolean } = {}): Promise<ConfirmationOutcome> {
+  const force = options.force === true
+  const [appointment] = await db.select().from(appointments).where(eq(appointments.id, appointmentId)).limit(1)
+  if (!appointment) return 'not_confirmed'
+  if (appointment.status !== 'booked') return 'not_confirmed'
+  if (!appointment.customerEmail) return 'no_email'
 
-  if (!opts.force) {
-    const claimed = await db
-      .update(appointments)
-      .set({ confirmationSentAt: new Date() })
-      .where(and(eq(appointments.id, appointmentId), isNull(appointments.confirmationSentAt)))
-      .returning({ id: appointments.id })
-    if (claimed.length === 0) return 'already_sent'
+  if (!force) {
+    const claimed = await claimConfirmation(appointmentId)
+    if (!claimed) return 'already_sent'
   }
 
+  let sent: boolean
   try {
-    const sent = await sendBookingEmail(confirmationEmail(a, a.customerEmail))
-    if (!sent) {
-      await release(appointmentId)
-      return 'mail_disabled'
-    }
-    if (opts.force) await db.update(appointments).set({ confirmationSentAt: new Date() }).where(eq(appointments.id, appointmentId))
-    return 'sent'
+    sent = await sendBookingEmail(confirmationEmail(appointment, appointment.customerEmail))
   } catch (error) {
-    await release(appointmentId)
+    if (!force) await releaseConfirmation(appointmentId)
     throw error
   }
+
+  if (!sent) {
+    if (!force) await releaseConfirmation(appointmentId)
+    return 'mail_disabled'
+  }
+  if (force) await db.update(appointments).set({ confirmationSentAt: new Date() }).where(eq(appointments.id, appointmentId))
+  return 'sent'
 }
 
-async function release(appointmentId: string) {
+/** Stamps confirmation_sent_at unless it is set; true when this call stamped it. */
+async function claimConfirmation(appointmentId: string): Promise<boolean> {
+  const claimed = await db
+    .update(appointments)
+    .set({ confirmationSentAt: new Date() })
+    .where(and(eq(appointments.id, appointmentId), isNull(appointments.confirmationSentAt)))
+    .returning({ id: appointments.id })
+  assert(claimed.length <= 1, 'an appointment id matches one row')
+  return claimed.length === 1
+}
+
+/** Gives the claim back after a failed send, so a retry can send. */
+async function releaseConfirmation(appointmentId: string): Promise<void> {
   await db.update(appointments).set({ confirmationSentAt: null }).where(eq(appointments.id, appointmentId))
 }
 
-export function confirmationEmail(a: Appointment, email: string) {
-  const when = localStamp(a.startsAt)
+export function confirmationEmail(appointment: Appointment, email: string) {
+  const when = localStamp(appointment.startsAt)
+  const rows: Array<[string, string]> = [
+    ['Захиалгын дугаар', appointment.bookingNo],
+    ['Үйлчилгээ', appointment.serviceName],
+    ['Цаг', localSpan(appointment.startsAt, appointment.endsAt)],
+  ]
+  // An admin-entered booking has no fee, so there is nothing paid to show.
+  if (appointment.bookingFee > 0) rows.push(['Урьдчилгаа төлсөн', formatMnt(appointment.bookingFee)])
   return {
-    to: { email, name: a.customerName },
+    to: { email, name: appointment.customerName },
     subject: `Цаг баталгаажлаа — ${when}`,
     heading: 'Цаг захиалга баталгаажлаа',
     headline: when,
-    rows: [
-      ['Захиалгын дугаар', a.bookingNo],
-      ['Үйлчилгээ', a.serviceName],
-      ['Цаг', localSpan(a.startsAt, a.endsAt)],
-      ...(a.bookingFee > 0 ? ([['Урьдчилгаа төлсөн', formatMnt(a.bookingFee)]] as Array<[string, string]>) : []),
-    ] as Array<[string, string]>,
+    rows,
     footnote: 'Цагаа өөрчлөх эсвэл цуцлах бол бидэнтэй холбогдоно уу.',
   }
 }

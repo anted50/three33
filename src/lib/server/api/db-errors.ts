@@ -48,10 +48,13 @@ const PATTERNS: Array<[ViolationKind, RegExp]> = [
   ['trigger', /(appointments_no_overlap|availability_no_overlap)/],
 ]
 
+/** How deep into `cause` to look. Drizzle wraps D1's error once or twice. */
+const CAUSE_DEPTH_MAX = 4
+
 export function findDbViolation(error: unknown): DbViolation | null {
   let current: unknown = error
-  for (let depth = 0; depth < 4 && current; depth++) {
-    const message = current instanceof Error ? current.message : typeof current === 'string' ? current : ''
+  for (let depth = 0; depth < CAUSE_DEPTH_MAX && current; depth++) {
+    const message = messageOf(current)
     for (const [kind, pattern] of PATTERNS) {
       const match = pattern.exec(message)
       if (match) return { kind, target: match[1] || null }
@@ -59,6 +62,12 @@ export function findDbViolation(error: unknown): DbViolation | null {
     current = (current as { cause?: unknown }).cause
   }
   return null
+}
+
+function messageOf(error: unknown): string {
+  if (error instanceof Error) return error.message
+  if (typeof error === 'string') return error
+  return ''
 }
 
 /** True when `error` is a batch guard that aborted with `code` (src/db/atomic.ts). */

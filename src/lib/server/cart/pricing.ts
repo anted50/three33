@@ -57,7 +57,7 @@ export function computeTotals(
   return {
     subtotal,
     shippingFee,
-    total: subtotal + shippingFee,
+    total: sumMungu([subtotal, shippingFee]),
   }
 }
 

@@ -2,161 +2,193 @@ import { useState } from 'react'
 import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
 import { requestAdminLogin, verifyAdminLogin } from '~/lib/server/admin/auth'
 import { clearValidity, localizeValidity } from '~/lib/form-messages'
+import { assert } from '~/lib/assert'
 
 export const Route = createFileRoute('/admin/login')({
     component: AdminLogin,
 })
 
-type Step = 'email' | 'code'
-
+/**
+ * Two steps: ask for the email, then for the code sent to it. Each step is
+ * its own component, so switching steps unmounts one form and mounts the
+ * other: a fresh DOM node, never the last step's input reused with its typed
+ * value (two <form>s in the same slot of one component used to be reconciled
+ * into one, carrying a half-typed code into the email field).
+ */
 function AdminLogin() {
-    const [step, setStep] = useState<Step>('email')
+    // Empty until a code has been sent; then the address it was sent to.
     const [email, setEmail] = useState('')
+
+    return (
+        <div className="adm__unlock">
+            {email === '' ? (
+                <EmailStep onCodeSent={setEmail} />
+            ) : (
+                <CodeStep
+                    email={email}
+                    onUseDifferentEmail={() => setEmail('')}
+                />
+            )}
+        </div>
+    )
+}
+
+function errorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : 'Алдаа гарлаа'
+}
+
+function EmailStep({ onCodeSent }: { onCodeSent: (email: string) => void }) {
     const [error, setError] = useState<string | null>(null)
     const [busy, setBusy] = useState(false)
-    // Bumped on every failed code attempt and used as the input's key below, so
-    // a wrong code doesn't just sit there under the error message — React
-    // remounts the field fresh, same as switching steps already does.
-    const [codeAttempt, setCodeAttempt] = useState(0)
-    // Bumped when "use a different email" is clicked, and used as that input's
-    // key. The two steps are already separate <form> trees, so React itself
-    // never carries a value across them — but the browser's own autofill does,
-    // restoring the just-typed address into the fresh uncontrolled input by its
-    // name/type/autocomplete. A new key means a genuinely new DOM node, which
-    // autofill has no history for.
-    const [emailAttempt, setEmailAttempt] = useState(0)
-    const navigate = useNavigate()
-    const router = useRouter()
 
-    async function sendCode(target: string) {
+    async function sendCode(form: HTMLFormElement) {
+        const email = String(new FormData(form).get('email') ?? '')
+            .trim()
+            .toLowerCase()
+        // The field is required, so the browser stops an empty submit first.
+        if (email === '') return
+
         setBusy(true)
         setError(null)
         try {
-            await requestAdminLogin({ data: { email: target } })
-            setCodeAttempt((n) => n + 1)
-            setStep('code')
+            await requestAdminLogin({ data: { email } })
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Алдаа гарлаа')
-        } finally {
+            setError(errorMessage(err))
             setBusy(false)
+            return
+        }
+        onCodeSent(email)
+    }
+
+    return (
+        <form
+            className="adm__card adm__unlockcard"
+            onInvalidCapture={localizeValidity}
+            onInput={clearValidity}
+            onSubmit={(event) => {
+                event.preventDefault()
+                if (busy) return
+                void sendCode(event.currentTarget)
+            }}
+        >
+            <h1>Админ нэвтрэлт</h1>
+            <p className="adm__muted">
+                Имэйл хаягаа оруулбал 6 оронтой код илгээнэ.
+            </p>
+
+            <label className="field">
+                <span>Имэйл</span>
+                <input
+                    name="email"
+                    type="email"
+                    autoFocus
+                    required
+                    autoComplete="email"
+                />
+            </label>
+
+            {error && <p className="error">{error}</p>}
+
+            <button type="submit" className="btn" disabled={busy}>
+                {busy ? 'Илгээж байна…' : 'Код авах'}
+            </button>
+        </form>
+    )
+}
+
+function CodeStep({
+    email,
+    onUseDifferentEmail,
+}: {
+    email: string
+    onUseDifferentEmail: () => void
+}) {
+    assert(email !== '', 'the code step needs the address the code went to')
+    const navigate = useNavigate()
+    const router = useRouter()
+    const [error, setError] = useState<string | null>(null)
+    const [busy, setBusy] = useState(false)
+    // Bumped on every failed attempt and used as the field's key below, so a
+    // wrong code doesn't just sit there under the error message: React
+    // remounts the field fresh.
+    const [codeAttempt, setCodeAttempt] = useState(0)
+
+    function fail(message: string) {
+        setError(message)
+        setBusy(false)
+        setCodeAttempt((attempt) => attempt + 1)
+    }
+
+    async function verify(form: HTMLFormElement) {
+        const code = String(new FormData(form).get('code') ?? '').trim()
+
+        setError(null)
+        setBusy(true)
+        try {
+            const result = await verifyAdminLogin({ data: { email, code } })
+            if (!result.ok) {
+                fail(result.error ?? 'Алдаа гарлаа')
+                return
+            }
+            // Busy stays on: the page is about to leave for the dashboard.
+            await router.invalidate()
+            await navigate({ to: '/admin' })
+        } catch (err) {
+            fail(errorMessage(err))
         }
     }
 
     return (
-        <div className="adm__unlock">
-            {step === 'email' ? (
-                <form
-                    className="adm__card adm__unlockcard"
-                    onInvalidCapture={localizeValidity}
-                    onInput={clearValidity}
-                    onSubmit={async (event) => {
-                        event.preventDefault()
-                        const target = String(
-                            new FormData(event.currentTarget).get('email') ?? '',
-                        )
-                            .trim()
-                            .toLowerCase()
-                        if (target) {
-                            setEmail(target)
-                            await sendCode(target)
-                        }
-                    }}
-                >
-                    <h1>Админ нэвтрэлт</h1>
-                    <p className="adm__muted">
-                        Имэйл хаягаа оруулбал 6 оронтой код илгээнэ.
-                    </p>
+        <form
+            className="adm__card adm__unlockcard"
+            onInvalidCapture={localizeValidity}
+            onInput={clearValidity}
+            onSubmit={(event) => {
+                event.preventDefault()
+                if (busy) return
+                void verify(event.currentTarget)
+            }}
+        >
+            <h1>Код баталгаажуулах</h1>
+            <p className="adm__muted">
+                {email} рүү илгээсэн 6 оронтой кодыг оруулна уу.
+            </p>
 
-                    <label className="field">
-                        <span>Имэйл</span>
-                        <input
-                            key={emailAttempt}
-                            name="email"
-                            type="email"
-                            autoFocus
-                            required
-                            autoComplete="email"
-                        />
-                    </label>
+            <CodeField key={codeAttempt} />
 
-                    {error && <p className="error">{error}</p>}
+            {error && <p className="error">{error}</p>}
 
-                    <button type="submit" className="btn" disabled={busy}>
-                        {busy ? 'Илгээж байна…' : 'Код авах'}
-                    </button>
-                </form>
-            ) : (
-                <form
-                    className="adm__card adm__unlockcard"
-                    onInvalidCapture={localizeValidity}
-                    onInput={clearValidity}
-                    onSubmit={async (event) => {
-                        event.preventDefault()
-                        setError(null)
-                        setBusy(true)
+            <button type="submit" className="btn" disabled={busy}>
+                {busy ? 'Шалгаж байна…' : 'Нэвтрэх'}
+            </button>
 
-                        const code = String(
-                            new FormData(event.currentTarget).get('code') ?? '',
-                        ).trim()
+            <button
+                type="button"
+                className="linkish"
+                style={{ marginTop: 12 }}
+                disabled={busy}
+                onClick={onUseDifferentEmail}
+            >
+                Өөр имэйл ашиглах
+            </button>
+        </form>
+    )
+}
 
-                        try {
-                            const result = await verifyAdminLogin({ data: { email, code } })
-                            if (result.ok) {
-                                await router.invalidate()
-                                await navigate({ to: '/admin' })
-                            } else {
-                                setError(result.error ?? 'Алдаа гарлаа')
-                                setBusy(false)
-                                setCodeAttempt((n) => n + 1)
-                            }
-                        } catch (err) {
-                            setError(err instanceof Error ? err.message : 'Алдаа гарлаа')
-                            setBusy(false)
-                            setCodeAttempt((n) => n + 1)
-                        }
-                    }}
-                >
-                    <h1>Код баталгаажуулах</h1>
-                    <p className="adm__muted">
-                        {email} рүү илгээсэн 6 оронтой кодыг оруулна уу.
-                    </p>
-
-                    <label className="field">
-                        <span>Код</span>
-                        <input
-                            key={codeAttempt}
-                            name="code"
-                            type="tel"
-                            inputMode="numeric"
-                            pattern="[0-9]{6}"
-                            maxLength={6}
-                            autoFocus
-                            required
-                            autoComplete="one-time-code"
-                        />
-                    </label>
-
-                    {error && <p className="error">{error}</p>}
-
-                    <button type="submit" className="btn" disabled={busy}>
-                        {busy ? 'Шалгаж байна…' : 'Нэвтрэх'}
-                    </button>
-
-                    <button
-                        type="button"
-                        className="linkish"
-                        style={{ marginTop: 12 }}
-                        disabled={busy}
-                        onClick={() => {
-                            setError(null)
-                            setEmailAttempt((n) => n + 1)
-                            setStep('email')
-                        }}
-                    >
-                        Өөр имэйл ашиглах
-                    </button>
-                </form>
-            )}
-        </div>
+function CodeField() {
+    return (
+        <label className="field">
+            <span>Код</span>
+            <input
+                name="code"
+                type="tel"
+                inputMode="numeric"
+                pattern="[0-9]{6}"
+                maxLength={6}
+                autoFocus
+                required
+                autoComplete="one-time-code"
+            />
+        </label>
     )
 }

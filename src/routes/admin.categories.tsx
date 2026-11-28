@@ -17,49 +17,80 @@ export const Route = createFileRoute('/admin/categories')({
   component: Categories,
 })
 
+type Category = Awaited<ReturnType<typeof getCategories>>[number]
+
+interface CategoryChanges {
+  names?: { nameMn: string; nameEn: string }
+  sortOrder?: number
+}
+
+/** Mirrors the server's upper bound on a category's sort order. */
+const MAX_SORT_ORDER = 9999
+
+/** A whole number from 0 to MAX_SORT_ORDER; null for blank or anything else. */
+function parseSortOrder(text: string): number | null {
+  if (text.trim() === '') return null
+  const order = Number(text)
+  if (!Number.isInteger(order)) return null
+  if (order < 0) return null
+  if (order > MAX_SORT_ORDER) return null
+  return order
+}
+
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback
+}
+
+/** One save per row: only the parts the admin actually touched are sent. */
+async function sendCategoryChanges(categoryId: string, changes: CategoryChanges) {
+  if (changes.names) {
+    await renameCategory({ data: { categoryId, ...changes.names } })
+  }
+  if (changes.sortOrder !== undefined) {
+    await setCategorySortOrder({
+      data: { categoryId, sortOrder: changes.sortOrder },
+    })
+  }
+}
+
 function Categories() {
   const categories = Route.useLoaderData()
   const router = useRouter()
   const [error, setError] = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  // The category being saved or deleted; one at a time.
   const [busy, setBusy] = useState<string | null>(null)
 
-  async function handleDelete(categoryId: string) {
+  async function runForCategory(
+    categoryId: string,
+    failureMessage: string,
+    action: () => Promise<void>,
+  ) {
+    if (busy !== null) return
     setBusy(categoryId)
     setError(null)
     try {
-      await deleteCategory({ data: { categoryId } })
-      await router.invalidate()
-      setConfirmDeleteId(null)
+      await action()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Устгахад алдаа гарлаа')
+      setError(errorMessage(err, failureMessage))
     } finally {
       setBusy(null)
     }
   }
 
-  /** One save per row: only the parts the admin actually touched are sent. */
-  async function handleSave(
-    categoryId: string,
-    changes: { names?: { nameMn: string; nameEn: string }; sortOrder?: number },
-  ) {
-    setBusy(categoryId)
-    setError(null)
-    try {
-      if (changes.names) {
-        await renameCategory({ data: { categoryId, ...changes.names } })
-      }
-      if (changes.sortOrder !== undefined) {
-        await setCategorySortOrder({
-          data: { categoryId, sortOrder: changes.sortOrder },
-        })
-      }
+  function remove(categoryId: string) {
+    return runForCategory(categoryId, 'Устгахад алдаа гарлаа', async () => {
+      await deleteCategory({ data: { categoryId } })
       await router.invalidate()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Хадгалахад алдаа гарлаа')
-    } finally {
-      setBusy(null)
-    }
+      setConfirmDeleteId(null)
+    })
+  }
+
+  function save(categoryId: string, changes: CategoryChanges) {
+    return runForCategory(categoryId, 'Хадгалахад алдаа гарлаа', async () => {
+      await sendCategoryChanges(categoryId, changes)
+      await router.invalidate()
+    })
   }
 
   const target = categories.find((c) => c.id === confirmDeleteId)
@@ -75,76 +106,120 @@ function Categories() {
       {error && <p className="error">{error}</p>}
 
       <section className="adm__card">
-        <table className="adm__table adm__table--form">
-          <thead>
-            <tr>
-              <th>Нэр (МН)</th>
-              <th>Нэр (EN)</th>
-              <th>Slug</th>
-              <th>Эрэмбэ</th>
-              <th>Бараа</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {categories.length === 0 && (
-              <tr>
-                <td colSpan={6} className="adm__muted">
-                  Ангилал алга.
-                </td>
-              </tr>
-            )}
-            {categories.map((category) => (
-              <CategoryRow
-                key={category.id}
-                category={category}
-                busy={busy === category.id}
-                onSave={(changes) => handleSave(category.id, changes)}
-                onRequestDelete={() => setConfirmDeleteId(category.id)}
-              />
-            ))}
-          </tbody>
-        </table>
+        <CategoriesTable
+          categories={categories}
+          busyId={busy}
+          onSave={save}
+          onInvalid={setError}
+          onRequestDelete={setConfirmDeleteId}
+        />
 
         <AddCategoryForm />
       </section>
 
       {target && (
-        <ConfirmDialog
-          title="Ангилал устгах"
-          message={`"${target.nameMn}" ангилалыг устгах уу?${
-            target.productCount > 0
-              ? ` Энэ ангилалд ${target.productCount} бүтээгдэхүүн хамаарч байгаа тул устгах боломжгүй.`
-              : ' Энэ үйлдлийг буцаах боломжгүй.'
-          }`}
+        <DeleteCategoryDialog
+          category={target}
           busy={busy === target.id}
-          confirmLabel={target.productCount > 0 ? 'Ойлголоо' : 'Устгах'}
           onCancel={() => setConfirmDeleteId(null)}
-          onConfirm={
-            target.productCount > 0
-              ? () => setConfirmDeleteId(null)
-              : () => handleDelete(target.id)
-          }
+          onDelete={() => void remove(target.id)}
         />
       )}
     </>
   )
 }
 
-interface CategoryRowProps {
-  category: {
-    id: string
-    nameMn: string
-    nameEn: string
-    slug: string
-    sortOrder: number
-    productCount: number
-  }
+function CategoriesTable({
+  categories,
+  busyId,
+  onSave,
+  onInvalid,
+  onRequestDelete,
+}: {
+  categories: Category[]
+  /** The category an action is running for, if any. */
+  busyId: string | null
+  onSave: (categoryId: string, changes: CategoryChanges) => Promise<void>
+  onInvalid: (message: string) => void
+  onRequestDelete: (categoryId: string) => void
+}) {
+  return (
+    <table className="adm__table adm__table--form">
+      <thead>
+        <tr>
+          <th>Нэр (МН)</th>
+          <th>Нэр (EN)</th>
+          <th>Slug</th>
+          <th>Эрэмбэ</th>
+          <th>Бараа</th>
+          <th />
+        </tr>
+      </thead>
+      <tbody>
+        {categories.length === 0 && (
+          <tr>
+            <td colSpan={6} className="adm__muted">
+              Ангилал алга.
+            </td>
+          </tr>
+        )}
+        {categories.map((category) => (
+          <CategoryRow
+            key={category.id}
+            category={category}
+            busy={busyId === category.id}
+            onSave={(changes) => onSave(category.id, changes)}
+            onInvalid={onInvalid}
+            onRequestDelete={() => onRequestDelete(category.id)}
+          />
+        ))}
+      </tbody>
+    </table>
+  )
+}
+
+/** A category still holding products cannot go: the dialog only says so. */
+function DeleteCategoryDialog({
+  category,
+  busy,
+  onCancel,
+  onDelete,
+}: {
+  category: Category
   busy: boolean
-  onSave: (changes: {
-    names?: { nameMn: string; nameEn: string }
-    sortOrder?: number
-  }) => Promise<void>
+  onCancel: () => void
+  onDelete: () => void
+}) {
+  if (category.productCount > 0) {
+    return (
+      <ConfirmDialog
+        title="Ангилал устгах"
+        message={`"${category.nameMn}" ангилалыг устгах уу? Энэ ангилалд ${category.productCount} бүтээгдэхүүн хамаарч байгаа тул устгах боломжгүй.`}
+        busy={busy}
+        confirmLabel="Ойлголоо"
+        onCancel={onCancel}
+        onConfirm={onCancel}
+      />
+    )
+  }
+
+  return (
+    <ConfirmDialog
+      title="Ангилал устгах"
+      message={`"${category.nameMn}" ангилалыг устгах уу? Энэ үйлдлийг буцаах боломжгүй.`}
+      busy={busy}
+      confirmLabel="Устгах"
+      onCancel={onCancel}
+      onConfirm={onDelete}
+    />
+  )
+}
+
+interface CategoryRowProps {
+  category: Category
+  busy: boolean
+  onSave: (changes: CategoryChanges) => Promise<void>
+  onInvalid: (message: string) => void
   onRequestDelete: () => void
 }
 
@@ -155,6 +230,7 @@ function CategoryRow({
   category,
   busy,
   onSave,
+  onInvalid,
   onRequestDelete,
 }: CategoryRowProps) {
   const [nameMn, setNameMn] = useState(category.nameMn)
@@ -165,6 +241,29 @@ function CategoryRow({
     nameMn.trim() !== category.nameMn || nameEn.trim() !== category.nameEn
   const orderDirty = sortOrder !== String(category.sortOrder)
   const dirty = namesDirty || orderDirty
+
+  function save() {
+    const changes: CategoryChanges = {}
+
+    if (namesDirty) {
+      if (nameMn.trim() === '' || nameEn.trim() === '') {
+        onInvalid(`${category.slug}: нэр хоосон байж болохгүй`)
+        return
+      }
+      changes.names = { nameMn: nameMn.trim(), nameEn: nameEn.trim() }
+    }
+
+    if (orderDirty) {
+      const order = parseSortOrder(sortOrder)
+      if (order === null) {
+        onInvalid(`${category.slug}: эрэмбэ буруу байна`)
+        return
+      }
+      changes.sortOrder = order
+    }
+
+    void onSave(changes)
+  }
 
   return (
     <tr>
@@ -185,65 +284,61 @@ function CategoryRow({
       </td>
       <td className="adm__num">{category.productCount}</td>
       <td className="adm__actionscell">
-        <div className="adm__rowactions">
-          <button
-            type="button"
-            className="btn btn--sm"
-            disabled={!dirty || busy}
-            onClick={() => {
-              const n = Number(sortOrder)
-              if (orderDirty && (!Number.isInteger(n) || n < 0)) return
-              if (namesDirty && (!nameMn.trim() || !nameEn.trim())) return
-              void onSave({
-                names: namesDirty
-                  ? { nameMn: nameMn.trim(), nameEn: nameEn.trim() }
-                  : undefined,
-                sortOrder: orderDirty ? n : undefined,
-              })
-            }}
-          >
-            {busy ? '…' : 'Хадгалах'}
-          </button>
-          <button
-            type="button"
-            className="adm__iconbtn"
-            title="Устгах"
-            aria-label="Устгах"
-            disabled={busy}
-            onClick={onRequestDelete}
-          >
-            <TrashIcon />
-          </button>
-        </div>
+        <CategoryRowActions
+          busy={busy}
+          canSave={dirty}
+          onSave={save}
+          onRequestDelete={onRequestDelete}
+        />
       </td>
     </tr>
+  )
+}
+
+function CategoryRowActions({
+  busy,
+  canSave,
+  onSave,
+  onRequestDelete,
+}: {
+  busy: boolean
+  /** Only once something in the row has changed. */
+  canSave: boolean
+  onSave: () => void
+  onRequestDelete: () => void
+}) {
+  return (
+    <div className="adm__rowactions">
+      <button
+        type="button"
+        className="btn btn--sm"
+        disabled={!canSave || busy}
+        onClick={onSave}
+      >
+        {busy ? '…' : 'Хадгалах'}
+      </button>
+      <button
+        type="button"
+        className="adm__iconbtn"
+        title="Устгах"
+        aria-label="Устгах"
+        disabled={busy}
+        onClick={onRequestDelete}
+      >
+        <TrashIcon />
+      </button>
+    </div>
   )
 }
 
 /**
  * Collapsed by default, same as the "add variant" form on a product page —
  * a category is a rare, deliberate action, not something that needs its own
- * always-visible row of inputs.
+ * always-visible row of inputs. Closing it unmounts the form, so its fields
+ * start empty next time.
  */
 function AddCategoryForm() {
-  const router = useRouter()
   const [open, setOpen] = useState(false)
-  const [nameMn, setNameMn] = useState('')
-  const [nameEn, setNameEn] = useState('')
-  const [slug, setSlug] = useState('')
-  const [slugTouched, setSlugTouched] = useState(false)
-  const [sortOrder, setSortOrder] = useState('0')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  function reset() {
-    setNameMn('')
-    setNameEn('')
-    setSlug('')
-    setSlugTouched(false)
-    setSortOrder('0')
-    setError(null)
-  }
 
   if (!open) {
     return (
@@ -261,100 +356,155 @@ function AddCategoryForm() {
 
   return (
     <div className="adm__pad">
-      <form
-        className="varrow"
-        onInvalidCapture={localizeValidity}
-        onInput={clearValidity}
-        onSubmit={async (event) => {
-          event.preventDefault()
-          setError(null)
-
-          if (!SLUG_RE.test(slug)) {
-            setError('Slug зөвхөн латин жижиг үсэг, тоо, зураас байж болно')
-            return
-          }
-          const order = Number(sortOrder)
-          if (!Number.isInteger(order) || order < 0) {
-            setError('Эрэмбэ буруу байна')
-            return
-          }
-
-          setBusy(true)
-          try {
-            await createCategory({
-              data: { slug, nameMn, nameEn, sortOrder: order },
-            })
-            await router.invalidate()
-            reset()
-            setOpen(false)
-          } catch (err) {
-            setError(err instanceof Error ? err.message : 'Хадгалахад алдаа гарлаа')
-          } finally {
-            setBusy(false)
-          }
-        }}
-      >
-        <div className="adm__cols">
-          <label className="field">
-            <span>Нэр (МН)</span>
-            <input
-              value={nameMn}
-              required
-              onChange={(e) => {
-                setNameMn(e.target.value)
-                if (!slugTouched) setSlug(slugify(e.target.value))
-              }}
-            />
-          </label>
-
-          <label className="field">
-            <span>Нэр (EN)</span>
-            <input value={nameEn} required onChange={(e) => setNameEn(e.target.value)} />
-          </label>
-        </div>
-
-        <div className="adm__cols">
-          <label className="field">
-            <span>Slug</span>
-            <input
-              value={slug}
-              required
-              onChange={(e) => {
-                setSlugTouched(true)
-                setSlug(e.target.value)
-              }}
-            />
-          </label>
-
-          <label className="field">
-            <span>Эрэмбэ</span>
-            <input
-              value={sortOrder}
-              inputMode="numeric"
-              onChange={(e) => setSortOrder(e.target.value)}
-            />
-          </label>
-        </div>
-
-        {error && <p className="error">{error}</p>}
-
-        <div className="adm__actions">
-          <button type="submit" className="btn btn--sm" disabled={busy}>
-            {busy ? 'Хадгалж байна…' : 'Ангилал нэмэх'}
-          </button>
-          <button
-            type="button"
-            className="btn btn--sm btn--ghost"
-            disabled={busy}
-            onClick={() => {
-              reset()
-              setOpen(false)
-            }}
-          >
-            Цуцлах
-          </button>
-        </div>
-      </form>
+      <NewCategoryFields onClose={() => setOpen(false)} />
     </div>
+  )
+}
+
+function NewCategoryFields({ onClose }: { onClose: () => void }) {
+  const router = useRouter()
+  const [nameMn, setNameMn] = useState('')
+  const [nameEn, setNameEn] = useState('')
+  const [slug, setSlug] = useState('')
+  const [slugTouched, setSlugTouched] = useState(false)
+  const [sortOrder, setSortOrder] = useState('0')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function submit() {
+    setError(null)
+
+    if (!SLUG_RE.test(slug)) {
+      setError('Slug зөвхөн латин жижиг үсэг, тоо, зураас байж болно')
+      return
+    }
+    const order = parseSortOrder(sortOrder)
+    if (order === null) {
+      setError('Эрэмбэ буруу байна')
+      return
+    }
+
+    setBusy(true)
+    try {
+      await createCategory({
+        data: { slug, nameMn, nameEn, sortOrder: order },
+      })
+      await router.invalidate()
+    } catch (err) {
+      setError(errorMessage(err, 'Хадгалахад алдаа гарлаа'))
+      setBusy(false)
+      return
+    }
+    onClose()
+  }
+
+  return (
+    <form
+      className="varrow"
+      onInvalidCapture={localizeValidity}
+      onInput={clearValidity}
+      onSubmit={(event) => {
+        event.preventDefault()
+        if (busy) return
+        void submit()
+      }}
+    >
+      <NewCategoryInputs
+        nameMn={nameMn}
+        nameEn={nameEn}
+        slug={slug}
+        sortOrder={sortOrder}
+        onNameMnChange={(value) => {
+          setNameMn(value)
+          if (!slugTouched) setSlug(slugify(value))
+        }}
+        onNameEnChange={setNameEn}
+        onSlugChange={(value) => {
+          setSlugTouched(true)
+          setSlug(value)
+        }}
+        onSortOrderChange={setSortOrder}
+      />
+
+      {error && <p className="error">{error}</p>}
+
+      <div className="adm__actions">
+        <button type="submit" className="btn btn--sm" disabled={busy}>
+          {busy ? 'Хадгалж байна…' : 'Ангилал нэмэх'}
+        </button>
+        <button
+          type="button"
+          className="btn btn--sm btn--ghost"
+          disabled={busy}
+          onClick={onClose}
+        >
+          Цуцлах
+        </button>
+      </div>
+    </form>
+  )
+}
+
+function NewCategoryInputs({
+  nameMn,
+  nameEn,
+  slug,
+  sortOrder,
+  onNameMnChange,
+  onNameEnChange,
+  onSlugChange,
+  onSortOrderChange,
+}: {
+  nameMn: string
+  nameEn: string
+  slug: string
+  sortOrder: string
+  onNameMnChange: (value: string) => void
+  onNameEnChange: (value: string) => void
+  onSlugChange: (value: string) => void
+  onSortOrderChange: (value: string) => void
+}) {
+  return (
+    <>
+      <div className="adm__cols">
+        <label className="field">
+          <span>Нэр (МН)</span>
+          <input
+            value={nameMn}
+            required
+            onChange={(e) => onNameMnChange(e.target.value)}
+          />
+        </label>
+
+        <label className="field">
+          <span>Нэр (EN)</span>
+          <input
+            value={nameEn}
+            required
+            onChange={(e) => onNameEnChange(e.target.value)}
+          />
+        </label>
+      </div>
+
+      <div className="adm__cols">
+        <label className="field">
+          <span>Slug</span>
+          <input
+            value={slug}
+            required
+            onChange={(e) => onSlugChange(e.target.value)}
+          />
+        </label>
+
+        <label className="field">
+          <span>Эрэмбэ</span>
+          <input
+            value={sortOrder}
+            inputMode="numeric"
+            onChange={(e) => onSortOrderChange(e.target.value)}
+          />
+        </label>
+      </div>
+    </>
   )
 }

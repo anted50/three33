@@ -1,7 +1,12 @@
 import { useState, type ReactNode } from 'react'
 import { RichTextEditor } from '~/components/rich-text-editor'
+import { assert } from '~/lib/assert'
 import { clearValidity, localizeValidity } from '~/lib/form-messages'
 import { SLUG_RE, slugify } from '~/lib/slugify'
+
+const PRODUCT_STATUSES = ['draft', 'active', 'archived'] as const
+
+type ProductStatus = (typeof PRODUCT_STATUSES)[number]
 
 export interface ProductFormValues {
   nameMn: string
@@ -10,7 +15,7 @@ export interface ProductFormValues {
   categoryId: string
   brandLine: string
   descriptionMn: string
-  status: 'draft' | 'active' | 'archived'
+  status: ProductStatus
 }
 
 interface ProductFormProps {
@@ -21,7 +26,8 @@ interface ProductFormProps {
   slugEditable?: boolean
   submitLabel: string
   busyLabel: string
-  onSubmit: (values: ProductFormValues, form: FormData) => Promise<void>
+  /** Throws to show its message above the form. */
+  onSubmit: (values: ProductFormValues) => Promise<void>
   /** Fires on every keystroke in "Нэр (EN)" — the new-product route uses this
    * to keep its auto-generated variant SKUs in sync with the product name. */
   onNameEnChange?: (nameEn: string) => void
@@ -35,6 +41,9 @@ interface ProductFormProps {
  * flows can't drift into asking for the same information two different ways.
  * Variant rows are not part of this form: creation collects them alongside it,
  * editing already has its own table for that.
+ *
+ * Names and slug are controlled, because the slug follows the name as it is
+ * typed. The rest are read from the form on submit.
  */
 export function ProductForm({
   categories,
@@ -55,6 +64,26 @@ export function ProductForm({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  async function submit(form: HTMLFormElement) {
+    setError(null)
+
+    if (!SLUG_RE.test(slug)) {
+      setError('Slug зөвхөн латин жижиг үсэг, тоо, зураас байж болно')
+      return
+    }
+
+    const values = readValues(new FormData(form), { nameMn, nameEn, slug })
+
+    setBusy(true)
+    try {
+      await onSubmit(values)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Хадгалахад алдаа гарлаа')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <>
       {error && <p className="error">{error}</p>}
@@ -63,126 +92,35 @@ export function ProductForm({
         className="adm__card adm__pad"
         onInvalidCapture={localizeValidity}
         onInput={clearValidity}
-        onSubmit={async (event) => {
+        onSubmit={(event) => {
           event.preventDefault()
-          setError(null)
-
-          if (!SLUG_RE.test(slug)) {
-            setError('Slug зөвхөн латин жижиг үсэг, тоо, зураас байж болно')
-            return
-          }
-
-          const form = new FormData(event.currentTarget)
-
-          setBusy(true)
-          try {
-            await onSubmit(
-              {
-                nameMn,
-                nameEn,
-                slug,
-                categoryId: String(form.get('categoryId') ?? ''),
-                brandLine: String(form.get('brandLine') ?? ''),
-                descriptionMn: String(form.get('descriptionMn') ?? ''),
-                status: form.get('status') as ProductFormValues['status'],
-              },
-              form,
-            )
-          } catch (err) {
-            setError(
-              err instanceof Error ? err.message : 'Хадгалахад алдаа гарлаа',
-            )
-          } finally {
-            setBusy(false)
-          }
+          if (busy) return
+          void submit(event.currentTarget)
         }}
       >
-        <div className="adm__cols">
-          <label className="field">
-            <span>Нэр (МН)</span>
-            <input
-              name="nameMn"
-              value={nameMn}
-              required
-              onChange={(e) => {
-                setNameMn(e.target.value)
-                if (!slugTouched) setSlug(slugify(e.target.value))
-              }}
-            />
-          </label>
+        <NameFields
+          nameMn={nameMn}
+          nameEn={nameEn}
+          onNameMnChange={(value) => {
+            setNameMn(value)
+            if (!slugTouched) setSlug(slugify(value))
+          }}
+          onNameEnChange={(value) => {
+            setNameEn(value)
+            onNameEnChange?.(value)
+          }}
+        />
 
-          <label className="field">
-            <span>Нэр (EN)</span>
-            <input
-              name="nameEn"
-              value={nameEn}
-              required
-              onChange={(e) => {
-                setNameEn(e.target.value)
-                onNameEnChange?.(e.target.value)
-              }}
-            />
-          </label>
-        </div>
+        <SlugField
+          value={slug}
+          editable={slugEditable}
+          onChange={(value) => {
+            setSlugTouched(true)
+            setSlug(value)
+          }}
+        />
 
-        <label className="field">
-          <span>Slug</span>
-          <input
-            name="slug"
-            value={slug}
-            required
-            disabled={!slugEditable}
-            onChange={(e) => {
-              setSlugTouched(true)
-              setSlug(e.target.value)
-            }}
-          />
-          {slugEditable ? (
-            <small>Нэрнээс автоматаар үүснэ, шаардлагатай бол засаж болно</small>
-          ) : (
-            <small>Slug бол бүтээгдэхүүний хаяг тул засах боломжгүй</small>
-          )}
-        </label>
-
-        <div className="adm__cols">
-          <label className="field">
-            <span>Ангилал</span>
-            <select name="categoryId" defaultValue={initial.categoryId}>
-              <option value="">—</option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.nameMn}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="field">
-            <span>Брэнд шугам</span>
-            <input name="brandLine" defaultValue={initial.brandLine} />
-          </label>
-        </div>
-
-        <div className="field">
-          <span>Тайлбар (МН)</span>
-          <RichTextEditor
-            name="descriptionMn"
-            initialValue={initial.descriptionMn}
-            placeholder="Бүтээгдэхүүний тайлбар, найрлага, хэрэглэх заавар…"
-          />
-          <small>
-            Догол мөр, цэгтэй жагсаалт, тод бичиглэл хадгалагдана
-          </small>
-        </div>
-
-        <label className="field">
-          <span>Төлөв</span>
-          <select name="status" defaultValue={initial.status}>
-            <option value="draft">draft</option>
-            <option value="active">active</option>
-            <option value="archived">archived</option>
-          </select>
-        </label>
+        <UncontrolledFields categories={categories} initial={initial} />
 
         {children}
 
@@ -192,4 +130,144 @@ export function ProductForm({
       </form>
     </>
   )
+}
+
+function NameFields({
+  nameMn,
+  nameEn,
+  onNameMnChange,
+  onNameEnChange,
+}: {
+  nameMn: string
+  nameEn: string
+  onNameMnChange: (value: string) => void
+  onNameEnChange: (value: string) => void
+}) {
+  return (
+    <div className="adm__cols">
+      <label className="field">
+        <span>Нэр (МН)</span>
+        <input
+          name="nameMn"
+          value={nameMn}
+          required
+          onChange={(e) => onNameMnChange(e.target.value)}
+        />
+      </label>
+
+      <label className="field">
+        <span>Нэр (EN)</span>
+        <input
+          name="nameEn"
+          value={nameEn}
+          required
+          onChange={(e) => onNameEnChange(e.target.value)}
+        />
+      </label>
+    </div>
+  )
+}
+
+function SlugField({
+  value,
+  editable,
+  onChange,
+}: {
+  value: string
+  editable: boolean
+  onChange: (value: string) => void
+}) {
+  return (
+    <label className="field">
+      <span>Slug</span>
+      <input
+        name="slug"
+        value={value}
+        required
+        disabled={!editable}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      {editable ? (
+        <small>Нэрнээс автоматаар үүснэ, шаардлагатай бол засаж болно</small>
+      ) : (
+        <small>Slug бол бүтээгдэхүүний хаяг тул засах боломжгүй</small>
+      )}
+    </label>
+  )
+}
+
+/** The fields nothing else reacts to: read from the form only on submit. */
+function UncontrolledFields({
+  categories,
+  initial,
+}: {
+  categories: ProductFormProps['categories']
+  initial: ProductFormValues
+}) {
+  return (
+    <>
+      <div className="adm__cols">
+        <label className="field">
+          <span>Ангилал</span>
+          <select name="categoryId" defaultValue={initial.categoryId}>
+            <option value="">—</option>
+            {categories.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.nameMn}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="field">
+          <span>Брэнд шугам</span>
+          <input name="brandLine" defaultValue={initial.brandLine} />
+        </label>
+      </div>
+
+      <div className="field">
+        <span>Тайлбар (МН)</span>
+        <RichTextEditor
+          name="descriptionMn"
+          initialValue={initial.descriptionMn}
+          placeholder="Бүтээгдэхүүний тайлбар, найрлага, хэрэглэх заавар…"
+        />
+        <small>
+          Догол мөр, цэгтэй жагсаалт, тод бичиглэл хадгалагдана
+        </small>
+      </div>
+
+      <label className="field">
+        <span>Төлөв</span>
+        <select name="status" defaultValue={initial.status}>
+          {PRODUCT_STATUSES.map((status) => (
+            <option key={status} value={status}>
+              {status}
+            </option>
+          ))}
+        </select>
+      </label>
+    </>
+  )
+}
+
+function readValues(
+  form: FormData,
+  controlled: Pick<ProductFormValues, 'nameMn' | 'nameEn' | 'slug'>,
+): ProductFormValues {
+  const status = String(form.get('status') ?? '')
+  // The <select> only offers these, so anything else is a bug in this form.
+  assert(isProductStatus(status), `unknown product status: ${status}`)
+
+  return {
+    ...controlled,
+    categoryId: String(form.get('categoryId') ?? ''),
+    brandLine: String(form.get('brandLine') ?? ''),
+    descriptionMn: String(form.get('descriptionMn') ?? ''),
+    status,
+  }
+}
+
+function isProductStatus(value: string): value is ProductStatus {
+  return (PRODUCT_STATUSES as readonly string[]).includes(value)
 }

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { assert } from '~/lib/assert'
 import { sanitizeRichText, toRichHtml } from '~/lib/rich-text'
 
 interface RichTextEditorProps {
@@ -56,54 +57,40 @@ export function RichTextEditor({
   initialValue,
   placeholder,
 }: RichTextEditorProps) {
-  const ref = useRef<HTMLDivElement>(null)
+  const areaRef = useRef<HTMLDivElement>(null)
   const [html, setHtml] = useState(() => toRichHtml(initialValue))
-  const [empty, setEmpty] = useState(() => toRichHtml(initialValue) === '')
+  // `html` is still the initial value on the first render, the only one
+  // this initialiser is read on.
+  const [empty, setEmpty] = useState(html === '')
 
   // Written once, imperatively: React must never re-render this subtree from
   // state, or every keystroke would reset the caret to the start.
   useEffect(() => {
-    const el = ref.current
-    if (!el) return
-    el.innerHTML = toRichHtml(initialValue) || '<p><br></p>'
+    const area = areaRef.current
+    assert(area, 'the editable area is mounted before its effect runs')
+    area.innerHTML = toRichHtml(initialValue) || '<p><br></p>'
   }, [])
 
   function sync() {
-    const el = ref.current
-    if (!el) return
-    const isEmpty = el.textContent?.trim() === '' && !el.querySelector('li')
+    const area = areaRef.current
+    assert(area, 'the editable area is mounted while it fires events')
+    const isEmpty = area.textContent?.trim() === '' && !area.querySelector('li')
     setEmpty(isEmpty)
-    setHtml(isEmpty ? '' : sanitizeRichText(el.innerHTML))
+    setHtml(isEmpty ? '' : sanitizeRichText(area.innerHTML))
   }
 
   function run(tool: ToolButton) {
-    ref.current?.focus()
+    areaRef.current?.focus()
     document.execCommand(tool.command, false, tool.value)
     sync()
   }
 
   return (
     <div className="rte">
-      <div className="rte__bar">
-        {TOOLS.map((tool) => (
-          <button
-            key={tool.label}
-            type="button"
-            className="rte__btn"
-            title={tool.title}
-            style={tool.style}
-            // The selection is lost the moment the button takes focus, and
-            // execCommand works on the selection.
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => run(tool)}
-          >
-            {tool.label}
-          </button>
-        ))}
-      </div>
+      <Toolbar onRun={run} />
 
       <div
-        ref={ref}
+        ref={areaRef}
         className="rte__area"
         contentEditable
         suppressContentEditableWarning
@@ -118,18 +105,7 @@ export function RichTextEditor({
           // Pasting from a supplier's page otherwise carries its fonts,
           // colours and tracking markup into our storefront.
           e.preventDefault()
-          const clipboard = e.clipboardData
-          const asHtml = clipboard.getData('text/html')
-          const cleaned = asHtml
-            ? sanitizeRichText(asHtml)
-            : sanitizeRichText(
-                clipboard
-                  .getData('text/plain')
-                  .replace(/&/g, '&amp;')
-                  .replace(/</g, '&lt;')
-                  .replace(/\n/g, '<br>'),
-              )
-          document.execCommand('insertHTML', false, cleaned)
+          document.execCommand('insertHTML', false, pastedHtml(e.clipboardData))
           sync()
         }}
       />
@@ -137,4 +113,39 @@ export function RichTextEditor({
       <input type="hidden" name={name} value={html} />
     </div>
   )
+}
+
+function Toolbar({ onRun }: { onRun: (tool: ToolButton) => void }) {
+  return (
+    <div className="rte__bar">
+      {TOOLS.map((tool) => (
+        <button
+          key={tool.label}
+          type="button"
+          className="rte__btn"
+          title={tool.title}
+          style={tool.style}
+          // The selection is lost the moment the button takes focus, and
+          // execCommand works on the selection.
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => onRun(tool)}
+        >
+          {tool.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/** The clipboard as allowlisted HTML; plain text escaped, newlines kept. */
+function pastedHtml(clipboard: DataTransfer): string {
+  const asHtml = clipboard.getData('text/html')
+  if (asHtml !== '') return sanitizeRichText(asHtml)
+
+  const escaped = clipboard
+    .getData('text/plain')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/\n/g, '<br>')
+  return sanitizeRichText(escaped)
 }

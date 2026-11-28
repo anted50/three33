@@ -13,21 +13,21 @@ import { localSpan, localStamp, sendBookingEmail } from './layout'
 export type ChangeOutcome = 'sent' | 'mail_disabled' | 'no_email' | 'not_found'
 
 /** "Your booking moved", with the old and the new time. */
-export async function sendRescheduled(appointmentId: string, from: { startsAt: Date }): Promise<ChangeOutcome> {
-  const [a] = await db.select().from(appointments).where(eq(appointments.id, appointmentId)).limit(1)
-  if (!a) return 'not_found'
-  if (!a.customerEmail) return 'no_email'
-  const when = localStamp(a.startsAt)
+export async function sendRescheduled(appointmentId: string, previous: { startsAt: Date }): Promise<ChangeOutcome> {
+  const [appointment] = await db.select().from(appointments).where(eq(appointments.id, appointmentId)).limit(1)
+  if (!appointment) return 'not_found'
+  if (!appointment.customerEmail) return 'no_email'
+  const when = localStamp(appointment.startsAt)
   const sent = await sendBookingEmail({
-    to: { email: a.customerEmail, name: a.customerName },
+    to: { email: appointment.customerEmail, name: appointment.customerName },
     subject: `Таны цаг өөрчлөгдлөө — ${when}`,
     heading: 'Таны захиалсан цаг өөрчлөгдлөө',
     headline: when,
     rows: [
-      ['Захиалгын дугаар', a.bookingNo],
-      ['Үйлчилгээ', a.serviceName],
-      ['Шинэ цаг', localSpan(a.startsAt, a.endsAt)],
-      ['Өмнөх цаг', localStamp(from.startsAt)],
+      ['Захиалгын дугаар', appointment.bookingNo],
+      ['Үйлчилгээ', appointment.serviceName],
+      ['Шинэ цаг', localSpan(appointment.startsAt, appointment.endsAt)],
+      ['Өмнөх цаг', localStamp(previous.startsAt)],
     ],
     footnote: 'Шинэ цаг тохирохгүй бол бидэнтэй холбогдоно уу.',
   })
@@ -36,18 +36,19 @@ export async function sendRescheduled(appointmentId: string, from: { startsAt: D
 
 /** "Your booking was cancelled". */
 export async function sendCancelled(appointmentId: string): Promise<ChangeOutcome> {
-  const [a] = await db.select().from(appointments).where(eq(appointments.id, appointmentId)).limit(1)
-  if (!a) return 'not_found'
-  if (!a.customerEmail) return 'no_email'
+  const [appointment] = await db.select().from(appointments).where(eq(appointments.id, appointmentId)).limit(1)
+  if (!appointment) return 'not_found'
+  if (!appointment.customerEmail) return 'no_email'
+  const when = localStamp(appointment.startsAt)
   const sent = await sendBookingEmail({
-    to: { email: a.customerEmail, name: a.customerName },
-    subject: `Таны цаг цуцлагдлаа — ${localStamp(a.startsAt)}`,
+    to: { email: appointment.customerEmail, name: appointment.customerName },
+    subject: `Таны цаг цуцлагдлаа — ${when}`,
     heading: 'Таны захиалсан цаг цуцлагдлаа',
-    headline: localStamp(a.startsAt),
+    headline: when,
     rows: [
-      ['Захиалгын дугаар', a.bookingNo],
-      ['Үйлчилгээ', a.serviceName],
-      ['Цаг', localSpan(a.startsAt, a.endsAt)],
+      ['Захиалгын дугаар', appointment.bookingNo],
+      ['Үйлчилгээ', appointment.serviceName],
+      ['Цаг', localSpan(appointment.startsAt, appointment.endsAt)],
     ],
     footnote: 'Асуух зүйл байвал бидэнтэй холбогдоно уу.',
   })

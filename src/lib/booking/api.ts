@@ -102,6 +102,17 @@ export async function apiCall<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T
 }
 
+/**
+ * The line a "could not load" screen shows under its title. A rate limit
+ * (429) is the one failure where checking the connection is the wrong advice.
+ */
+export function loadFailureHint(error: unknown): string {
+  if (error instanceof BookingApiError) {
+    if (error.code === 'RATE_LIMITED') return 'Хэт олон хүсэлт илгээгдлээ. Нэг минут хүлээгээд дахин оролдоно уу.'
+  }
+  return 'Интернэт холболтоо шалгаад дахин оролдоно уу.'
+}
+
 const call = <T,>(path: string, init?: RequestInit) => apiCall<T>(`/public${path}`, init)
 
 const tokenQuery = (token: string) => `?t=${encodeURIComponent(token)}`

@@ -116,7 +116,13 @@ function RootComponent() {
 function RootDocument({ children }: Readonly<{ children: ReactNode }>) {
     // lang="mn" — v1 ships Mongolian-only; the *_en columns exist for later.
     return (
-        <html lang="mn">
+        <html
+            lang="mn"
+            // The admin's head script sets data-adm-side before hydration, so
+            // the server's <html> cannot match; only this element's own
+            // attributes are excused, not anything under it.
+            suppressHydrationWarning
+        >
             <head>
                 <HeadContent />
             </head>

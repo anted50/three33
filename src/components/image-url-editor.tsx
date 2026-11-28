@@ -9,6 +9,12 @@ export interface ImageEntry {
  * path for the packshots served from public/. */
 const IMAGE_URL = /^(https?:\/\/|\/)\S*$/i
 
+/** Mirrors the server's cap on images per product. */
+const MAX_IMAGES = 10
+
+/** Mirrors the server's cap on an image's alt text. */
+const MAX_ALT_LENGTH = 200
+
 interface ImageUrlEditorProps {
   images: ImageEntry[]
   onChange: (images: ImageEntry[]) => void
@@ -32,8 +38,12 @@ export function ImageUrlEditor({ images, onChange }: ImageUrlEditorProps) {
       setError('Зургийн хаяг http://, https:// эсвэл / -ээр эхлэх ёстой')
       return
     }
-    if (images.some((i) => i.url === url)) {
+    if (images.some((image) => image.url === url)) {
       setError('Энэ зураг аль хэдийн нэмэгдсэн байна')
+      return
+    }
+    if (images.length >= MAX_IMAGES) {
+      setError(`Хамгийн ихдээ ${MAX_IMAGES} зураг нэмж болно`)
       return
     }
 
@@ -72,36 +82,48 @@ export function ImageUrlEditor({ images, onChange }: ImageUrlEditorProps) {
 
       {error && <p className="error">{error}</p>}
 
-      {images.length > 0 && (
-        <ul className="imgs__list">
-          {images.map((image, i) => (
-            <li key={image.url} className="imgs__item">
-              <img src={image.url} alt="" className="imgs__thumb" />
-              <div className="imgs__meta">
-                <p className="adm__mono adm__muted">{image.url}</p>
-                <input
-                  value={image.alt}
-                  placeholder="Alt текст (заавал биш)"
-                  onChange={(e) =>
-                    onChange(
-                      images.map((other, j) =>
-                        j === i ? { ...other, alt: e.target.value } : other,
-                      ),
-                    )
-                  }
-                />
-              </div>
-              <button
-                type="button"
-                className="btn btn--sm btn--ghost"
-                onClick={() => onChange(images.filter((_, j) => j !== i))}
-              >
-                Хасах
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+      {images.length > 0 && <ImageList images={images} onChange={onChange} />}
     </div>
+  )
+}
+
+/** The added images in order, each with its preview and alt text. */
+function ImageList({ images, onChange }: ImageUrlEditorProps) {
+  function changeAlt(index: number, alt: string) {
+    onChange(
+      images.map((image, imageIndex) =>
+        imageIndex === index ? { ...image, alt } : image,
+      ),
+    )
+  }
+
+  function remove(index: number) {
+    onChange(images.filter((_, imageIndex) => imageIndex !== index))
+  }
+
+  return (
+    <ul className="imgs__list">
+      {images.map((image, index) => (
+        <li key={image.url} className="imgs__item">
+          <img src={image.url} alt="" className="imgs__thumb" />
+          <div className="imgs__meta">
+            <p className="adm__mono adm__muted">{image.url}</p>
+            <input
+              value={image.alt}
+              placeholder="Alt текст (заавал биш)"
+              maxLength={MAX_ALT_LENGTH}
+              onChange={(e) => changeAlt(index, e.target.value)}
+            />
+          </div>
+          <button
+            type="button"
+            className="btn btn--sm btn--ghost"
+            onClick={() => remove(index)}
+          >
+            Хасах
+          </button>
+        </li>
+      ))}
+    </ul>
   )
 }

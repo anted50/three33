@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm'
 import { describe, expect, it } from 'vitest'
 import { db } from '~/db'
 import { otpCodes } from '~/db/schema'
-import { consumeOtp, issueOtp, MAX_ATTEMPTS } from './otp'
+import { consumeOtp, issueOtp, MAX_ATTEMPTS, OTP_CODES_PER_DAY_MAX } from './otp'
 
 /**
  * One-time sign-in codes on a real local D1. What is under test is the
@@ -49,5 +49,48 @@ describe('consumeOtp', () => {
     const outcomes = await Promise.all([consumeOtp(email, code), consumeOtp(email, code)])
 
     expect(outcomes.filter((outcome) => outcome === 'ok')).toHaveLength(1)
+  })
+})
+
+describe('issueOtp', () => {
+  /** Puts `n` codes on record for `email`, issued `ageMs` ago. */
+  async function codesIssuedAgo(email: string, n: number, ageMs: number) {
+    const createdAt = new Date(Date.now() - ageMs)
+    for (let index = 0; index < n; index++) {
+      await db.insert(otpCodes).values({ email, codeHash: `h-${index}`, expiresAt: createdAt, createdAt })
+    }
+  }
+
+  it('refuses a second code within a minute of the first', async () => {
+    const email = freshEmail()
+    expect(await issueOtp(email)).not.toBeNull()
+    expect(await issueOtp(email)).toBeNull()
+  })
+
+  it('issues one code when two requests arrive at once', async () => {
+    // Goal: the resend limit cannot be raced. Method: two requests together;
+    // exactly one may insert.
+    const email = freshEmail()
+    const codes = await Promise.all([issueOtp(email), issueOtp(email)])
+
+    expect(codes.filter((code) => code !== null)).toHaveLength(1)
+    const rows = await db.select().from(otpCodes).where(eq(otpCodes.email, email))
+    expect(rows).toHaveLength(1)
+  })
+
+  it('stops at OTP_CODES_PER_DAY_MAX codes a day', async () => {
+    // Goal: new codes cannot buy unlimited guesses. Method: a day's worth of
+    // codes, all older than the resend window, then one more request.
+    const email = freshEmail()
+    await codesIssuedAgo(email, OTP_CODES_PER_DAY_MAX, 5 * 60 * 1000)
+
+    expect(await issueOtp(email)).toBeNull()
+  })
+
+  it('counts only the last day toward the daily limit', async () => {
+    const email = freshEmail()
+    await codesIssuedAgo(email, OTP_CODES_PER_DAY_MAX, 25 * 60 * 60 * 1000)
+
+    expect(await issueOtp(email)).not.toBeNull()
   })
 })

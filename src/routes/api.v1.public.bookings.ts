@@ -1,5 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { readBody } from '~/lib/server/api/input'
+import { bookingCreateLimit } from '~/lib/server/api/rate-limit'
 import { handle } from '~/lib/server/api/respond'
 import { bookingInput, createBooking } from '~/lib/server/booking/book'
 
@@ -14,7 +15,7 @@ import { bookingInput, createBooking } from '~/lib/server/booking/book'
  *   GET  /api/v1/public/bookings/{bookingNo}?t={token}         status
  *   POST /api/v1/public/bookings/{bookingNo}/check?t={token}   poll the fee
  *
- * Auth   none
+ * Auth   none; rate-limited per IP (bookingCreateLimit)
  * Body   { serviceId, startsAt,               ISO, a slot from /slots
  *          customerName, customerPhone,       8 digits
  *          customerEmail,                     required: the confirmation goes here
@@ -23,6 +24,7 @@ import { bookingInput, createBooking } from '~/lib/server/booking/book'
  *          invoice: { qrText, qrImage, shortUrl, links } }
  * 400    time in the past
  * 404    unknown or inactive service
+ * 429    RATE_LIMITED       too many requests from this IP; wait a minute
  * 409    BOOKING_OFF        no booking fee set yet
  *        NOT_AVAILABLE      outside the barber's open windows
  *        TIME_TAKEN         someone else holds or booked it
@@ -31,6 +33,7 @@ import { bookingInput, createBooking } from '~/lib/server/booking/book'
  */
 export const Route = createFileRoute('/api/v1/public/bookings')({
   server: {
+    middleware: [bookingCreateLimit],
     handlers: {
       POST: ({ request }) => handle(async () => createBooking(await readBody(request, bookingInput)), 201),
     },

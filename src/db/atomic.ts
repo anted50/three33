@@ -50,9 +50,11 @@ export type Statement = BatchItem<'sqlite'>
  * An empty list is a no-op, so callers can build the list conditionally.
  */
 export async function atomic(statements: ReadonlyArray<Statement | null | undefined | false>): Promise<unknown[]> {
-  const list = statements.filter((s): s is Statement => Boolean(s))
+  const list = statements.filter((statement): statement is Statement => Boolean(statement))
   if (list.length === 0) return []
-  return db.batch(list as [Statement, ...Statement[]])
+  const results = await db.batch(list as [Statement, ...Statement[]])
+  assert(results.length === list.length, 'a batch answers once per statement')
+  return results
 }
 
 /**
@@ -82,7 +84,7 @@ export function insertRows<T extends SQLiteTable>(table: T, rows: ReadonlyArray<
  * `code` must be an UPPER_SNAKE API error code; it becomes the 409's `code`.
  */
 export function guard(condition: SQL, code: string): Statement {
-  if (!/^[A-Z0-9_]+$/.test(code)) throw new Error(`guard code must be UPPER_SNAKE: ${code}`)
+  assert(/^[A-Z0-9_]+$/.test(code), `guard code must be UPPER_SNAKE: ${code}`)
   // A query builder, not db.run(sql`...`): Drizzle's D1 batch cannot bind
   // parameters on raw statements (it has no prepared statement for them).
   return db.insert(batchGuards).select(sql`select ${`guard:${code}`} where not (${condition})`)

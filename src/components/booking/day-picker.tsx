@@ -12,6 +12,9 @@ interface PickerProps {
   onSelect: (date: IsoDate) => void
 }
 
+/** Day squares in the phone's row, before the arrow to the month calendar. */
+const STRIP_DAYS = 6
+
 /**
  * Phone: a row of day squares (Squire's circles, made square) with an arrow
  * that opens the month calendar. Desktop shows only the month calendar —
@@ -21,8 +24,9 @@ export function DayPicker(props: PickerProps) {
   const [expanded, setExpanded] = useState(false)
   // The row starts at today; if the chosen day is further out, start there so
   // it's never hidden.
-  const firstShown = props.selected && props.dates.indexOf(props.selected) > 5 ? props.dates.indexOf(props.selected) : 0
-  const strip = props.dates.slice(firstShown, firstShown + 6)
+  const selectedIndex = props.selected ? props.dates.indexOf(props.selected) : -1
+  const firstShown = selectedIndex >= STRIP_DAYS ? selectedIndex : 0
+  const strip = props.dates.slice(firstShown, firstShown + STRIP_DAYS)
 
   return (
     <div className="bk-days">
@@ -42,7 +46,13 @@ export function DayPicker(props: PickerProps) {
         </button>
       </div>
       <div className="bk-days__month" data-expanded={expanded}>
-        <MonthCalendar {...props} onSelect={(date) => (props.onSelect(date), setExpanded(false))} />
+        <MonthCalendar
+          {...props}
+          onSelect={(date) => {
+            props.onSelect(date)
+            setExpanded(false)
+          }}
+        />
       </div>
     </div>
   )

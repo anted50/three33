@@ -3,7 +3,9 @@ import { asc, eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '~/db'
 import { orderItems, orders, payments } from '~/db/schema'
+import { assert } from '~/lib/assert'
 import { authorize } from './internal'
+import { ORDER_LINES_MAX } from './limits'
 import { settleOrder } from './settle'
 
 export const orderNoInput = z.object({
@@ -31,28 +33,28 @@ export const getOrderStatus = createServerFn({ method: 'GET' })
     const order = await authorize(data.orderNo, data.token)
     if (!order) return { status: 'not_found' as const }
 
-    if (order.status === 'pending_payment') {
+    let status = order.status
+    if (status === 'pending_payment') {
       await settleOrder(data.orderNo)
-
-      const [refreshed] = await db
-        .select({ status: orders.status })
-        .from(orders)
-        .where(eq(orders.id, order.id))
-        .limit(1)
-
-      return {
-        status: refreshed?.status ?? order.status,
-        total: order.total,
-        expiresAt: order.expiresAt.getTime(),
-      }
+      status = (await readOrderStatus(order.id)) ?? status
     }
 
     return {
-      status: order.status,
+      status,
       total: order.total,
       expiresAt: order.expiresAt.getTime(),
     }
   })
+
+/** The order's status as it stands now, after a settlement may have moved it. */
+async function readOrderStatus(orderId: string) {
+  const [order] = await db
+    .select({ status: orders.status })
+    .from(orders)
+    .where(eq(orders.id, orderId))
+    .limit(1)
+  return order?.status ?? null
+}
 
 export const getOrder = createServerFn({ method: 'GET' })
   .validator(orderNoInput)
@@ -60,34 +62,38 @@ export const getOrder = createServerFn({ method: 'GET' })
     const authorized = await authorize(data.orderNo, data.token)
     if (!authorized) return null
 
-    const [order] = await db
-      .select({
-        orderNo: orders.orderNo,
-        status: orders.status,
-        subtotal: orders.subtotal,
-        shippingFee: orders.shippingFee,
-        total: orders.total,
-        contactPhone: orders.contactPhone,
-        note: orders.note,
-        address: orders.shippingAddressSnapshot,
-        createdAt: orders.createdAt,
-      })
-      .from(orders)
-      .where(eq(orders.id, authorized.id))
-      .limit(1)
+    // Two independent reads of one authorized order, so they go out together.
+    const [[order], items] = await Promise.all([
+      db
+        .select({
+          orderNo: orders.orderNo,
+          status: orders.status,
+          subtotal: orders.subtotal,
+          shippingFee: orders.shippingFee,
+          total: orders.total,
+          contactPhone: orders.contactPhone,
+          note: orders.note,
+          address: orders.shippingAddressSnapshot,
+          createdAt: orders.createdAt,
+        })
+        .from(orders)
+        .where(eq(orders.id, authorized.id))
+        .limit(1),
+      db
+        .select({
+          name: orderItems.nameSnapshot,
+          sku: orderItems.skuSnapshot,
+          unitPrice: orderItems.unitPrice,
+          qty: orderItems.qty,
+        })
+        .from(orderItems)
+        .where(eq(orderItems.orderId, authorized.id))
+        .orderBy(asc(orderItems.id))
+        .limit(ORDER_LINES_MAX + 1),
+    ])
 
     if (!order) return null
-
-    const items = await db
-      .select({
-        name: orderItems.nameSnapshot,
-        sku: orderItems.skuSnapshot,
-        unitPrice: orderItems.unitPrice,
-        qty: orderItems.qty,
-      })
-      .from(orderItems)
-      .where(eq(orderItems.orderId, authorized.id))
-      .orderBy(asc(orderItems.id))
+    assert(items.length <= ORDER_LINES_MAX, 'an order holds at most ORDER_LINES_MAX lines')
 
     return { ...order, items }
   })

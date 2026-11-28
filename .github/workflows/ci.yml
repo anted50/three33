@@ -13,6 +13,16 @@ name: CI and deploy
 #   VITE_PUBLIC_POSTHOG_HOST
 # The app's own secrets (QPay, StorePay, Resend…) live on the Workers and
 # never pass through CI. See docs/deploy-cloudflare.md.
+#
+# Hardening, because the deploy jobs hold the Cloudflare token:
+#   - Actions are pinned to a full commit SHA, not a tag. A tag can be moved
+#     to other code; a SHA cannot. The comment names the release, and
+#     .github/dependabot.yml opens a PR when a new one comes out.
+#   - The job token can only read the repo. Nothing here pushes, comments or
+#     writes a release.
+#   - checkout does not leave that token in .git/config for later steps.
+#   - Every job has a timeout. The whole run takes about 1.5 minutes, so 15
+#     only stops one that has hung.
 
 on:
   push:
@@ -24,13 +34,19 @@ concurrency:
   # Cancel a superseded check, but never a deploy halfway through.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+permissions:
+  contents: read
+
 jobs:
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 26
           cache: npm
@@ -60,6 +76,7 @@ jobs:
     needs: verify
     if: github.event_name == 'push' && github.ref == 'refs/heads/staging'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     environment:
       name: staging
       url: https://staging.three33barber.com
@@ -69,8 +86,10 @@ jobs:
       VITE_PUBLIC_POSTHOG_PROJECT_TOKEN: ${{ secrets.VITE_PUBLIC_POSTHOG_PROJECT_TOKEN }}
       VITE_PUBLIC_POSTHOG_HOST: ${{ secrets.VITE_PUBLIC_POSTHOG_HOST }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 26
           cache: npm
@@ -83,6 +102,7 @@ jobs:
     needs: verify
     if: github.event_name == 'push' && github.ref == 'refs/heads/production'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     # Add required reviewers to this environment (Settings → Environments →
     # production) to make every production deploy wait for an approval.
     environment:
@@ -94,8 +114,10 @@ jobs:
       VITE_PUBLIC_POSTHOG_PROJECT_TOKEN: ${{ secrets.VITE_PUBLIC_POSTHOG_PROJECT_TOKEN }}
       VITE_PUBLIC_POSTHOG_HOST: ${{ secrets.VITE_PUBLIC_POSTHOG_HOST }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 26
           cache: npm

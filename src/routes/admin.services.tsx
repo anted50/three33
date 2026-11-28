@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { createFileRoute, useRouter } from '@tanstack/react-router'
+import { BookingLoadFailed } from '~/components/admin-booking'
 import { clearValidity, localizeValidity } from '~/lib/form-messages'
 import { adminBookingApi } from '~/lib/booking/admin-api'
 import type { AdminService, ServiceInput } from '~/lib/booking/admin-api'
@@ -20,10 +21,16 @@ export const Route = createFileRoute('/admin/services')({
     const [services, fee] = await Promise.all([adminBookingApi.services(), adminBookingApi.bookingFee()])
     return { services, bookingFee: fee.bookingFee }
   },
+  errorComponent: BookingLoadFailed,
   component: Services,
 })
 
 const errorText = (err: unknown, fallback: string) => (err instanceof Error ? err.message : fallback)
+
+// The API's limits (serviceInput in server/booking/services.ts), checked here
+// first so the admin reads them in Mongolian.
+const isDurationMinutes = (minutes: number) => Number.isInteger(minutes) && minutes >= 5 && minutes <= 600
+const isSortOrder = (sortOrder: number) => Number.isInteger(sortOrder) && sortOrder >= 0 && sortOrder <= 10_000
 
 function Services() {
   const { services, bookingFee } = Route.useLoaderData()
@@ -80,6 +87,44 @@ function parseTugrik(value: string): number | undefined {
   return value.trim() !== '' && Number.isInteger(n) && n >= 0 ? tugrikToMungu(n) : undefined
 }
 
+/** The price field: empty is "not shown" (null); undefined when typed wrong. */
+const parsePrice = (value: string) => (value.trim() === '' ? null : parseTugrik(value))
+
+interface ServiceFields {
+  name: string
+  description: string
+  minutes: string
+  price: string
+  sortOrder: string
+}
+
+/**
+ * The row's edits as a PATCH: only what differs from the saved service. A
+ * price typed wrong stays in it as `undefined`, so the row counts as edited
+ * and patchError refuses it, instead of the edit silently doing nothing.
+ */
+function editedPatch(service: AdminService, fields: ServiceFields): Partial<ServiceInput> {
+  const patch: Partial<ServiceInput> = {}
+  const name = fields.name.trim()
+  const description = fields.description.trim() || null
+  const price = parsePrice(fields.price)
+  if (name !== service.name) patch.name = name
+  if (description !== service.description) patch.description = description
+  if (fields.minutes !== String(service.durationMinutes)) patch.durationMinutes = Number(fields.minutes)
+  if (price !== service.price) patch.price = price
+  if (fields.sortOrder !== String(service.sortOrder)) patch.sortOrder = Number(fields.sortOrder)
+  return patch
+}
+
+/** Why a patch can't be sent, or null. */
+function patchError(patch: Partial<ServiceInput>): string | null {
+  if (patch.name === '') return 'Нэр хоосон байна'
+  if (patch.durationMinutes !== undefined && !isDurationMinutes(patch.durationMinutes)) return 'Хугацаа 5–600 минут'
+  if ('price' in patch && patch.price === undefined) return 'Үнэ буруу байна'
+  if (patch.sortOrder !== undefined && !isSortOrder(patch.sortOrder)) return 'Эрэмбэ буруу байна'
+  return null
+}
+
 function ServiceRow({ service }: { service: AdminService }) {
   const router = useRouter()
   const [name, setName] = useState(service.name)
@@ -90,22 +135,16 @@ function ServiceRow({ service }: { service: AdminService }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const patch: Partial<ServiceInput> = {}
-  if (name.trim() !== service.name) patch.name = name.trim()
-  if ((description.trim() || null) !== service.description) patch.description = description.trim() || null
-  if (minutes !== String(service.durationMinutes)) patch.durationMinutes = Number(minutes)
-  const priceMungu = price.trim() === '' ? null : parseTugrik(price)
-  if (priceMungu !== service.price) patch.price = priceMungu
-  if (sortOrder !== String(service.sortOrder)) patch.sortOrder = Number(sortOrder)
-  const dirty = Object.keys(patch).length > 0
+  const patch = editedPatch(service, { name, description, minutes, price, sortOrder })
+  const edited = Object.keys(patch).length > 0
 
   async function save(changes: Partial<ServiceInput>) {
     setError(null)
-    if (changes.name !== undefined && !changes.name) return setError('Нэр хоосон байна')
-    if (changes.durationMinutes !== undefined && !(Number.isInteger(changes.durationMinutes) && changes.durationMinutes >= 5 && changes.durationMinutes <= 600))
-      return setError('Хугацаа 5–600 минут')
-    if (changes.price === undefined && 'price' in changes) return setError('Үнэ буруу байна')
-    if (changes.sortOrder !== undefined && !(Number.isInteger(changes.sortOrder) && changes.sortOrder >= 0)) return setError('Эрэмбэ буруу байна')
+    const problem = patchError(changes)
+    if (problem !== null) {
+      setError(problem)
+      return
+    }
     setBusy(true)
     try {
       await adminBookingApi.updateService(service.id, changes)
@@ -143,7 +182,7 @@ function ServiceRow({ service }: { service: AdminService }) {
           </label>
         </td>
         <td className="adm__actionscell">
-          <button type="button" className="btn btn--sm" disabled={!dirty || busy} onClick={() => save(patch)}>
+          <button type="button" className="btn btn--sm" disabled={!edited || busy} onClick={() => save(patch)}>
             {busy ? '…' : 'Хадгалах'}
           </button>
         </td>
@@ -159,15 +198,40 @@ function ServiceRow({ service }: { service: AdminService }) {
   )
 }
 
+type NewService = { name: string; description: string; minutes: string; price: string }
+
+const newServiceEmpty: NewService = { name: '', description: '', minutes: '45', price: '' }
+
 function AddServiceForm({ nextSortOrder }: { nextSortOrder: number }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
-  const [name, setName] = useState('')
-  const [description, setDescription] = useState('')
-  const [minutes, setMinutes] = useState('45')
-  const [price, setPrice] = useState('')
+  const [draft, setDraft] = useState<NewService>(newServiceEmpty)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  async function submit(event: React.FormEvent) {
+    event.preventDefault()
+    setError(null)
+    const name = draft.name.trim()
+    const durationMinutes = Number(draft.minutes)
+    const price = parsePrice(draft.price)
+    // `required` lets a name of only spaces through; the API would refuse it.
+    if (name === '') return setError('Нэр хоосон байна')
+    if (!isDurationMinutes(durationMinutes)) return setError('Хугацаа 5–600 минут')
+    if (price === undefined) return setError('Үнэ буруу байна')
+    setBusy(true)
+    try {
+      await adminBookingApi.createService({ name, description: draft.description.trim() || null, durationMinutes, price, sortOrder: nextSortOrder })
+      await router.invalidate()
+      // The length is kept: the next service is usually about as long.
+      setDraft((current) => ({ ...newServiceEmpty, minutes: current.minutes }))
+      setOpen(false)
+    } catch (err) {
+      setError(errorText(err, 'Хадгалахад алдаа гарлаа'))
+    } finally {
+      setBusy(false)
+    }
+  }
 
   if (!open) {
     return (
@@ -181,58 +245,8 @@ function AddServiceForm({ nextSortOrder }: { nextSortOrder: number }) {
 
   return (
     <div className="adm__pad">
-      <form
-        className="varrow"
-        onInvalidCapture={localizeValidity}
-        onInput={clearValidity}
-        onSubmit={async (event) => {
-          event.preventDefault()
-          setError(null)
-          const duration = Number(minutes)
-          if (!Number.isInteger(duration) || duration < 5 || duration > 600) return setError('Хугацаа 5–600 минут')
-          const priceMungu = price.trim() === '' ? null : parseTugrik(price)
-          if (priceMungu === undefined) return setError('Үнэ буруу байна')
-          setBusy(true)
-          try {
-            await adminBookingApi.createService({
-              name: name.trim(),
-              description: description.trim() || null,
-              durationMinutes: duration,
-              price: priceMungu,
-              sortOrder: nextSortOrder,
-            })
-            await router.invalidate()
-            setName('')
-            setDescription('')
-            setPrice('')
-            setOpen(false)
-          } catch (err) {
-            setError(errorText(err, 'Хадгалахад алдаа гарлаа'))
-          } finally {
-            setBusy(false)
-          }
-        }}
-      >
-        <div className="adm__cols">
-          <label className="field">
-            <span>Нэр</span>
-            <input value={name} required maxLength={120} onChange={(e) => setName(e.target.value)} placeholder="Үс засалт" />
-          </label>
-          <label className="field">
-            <span>Тайлбар (заавал биш)</span>
-            <input value={description} maxLength={2000} onChange={(e) => setDescription(e.target.value)} />
-          </label>
-        </div>
-        <div className="adm__cols">
-          <label className="field">
-            <span>Хугацаа (минут)</span>
-            <input value={minutes} required inputMode="numeric" onChange={(e) => setMinutes(e.target.value)} />
-          </label>
-          <label className="field">
-            <span>Үнэ (₮, газар дээр төлнө — заавал биш)</span>
-            <input value={price} inputMode="numeric" onChange={(e) => setPrice(e.target.value)} />
-          </label>
-        </div>
+      <form className="varrow" onInvalidCapture={localizeValidity} onInput={clearValidity} onSubmit={submit}>
+        <NewServiceFields draft={draft} onChange={(fields) => setDraft((current) => ({ ...current, ...fields }))} />
 
         {error && <p className="error">{error}</p>}
 
@@ -249,6 +263,33 @@ function AddServiceForm({ nextSortOrder }: { nextSortOrder: number }) {
   )
 }
 
+function NewServiceFields({ draft, onChange }: { draft: NewService; onChange: (fields: Partial<NewService>) => void }) {
+  return (
+    <>
+      <div className="adm__cols">
+        <label className="field">
+          <span>Нэр</span>
+          <input value={draft.name} required maxLength={120} onChange={(e) => onChange({ name: e.target.value })} placeholder="Үс засалт" />
+        </label>
+        <label className="field">
+          <span>Тайлбар (заавал биш)</span>
+          <input value={draft.description} maxLength={2000} onChange={(e) => onChange({ description: e.target.value })} />
+        </label>
+      </div>
+      <div className="adm__cols">
+        <label className="field">
+          <span>Хугацаа (минут)</span>
+          <input value={draft.minutes} required inputMode="numeric" onChange={(e) => onChange({ minutes: e.target.value })} />
+        </label>
+        <label className="field">
+          <span>Үнэ (₮, газар дээр төлнө — заавал биш)</span>
+          <input value={draft.price} inputMode="numeric" onChange={(e) => onChange({ price: e.target.value })} />
+        </label>
+      </div>
+    </>
+  )
+}
+
 /**
  * What a customer pays through QPay to confirm a booking. Until it's set,
  * online booking is off; a change applies to new bookings only.
@@ -260,27 +301,32 @@ function BookingFeeCard({ bookingFee }: { bookingFee: number | null }) {
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
 
+  async function submit(event: React.FormEvent) {
+    event.preventDefault()
+    setError(null)
+    setSaved(false)
+    const mungu = parseTugrik(value)
+    if (mungu === undefined || mungu < 100) return setError('Дор хаяж 1₮, бүхэл тоо')
+    setBusy(true)
+    try {
+      await adminBookingApi.setBookingFee(mungu)
+      setSaved(true)
+      await router.invalidate()
+    } catch (err) {
+      setError(errorText(err, 'Хадгалахад алдаа гарлаа'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function edit(text: string) {
+    setValue(text)
+    // "Saved" is about what is in the field; an edit since is not saved yet.
+    setSaved(false)
+  }
+
   return (
-    <form
-      className="adm__card adm__pad bka-side"
-      onSubmit={async (event) => {
-        event.preventDefault()
-        setError(null)
-        setSaved(false)
-        const mungu = parseTugrik(value)
-        if (mungu === undefined || mungu < 100) return setError('Дор хаяж 1₮, бүхэл тоо')
-        setBusy(true)
-        try {
-          await adminBookingApi.setBookingFee(mungu)
-          setSaved(true)
-          await router.invalidate()
-        } catch (err) {
-          setError(errorText(err, 'Хадгалахад алдаа гарлаа'))
-        } finally {
-          setBusy(false)
-        }
-      }}
-    >
+    <form className="adm__card adm__pad bka-side" onSubmit={submit}>
       <div className="bka-side__head">
         <h2>Захиалгын төлбөр</h2>
         {bookingFee === null ? (
@@ -296,7 +342,7 @@ function BookingFeeCard({ bookingFee }: { bookingFee: number | null }) {
 
       <label className="field">
         <span>QPay-р урьдчилж төлөх дүн (₮)</span>
-        <input value={value} inputMode="numeric" onChange={(e) => setValue(e.target.value)} />
+        <input value={value} inputMode="numeric" onChange={(e) => edit(e.target.value)} />
         <small>{bookingFee === null ? 'Тохируулаагүй — онлайн захиалга хаалттай байна.' : `Одоо: ${formatMnt(bookingFee)}`}</small>
       </label>
       <p className="adm__muted bka-note">Шинэ захиалгад үйлчилнө. Өмнөх захиалгууд төлсөн дүнгээ хадгална. Урьдчилгаа буцаагдахгүй.</p>

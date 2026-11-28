@@ -26,6 +26,7 @@ export function atLocal(date: IsoDate, time: string): Date {
 
 /** The local calendar day an instant falls on. */
 export function localDateOf(instant: Date): IsoDate {
+  assert(!Number.isNaN(instant.getTime()), 'localDateOf: not an instant')
   return new Date(instant.getTime() + UB_OFFSET_MS).toISOString().slice(0, 10)
 }
 
@@ -64,12 +65,15 @@ export function datesBetween(from: IsoDate, to: IsoDate, daysMax: number): IsoDa
 function dayStartMs(date: IsoDate): number {
   const ms = new Date(`${date}T00:00:00Z`).getTime()
   assert(!Number.isNaN(ms), `not a calendar date: ${date}`)
+  // Date rolls 2026-02-30 over to March 2; input.ts's isoDate refuses those.
+  assert(new Date(ms).toISOString().slice(0, 10) === date, `not a calendar date: ${date}`)
   return ms
 }
 
 /** ISO weekday: Monday = 1 … Sunday = 7. */
 export function isoWeekday(date: IsoDate): number {
-  const day = new Date(`${date}T00:00:00Z`).getUTCDay()
+  // getUTCDay counts Sunday = 0 … Saturday = 6.
+  const day = new Date(dayStartMs(date)).getUTCDay()
   return day === 0 ? 7 : day
 }
 

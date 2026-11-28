@@ -18,20 +18,56 @@ export function decideSettlement(
 ): SettlementResult {
   assertMungu(expected)
   assert(expected > 0, 'an invoice is never for nothing')
-  const paidRows = response.rows.filter((r) => r.payment_status === 'PAID')
-  const refundedRows = response.rows.filter(
-    (r) => r.payment_status === 'REFUNDED',
-  )
 
-  const paidAmount = sumMungu(paidRows.map((row) => fromQpayAmount(row.payment_amount)))
+  const paidRows = response.rows.filter((row) => row.payment_status === 'PAID')
+  const partialRows = response.rows.filter((row) => row.payment_status === 'PARTIAL')
+  const refundedRows = response.rows.filter((row) => row.payment_status === 'REFUNDED')
+
+  // Nothing paid in full and nothing in part: either refunded, or no money yet.
+  if (paidRows.length === 0) {
+    if (partialRows.length === 0) {
+      return refundedOrUnpaid(response, refundedRows)
+    }
+  }
 
   /**
-   * A refunded row never counts toward the paid amount, wherever it sits in
-   * the array. The outcome is `refunded` only when nothing paid is left;
-   * a payment that still stands next to a refunded one is judged on its own
-   * amount below.
+   * `>=` not `===`: QPay invoices can be created with allow_exceed, and a
+   * customer who overpays has still paid. Refusing to settle an overpayment
+   * would strand a real order. Only fully PAID rows count toward it, and a
+   * refunded row never does, wherever it sits in the array.
    */
-  if (refundedRows.length > 0 && paidRows.length === 0) {
+  const paidAmount = sumMungu(paidRows.map((row) => fromQpayAmount(row.payment_amount)))
+  if (paidAmount >= expected) {
+    return {
+      outcome: 'paid',
+      paidAmount,
+      // The first PAID row is what goes in payments.payment_id, which
+      // carries the unique index that makes callback/reconcile races safe.
+      providerPaymentId: paidRows[0]!.payment_id,
+      raw: response,
+    }
+  }
+
+  /**
+   * Some money arrived, but not enough: a short PAID row, or a PARTIAL one.
+   * Underpaid, not unpaid: an unpaid order expires, and this one holds real
+   * money, so it stays pending for a person to settle or refund.
+   */
+  const receivedRows = [...paidRows, ...partialRows]
+  return {
+    outcome: 'underpaid',
+    paidAmount: sumMungu(receivedRows.map((row) => fromQpayAmount(row.payment_amount))),
+    providerPaymentId: receivedRows[0]!.payment_id,
+    raw: response,
+  }
+}
+
+/** A QPay check with no money standing: refunded if any row was, else unpaid. */
+function refundedOrUnpaid(
+  response: QpayPaymentCheckResponse,
+  refundedRows: QpayPaymentCheckResponse['rows'],
+): SettlementResult {
+  if (refundedRows.length > 0) {
     return {
       outcome: 'refunded',
       paidAmount: 0,
@@ -39,31 +75,7 @@ export function decideSettlement(
       raw: response,
     }
   }
-
-  if (paidRows.length === 0) {
-    return {
-      outcome: 'unpaid',
-      paidAmount: 0,
-      providerPaymentId: null,
-      raw: response,
-    }
-  }
-
-  /**
-   * `>=` not `===`: QPay invoices can be created with allow_exceed, and a
-   * customer who overpays has still paid. Refusing to settle an overpayment
-   * would strand a real order. Under-payment is the case that needs a human.
-   */
-  const outcome = paidAmount >= expected ? 'paid' : 'underpaid'
-
-  return {
-    outcome,
-    paidAmount,
-    // The first PAID row is what goes in payments.payment_id, which
-    // carries the unique index that makes callback/reconcile races safe.
-    providerPaymentId: paidRows[0]!.payment_id,
-    raw: response,
-  }
+  return { outcome: 'unpaid', paidAmount: 0, providerPaymentId: null, raw: response }
 }
 
 /**

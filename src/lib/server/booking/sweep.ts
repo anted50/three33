@@ -1,6 +1,7 @@
 import { and, eq, lt } from 'drizzle-orm'
 import { db } from '~/db'
 import { appointments } from '~/db/schema'
+import { assert } from '~/lib/assert'
 import { getQpayProvider } from '../payments/qpay'
 import { checkBookingFee } from './fee'
 
@@ -19,13 +20,14 @@ import { checkBookingFee } from './fee'
 const SWEEP_HOLDS_MAX = 200
 
 export async function sweepBooking() {
-  const tally = { holdsConfirmed: 0, holdsDeleted: 0, holdsKept: 0, errors: 0 }
+  const tally: Record<HoldOutcome | 'errors', number> = { holdsConfirmed: 0, holdsDeleted: 0, holdsKept: 0, errors: 0 }
 
   const expired = await db
     .select({ id: appointments.id, bookingNo: appointments.bookingNo, invoiceId: appointments.qpayInvoiceId })
     .from(appointments)
     .where(and(eq(appointments.status, 'pending'), lt(appointments.expiresAt, new Date())))
     .limit(SWEEP_HOLDS_MAX)
+  assert(expired.length <= SWEEP_HOLDS_MAX, 'the sweep query is limited')
 
   for (const hold of expired) {
     try {
@@ -35,15 +37,27 @@ export async function sweepBooking() {
       console.error(`booking sweep: hold ${hold.bookingNo}`, error)
     }
   }
+  assert(
+    tally.holdsConfirmed + tally.holdsDeleted + tally.holdsKept + tally.errors === expired.length,
+    'every hold is counted once',
+  )
   return tally
 }
 
-async function retireHold(hold: { id: string; invoiceId: string | null }) {
+type HoldOutcome = 'holdsConfirmed' | 'holdsDeleted' | 'holdsKept'
+
+async function retireHold(hold: { id: string; invoiceId: string | null }): Promise<HoldOutcome> {
   if (hold.invoiceId) {
     // Last look, unthrottled: clear the poll throttle first.
     await db.update(appointments).set({ lastCheckedAt: null }).where(eq(appointments.id, hold.id))
     const checked = await checkBookingFee(hold.id)
     if (checked.status === 'booked') return 'holdsConfirmed'
+    // Part of the fee arrived: deleting the hold would strand that money,
+    // so it stays, for a person to confirm or refund.
+    if (checked.outcome === 'underpaid') {
+      console.error(`booking sweep: hold ${hold.id} is UNDERPAID — needs a human`)
+      return 'holdsKept'
+    }
     try {
       await getQpayProvider().cancelInvoice(hold.invoiceId)
     } catch (error) {

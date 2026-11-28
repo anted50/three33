@@ -17,23 +17,35 @@ export interface HeldBooking {
   email?: string
 }
 
-const KEY = 'three33.booking'
+const STORAGE_KEY = 'three33.booking'
 
 export function rememberBooking(booking: HeldBooking): void {
   try {
-    localStorage.setItem(KEY, JSON.stringify(booking))
-  } catch {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(booking))
+  } catch (error) {
     // Not fatal: the link in the URL still works.
+    console.warn('Could not remember the booking in this browser', error)
   }
 }
 
 export function heldBooking(): HeldBooking | null {
+  let value: unknown
   try {
-    const raw = localStorage.getItem(KEY)
+    const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return null
-    const value = JSON.parse(raw)
-    return typeof value?.bookingNo === 'string' && typeof value?.token === 'string' ? value : null
+    value = JSON.parse(raw)
   } catch {
+    // Storage blocked, or a value no longer JSON: nothing remembered.
     return null
   }
+  return isHeldBooking(value) ? value : null
+}
+
+/** Storage is outside this code's control: check the shape before trusting it. */
+function isHeldBooking(value: unknown): value is HeldBooking {
+  if (typeof value !== 'object' || value === null) return false
+  const record = value as Record<string, unknown>
+  if (typeof record.bookingNo !== 'string') return false
+  if (typeof record.token !== 'string') return false
+  return record.email === undefined || typeof record.email === 'string'
 }

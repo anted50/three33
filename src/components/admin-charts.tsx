@@ -10,6 +10,8 @@
  * data yet, which for a shop that has not launched is the normal case.
  */
 
+import { assert } from '~/lib/assert'
+
 const ACCENT = 'var(--accent)'
 
 /**
@@ -19,9 +21,22 @@ const ACCENT = 'var(--accent)'
  */
 const SPARK_VIEWBOX_HEIGHT = 64
 
+/**
+ * The sparklines plot one value per day of the current month. The bound also
+ * keeps `Math.max(...values)` well inside the engine's argument limit.
+ */
+const SERIES_DAYS_MAX = 31
+
+/**
+ * Each donut slice is drawn 0.22 lighter than the one before it, so a fifth
+ * slice would come out at zero opacity: invisible, yet still taking its share.
+ */
+const DONUT_SLICES_MAX = 4
+
 /** Bar sparkline — daily revenue across the month. */
 export function BarSpark({ values }: { values: number[] }) {
   const height = SPARK_VIEWBOX_HEIGHT
+  assert(values.length <= SERIES_DAYS_MAX, 'BarSpark: more values than days in a month')
   if (!hasData(values)) return <ChartEmpty />
 
   const max = Math.max(...values, 1)
@@ -61,6 +76,7 @@ export function BarSpark({ values }: { values: number[] }) {
 /** Line sparkline — distinct customers per day. */
 export function LineSpark({ values }: { values: number[] }) {
   const height = SPARK_VIEWBOX_HEIGHT
+  assert(values.length <= SERIES_DAYS_MAX, 'LineSpark: more values than days in a month')
   if (!hasData(values)) return <ChartEmpty />
 
   const width = 100
@@ -103,7 +119,7 @@ export function LineSpark({ values }: { values: number[] }) {
 
 /** Progress toward the monthly order goal. */
 export function GoalBar({ value, goal }: { value: number; goal: number }) {
-  const pct = goal > 0 ? Math.min((value / goal) * 100, 100) : 0
+  const percent = goal > 0 ? Math.min((value / goal) * 100, 100) : 0
 
   return (
     <div
@@ -113,7 +129,7 @@ export function GoalBar({ value, goal }: { value: number; goal: number }) {
       aria-valuemin={0}
       aria-valuemax={goal}
     >
-      <div className="goal__fill" style={{ width: `${pct}%` }} />
+      <div className="goal__fill" style={{ width: `${percent}%` }} />
     </div>
   )
 }
@@ -135,7 +151,8 @@ export function Donut({
   slices: DonutSlice[]
   size?: number
 }) {
-  const total = slices.reduce((sum, s) => sum + s.value, 0)
+  assert(slices.length <= DONUT_SLICES_MAX, 'Donut: too many slices to tell apart')
+  const total = slices.reduce((sum, slice) => sum + slice.value, 0)
 
   if (total <= 0) {
     return (
@@ -159,9 +176,9 @@ export function Donut({
     >
       <circle cx="21" cy="21" r="15.9" fill="none" stroke="var(--border)" strokeWidth="5" />
       {slices.map((slice, index) => {
-        const pct = (slice.value / total) * CIRCUMFERENCE
-        const dash = `${pct} ${CIRCUMFERENCE - pct}`
-        const el = (
+        const percent = (slice.value / total) * CIRCUMFERENCE
+        const dash = `${percent} ${CIRCUMFERENCE - percent}`
+        const circle = (
           <circle
             key={slice.label}
             cx="21"
@@ -177,8 +194,8 @@ export function Donut({
             opacity={1 - index * 0.22}
           />
         )
-        offset -= pct
-        return el
+        offset -= percent
+        return circle
       })}
     </svg>
   )

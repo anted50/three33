@@ -18,10 +18,13 @@ export interface BookingEmail {
   footnote: string
 }
 
+/** Ulaanbaatar is UTC+8 all year; see booking/time.ts. */
+const UB_OFFSET_MS = 8 * 60 * 60 * 1000
+
 /** 2026.10.05 11:00 — Ulaanbaatar time. */
 export function localStamp(instant: Date): string {
-  const d = new Date(instant.getTime() + 8 * 3600e3).toISOString()
-  return `${d.slice(0, 4)}.${d.slice(5, 7)}.${d.slice(8, 10)} ${d.slice(11, 16)}`
+  const local = new Date(instant.getTime() + UB_OFFSET_MS).toISOString()
+  return `${local.slice(0, 4)}.${local.slice(5, 7)}.${local.slice(8, 10)} ${local.slice(11, 16)}`
 }
 
 /** 11:00 – 11:45, the local time span of a booking. */
@@ -43,14 +46,14 @@ const SANS = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial
 const MAX_WIDTH = 460
 
 export function render({ heading, headline, rows, footnote }: BookingEmail) {
-  const text = [heading, '', headline, '', ...rows.map(([k, v]) => `${k}: ${v}`), '', footnote].join('\n')
+  const text = [heading, '', headline, '', ...rows.map(([label, value]) => `${label}: ${value}`), '', footnote].join('\n')
 
   const tableRows = rows
     .map(
-      ([k, v]) => `
+      ([label, value]) => `
         <tr>
-          <td class="soft" style="padding:8px 0;border-bottom:1px solid ${RULE};font-size:13px;color:${INK_SOFT}">${escapeHtml(k)}</td>
-          <td class="keepink" style="padding:8px 0;border-bottom:1px solid ${RULE};font-size:13px;color:${INK};text-align:right">${escapeHtml(v)}</td>
+          <td class="soft" style="padding:8px 0;border-bottom:1px solid ${RULE};font-size:13px;color:${INK_SOFT}">${escapeHtml(label)}</td>
+          <td class="keepink" style="padding:8px 0;border-bottom:1px solid ${RULE};font-size:13px;color:${INK};text-align:right">${escapeHtml(value)}</td>
         </tr>`,
     )
     .join('')
